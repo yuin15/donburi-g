@@ -1,6 +1,7 @@
 export type Side = 'player' | 'rival';
 export type UpgradeId = 'steady' | 'jackpot';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
+export type UpgradeOfferIndex = 0 | 1;
 
 export interface SpinView {
   round: number;
@@ -24,7 +25,7 @@ export interface MatchSnapshot {
 
 export type ClientMessage =
   | { type: 'start' }
-  | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: number }
+  | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex }
   | { type: 'mic'; audio: string }
   | { type: 'snapshot' }
   | { type: 'close' };
@@ -35,8 +36,8 @@ export type ServerMessage =
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
   | { type: 'snapshot'; snapshot: MatchSnapshot }
   | { type: 'spin'; player: SpinView; rival: SpinView }
-  | { type: 'upgrade_offer'; offerIndex: number; closesAtElapsed: number }
-  | { type: 'upgrade_applied'; offerIndex: number; player: UpgradeId; rival: UpgradeId }
+  | { type: 'upgrade_offer'; offerIndex: UpgradeOfferIndex; closesAtElapsed: number }
+  | { type: 'upgrade_applied'; offerIndex: UpgradeOfferIndex; player: UpgradeId; rival: UpgradeId }
   | { type: 'rival_line'; text: string; reason: string }
   | { type: 'transcript'; role: 'user' | 'assistant'; delta: string }
   | { type: 'match_ended'; snapshot: MatchSnapshot }
