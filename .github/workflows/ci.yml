@@ -8,6 +8,15 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: [16379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 5
+    env:
+      REDIS_TEST_PORT: 16379
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,11 +28,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE '(sk-[A-Za-z0-9_-]{32,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|LIVEAVATAR_API_KEY=[^[:space:]]+|OPENAI_API_KEY=[^[:space:]]+)' -- ':!*.md' ':!.env.example' ':!.github/workflows/ci.yml'; then
+          if git grep -qE '(sk-[A-Za-z0-9_-]{32,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|LIVEAVATAR_API_KEY=[^[:space:]]+|OPENAI_API_KEY=[^[:space:]]+)' -- ':!*.md' ':!.env.example' ':!.github/workflows/ci.yml'; then
             echo 'Potential secret found in tracked source.' >&2
             exit 1
           fi
-      - run: npm install
+      - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
