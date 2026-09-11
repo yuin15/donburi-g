@@ -264,7 +264,7 @@ export class MatchSession {
   }
 
   private emit(message: ServerMessage): void {
-    if (this.frontend.readyState !== this.frontend.OPEN) return;
+    if (this.frontend.readyState !== 1) return;
     this.frontend.send(JSON.stringify(message));
   }
 }
