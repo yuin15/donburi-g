@@ -11,6 +11,13 @@ This is a **public repository**. Treat every committed file as immediately publi
 - cloud/service-account credential files
 - `.env`, `.dev.vars`, or similar local secret files
 - production configuration containing credentials
+- personal email addresses or other private contact details, including screenshots and logs
+
+## Commit and review privacy
+
+Use a GitHub-provided `noreply` address for both commit author and committer metadata. Configure it locally for this repository before committing; never put a personal address in repository files or commit messages.
+
+Keep changes small and push reviewed commits regularly. Before each push, check the staged content and commit metadata for credentials and personal contact details. Apply the same check to pull request descriptions and attached evidence. Report credential setup status without printing the values.
 
 ## How to handle secrets
 
