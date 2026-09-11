@@ -86,7 +86,6 @@ export class LiveClient extends EventTarget {
   constructor(private readonly videoElement: HTMLVideoElement) {
     super();
     this.audioElement.autoplay = true;
-    this.audioElement.playsInline = true;
   }
 
   async connect(inviteCode: string): Promise<void> {
@@ -111,22 +110,6 @@ export class LiveClient extends EventTarget {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`);
     this.ws = ws;
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('socket_timeout')), 12_000);
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        this.connected = true;
-        void this.mic.start((audio) => this.send({ type: 'mic', audio }));
-        resolve();
-      };
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error('socket_error'));
-      };
-    }).catch(async (error) => {
-      await this.disconnect();
-      throw error;
-    });
 
     ws.onmessage = (event) => {
       let message: ServerMessage;
@@ -144,6 +127,23 @@ export class LiveClient extends EventTarget {
       void this.mic.stop();
       void this.detachAvatar();
     };
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('socket_timeout')), 12_000);
+      ws.onopen = () => {
+        clearTimeout(timeout);
+        this.connected = true;
+        void this.mic.start((audio) => this.send({ type: 'mic', audio }));
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error('socket_error'));
+      };
+    }).catch(async (error) => {
+      await this.disconnect();
+      throw error;
+    });
   }
 
   send(message: ClientMessage): void {
