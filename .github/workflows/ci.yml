@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE '(sk-[A-Za-z0-9_-]{32,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|LIVEAVATAR_API_KEY=[^[:space:]]+|OPENAI_API_KEY=[^[:space:]]+)' -- ':!*.md' ':!.env.example'; then
+          if git grep -nE '(sk-[A-Za-z0-9_-]{32,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|LIVEAVATAR_API_KEY=[^[:space:]]+|OPENAI_API_KEY=[^[:space:]]+)' -- ':!*.md' ':!.env.example' ':!.github/workflows/ci.yml'; then
             echo 'Potential secret found in tracked source.' >&2
             exit 1
           fi
