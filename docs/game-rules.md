@@ -1,0 +1,38 @@
+# Game rules
+
+## Match
+
+- 1 player vs 1 AI rival.
+- 60 seconds.
+- Both sides complete one spin every 2 seconds: 30 spins each.
+- Three reels, one center payline.
+- Symbols: cherry, bell, seven.
+- Three identical symbols pay: cherry 120, bell 240, seven 1200.
+- No wager is deducted. Final cumulative coin total determines the winner; equal totals are a draw.
+
+## Upgrade boundaries
+
+Upgrade windows open at elapsed 20s and 40s. They close at 24s and 44s.
+
+Boundary ordering is deterministic:
+
+1. Complete the spin whose completion time is the boundary.
+2. Open or close/apply the upgrade window for that boundary.
+3. Subsequent spins use the updated reel pool.
+
+Therefore the spin completing at 24s uses the pre-upgrade pool; the next spin uses the newly applied pool.
+
+Unselected or timed-out upgrades default to `steady`.
+
+- `steady`: add two cherries to that side's reel pool.
+- `jackpot`: add two sevens to that side's reel pool.
+
+Both sides have the same legal choices and number of upgrades. The rival does not receive the player's current pending choice, RNG state, or future results.
+
+## Determinism and authority
+
+Live mode creates its random seed on the server. Player and rival use separate deterministic RNG states derived from that seed. The seed and pools are not sent to the browser.
+
+The browser submits only player intent (`start`, `upgrade`, mic audio, snapshot request, close). It cannot submit scores, outcomes, remaining time, or rival changes.
+
+`advanceMatch` catches up all missed boundaries if a timer is delayed, preventing browser backgrounding or event-loop stalls from dropping or duplicating spins.
