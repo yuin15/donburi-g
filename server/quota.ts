@@ -30,8 +30,8 @@ export async function claimQuota(sessionId: string): Promise<() => Promise<void>
   const concurrentKey = 'reelforge:concurrent';
   const leaseKey = `reelforge:lease:${sessionId}`;
 
-  const already = await command<number>(['SET', leaseKey, '1', 'NX', 'EX', 180]);
-  if (already === null) throw new Error('ticket_reused');
+  const lease = await command<string | null>(['SET', leaseKey, '1', 'NX', 'EX', 180]);
+  if (lease === null) throw new Error('ticket_reused');
 
   const daily = Number(await command<number>(['INCR', dailyKey]));
   if (daily === 1) await command<number>(['EXPIRE', dailyKey, 172800]);
