@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import type { ClientMessage, ServerMessage, UpgradeId } from '../shared/protocol';
+import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import {
   abortMatch,
   advanceMatch,
