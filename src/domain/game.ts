@@ -197,7 +197,7 @@ export function advanceMatch(state: MatchState, elapsedSeconds: number): GameEve
   for (let second = state.processedSecond + 1; second <= wholeTarget; second += 1) {
     processSecond(state, second, events);
     state.processedSecond = second;
-    if (state.status === 'result') break;
+    if (second === MATCH_SECONDS) break;
   }
   state.elapsed = Math.min(target, MATCH_SECONDS);
   state.remaining = Math.max(0, MATCH_SECONDS - state.elapsed);
