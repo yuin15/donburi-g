@@ -46,12 +46,13 @@ export function issueTicket(inviteCode: string, origin: string): string {
 }
 
 export function verifyTicket(ticket: string, origin: string): TicketPayload {
+  if (!env.liveEnabled) throw new Error('live_mode_disabled');
   const [encoded, signature, extra] = ticket.split('.');
   if (!encoded || !signature || extra) throw new Error('invalid_ticket');
   if (!safeEqual(signature, sign(encoded))) throw new Error('invalid_ticket_signature');
   const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as TicketPayload;
   if (!payload.sid || !payload.nonce || !payload.origin || !payload.exp) throw new Error('invalid_ticket_payload');
-  if (payload.exp < Date.now()) throw new Error('expired_ticket');
+  if (payload.exp <= Date.now()) throw new Error('expired_ticket');
   if (payload.origin !== origin) throw new Error('ticket_origin_mismatch');
   return payload;
 }

@@ -28,6 +28,7 @@ export const env = {
 };
 
 export function assertLiveConfiguration(): void {
+  if (!env.liveEnabled) throw new Error('live_mode_disabled');
   const missing: string[] = [];
   if (!env.openaiKey) missing.push('OPENAI_API_KEY');
   if (!env.liveAvatarKey) missing.push('LIVEAVATAR_API_KEY');

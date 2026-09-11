@@ -18,6 +18,9 @@ describe('authoritative match domain', () => {
     expect(state.remaining).toBe(0);
     expect(events.filter((event) => event.type === 'spin')).toHaveLength(30);
     expect(events.filter((event) => event.type === 'match_end')).toHaveLength(1);
+    const ended = events.find((event) => event.type === 'match_end');
+    expect(ended?.snapshot).toMatchObject({ elapsed: 60, remaining: 0, round: 30, status: 'result' });
+    expect(ended?.snapshot).toEqual(getSnapshot(state));
   });
 
   it('is deterministic for the same seed', () => {

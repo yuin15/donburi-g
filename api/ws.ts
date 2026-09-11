@@ -31,6 +31,11 @@ wss.on('connection', (ws, request) => {
       const ticket = url.searchParams.get('ticket') ?? '';
       const payload = verifyTicket(ticket, origin);
       const releaseQuota = await claimQuota(payload.sid);
+      // A socket may close while the shared store is allocating its lease.
+      if (ws.readyState !== WebSocket.OPEN) {
+        await releaseQuota();
+        return;
+      }
       session = new MatchSession(ws, payload.sid, releaseQuota);
       ws.on('message', (raw) => session?.handleRaw(raw.toString()));
       ws.on('close', () => void session?.shutdown('socket_closed'));

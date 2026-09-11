@@ -46,6 +46,8 @@ export class MatchSession {
   private gpt: GptLiveBridge | null = null;
   private voiceReady = false;
   private closed = false;
+  private initialization: Promise<void> | null = null;
+  private stopping: Promise<void> | null = null;
   private recentUserText = '';
   private releaseQuota: (() => Promise<void>) | null;
 
@@ -59,38 +61,51 @@ export class MatchSession {
     this.releaseQuota = releaseQuota;
   }
 
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+    this.initialization ??= this.initializeProviders();
+    return this.initialization;
+  }
+
+  private async initializeProviders(): Promise<void> {
     this.emit({ type: 'hello', live: true, sessionId: this.sessionId });
     this.emit({ type: 'voice_status', status: 'connecting' });
     this.hardStop = setTimeout(() => void this.shutdown('max_duration'), MAX_SESSION_MS);
     try {
       this.avatar = await startAvatarSession();
+      if (this.closed) return;
       this.emit({
         type: 'avatar',
         livekitUrl: this.avatar.livekitUrl,
         livekitToken: this.avatar.livekitToken,
       });
-      this.media = new MediaServerLeg(this.avatar.mediaWsUrl);
+      this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice());
       if (!(await this.media.start())) throw new Error('media_not_ready');
+      if (this.closed) return;
       this.gpt = new GptLiveBridge({
         onReady: () => {
+          if (this.closed) return;
           this.voiceReady = true;
           this.emit({ type: 'voice_status', status: 'ready' });
         },
         onAudio: (audio) => this.media?.speak(audio),
         onTranscript: (role, delta) => {
+          if (this.closed) return;
           if (role === 'user') this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.emit({ type: 'transcript', role, delta });
         },
         onUserSpeech: () => this.media?.interrupt(),
-        onError: () => this.emitSafeError('voice_error', '会話接続でエラーが発生しました。ゲームは停止します。', false),
+        onError: () => this.failVoice(),
       });
       if (!(await this.gpt.connect())) throw new Error('gpt_not_ready');
+      if (this.closed) return;
       this.pushContext('対戦開始前');
     } catch {
+      if (this.closed) return;
       this.emit({ type: 'voice_status', status: 'error', message: 'AIキャラクターへ接続できませんでした。' });
       this.emitSafeError('live_connect_failed', 'AIキャラクターへ接続できませんでした。練習モードを利用してください。', false);
-      await this.shutdown('initialize_failed');
+      // Do not await shutdown here: shutdown waits for initialization to settle.
+      void this.shutdown('initialize_failed');
     }
   }
 
@@ -111,20 +126,36 @@ export class MatchSession {
     this.handle(result.data as ClientMessage);
   }
 
-  async shutdown(reason: string): Promise<void> {
-    if (this.closed) return;
+  shutdown(reason: string): Promise<void> {
+    if (this.stopping) return this.stopping;
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     if (this.hardStop) clearTimeout(this.hardStop);
     if (this.resultStop) clearTimeout(this.resultStop);
     if (this.state.status !== 'result') abortMatch(this.state);
     this.voiceReady = false;
-    this.emit({ type: 'voice_status', status: 'closed', message: reason });
-    await this.gpt?.close().catch(() => undefined);
     this.media?.close();
-    if (this.avatar) await stopAvatarSession(this.avatar.sessionId).catch(() => undefined);
-    if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
-    this.releaseQuota = null;
+    const closeGpt = this.gpt?.close().catch(() => undefined);
+    this.stopping = (async () => {
+      await closeGpt;
+      // A provider can finish creating a session after the browser leaves.
+      // Wait for ownership of that session before releasing the quota lease.
+      await this.initialization;
+      if (this.avatar) await stopAvatarSession(this.avatar.sessionId).catch(() => undefined);
+      this.avatar = null;
+      if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
+      this.releaseQuota = null;
+      this.recentUserText = '';
+      this.emit({ type: 'voice_status', status: 'closed', message: reason });
+      if (this.frontend.readyState === 1) this.frontend.close(1000, 'session_closed');
+    })();
+    return this.stopping;
+  }
+
+  private failVoice(): void {
+    if (this.closed) return;
+    this.emitSafeError('voice_error', '会話接続が切れたため対戦を終了しました。もう一度接続してください。', false);
+    void this.shutdown('voice_error');
   }
 
   private handle(message: ClientMessage): void {
@@ -219,7 +250,7 @@ export class MatchSession {
           : '引き分け。再戦したくなる一言。';
       this.gpt?.requestReaction(direction);
       if (this.timer) clearInterval(this.timer);
-      this.resultStop = setTimeout(() => void this.stopVoiceAfterResult(), RESULT_REACTION_MS);
+      this.resultStop = setTimeout(() => void this.shutdown('result_complete'), RESULT_REACTION_MS);
     }
   }
 
@@ -243,15 +274,6 @@ export class MatchSession {
     this.gpt?.updateGameContext(
       `ゲーム確定情報(${reason}): 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}],状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。`,
     );
-  }
-
-  private async stopVoiceAfterResult(): Promise<void> {
-    this.voiceReady = false;
-    await this.gpt?.close().catch(() => undefined);
-    this.media?.close();
-    if (this.avatar) await stopAvatarSession(this.avatar.sessionId).catch(() => undefined);
-    this.avatar = null;
-    this.emit({ type: 'voice_status', status: 'closed', message: 'result_complete' });
   }
 
   private emitSnapshot(): void {
