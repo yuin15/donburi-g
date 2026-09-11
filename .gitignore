@@ -1,0 +1,59 @@
+# Dependencies / build outputs
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+
+# Environment variables / local secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+.envrc
+.direnv/
+
+# Credentials / service accounts
+credentials.json
+credentials*.json
+service-account*.json
+service_account*.json
+secrets/
+private/
+
+# Private keys / certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.cer
+*.crt
+
+# Provider / CLI local state
+.wrangler/
+.vercel/
+.netlify/
+.firebase/
+
+# Package manager auth
+.npmrc
+.yarnrc
+.yarnrc.yml
+.pypirc
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
