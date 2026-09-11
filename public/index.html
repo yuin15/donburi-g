@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#17152d" />
+    <meta
+      name="description"
+      content="GPT-Liveとリアルタイムに会話できるAI-Tuberデモ"
+    />
+    <title>Donburi Live — GPT-Live AI-Tuber</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/vendor/liveavatar.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <main class="stage">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Donburi Live ホーム">
+          <span class="brand-mark" aria-hidden="true">ど</span>
+          <span>
+            <strong>DONBURI LIVE</strong>
+            <small>GPT-Live AI-Tuber demo</small>
+          </span>
+        </a>
+        <div class="live-badge" id="live-badge">
+          <span aria-hidden="true"></span>
+          <span id="live-label">OFF AIR</span>
+        </div>
+      </header>
+
+      <section class="hero" aria-labelledby="page-title">
+        <div class="intro">
+          <p class="eyebrow">FULL-DUPLEX VOICE EXPERIENCE</p>
+          <h1 id="page-title">話しかけると、<br /><em>すぐに返事。</em></h1>
+          <p class="lede">
+            どんぶりちゃんは、話している途中でもあなたの声を聞けるAI-Tuber。<br />
+            マイクをつないで、自然な会話を始めよう。
+          </p>
+
+          <div class="controls">
+            <button class="primary-button" id="start-button" type="button">
+              <span class="button-icon" aria-hidden="true">●</span>
+              <span>ライブをはじめる</span>
+            </button>
+            <button class="icon-button" id="mute-button" type="button" disabled>
+              <span aria-hidden="true">🎙</span>
+              <span id="mute-label">マイク ON</span>
+            </button>
+          </div>
+
+          <p class="status" id="status" role="status" aria-live="polite">
+            準備OK。開始するとマイクの許可を求めます。
+          </p>
+        </div>
+
+        <div class="character-zone" aria-label="AI-Tuber どんぶりちゃん">
+          <video
+            class="avatar-video"
+            id="avatar-video"
+            autoplay
+            playsinline
+            aria-label="HeyGen LiveAvatar"
+          ></video>
+          <div class="avatar-loading" id="avatar-loading" hidden>
+            <span></span> LIVEAVATAR CONNECTING
+          </div>
+          <div class="orb orb-one"></div>
+          <div class="orb orb-two"></div>
+          <div class="signal signal-one"></div>
+          <div class="signal signal-two"></div>
+          <div class="character" id="character" aria-hidden="true">
+            <div class="hair-back"></div>
+            <div class="ear ear-left"></div>
+            <div class="ear ear-right"></div>
+            <div class="face">
+              <div class="fringe fringe-left"></div>
+              <div class="fringe fringe-right"></div>
+              <div class="brow brow-left"></div>
+              <div class="brow brow-right"></div>
+              <div class="eye eye-left"><i></i></div>
+              <div class="eye eye-right"><i></i></div>
+              <div class="nose"></div>
+              <div class="mouth" id="mouth"></div>
+              <div class="blush blush-left"></div>
+              <div class="blush blush-right"></div>
+            </div>
+            <div class="neck"></div>
+            <div class="body"><div class="collar"></div></div>
+          </div>
+          <div class="name-card">
+            <span>AI-TUBER</span>
+            <strong>どんぶりちゃん</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="captions" aria-labelledby="captions-title">
+        <div class="captions-heading">
+          <div>
+            <p class="eyebrow">LIVE CAPTIONS</p>
+            <h2 id="captions-title">会話ログ</h2>
+          </div>
+          <button class="text-button" id="clear-button" type="button">クリア</button>
+        </div>
+        <div class="caption-list" id="caption-list" aria-live="polite">
+          <div class="empty-state" id="empty-state">
+            <span aria-hidden="true">✦</span>
+            <p>会話を始めると、ここに字幕が表示されます。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <audio id="remote-audio" autoplay></audio>
+    <noscript>このデモを利用するにはJavaScriptを有効にしてください。</noscript>
+  </body>
+</html>
