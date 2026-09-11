@@ -135,13 +135,11 @@ export class GptLiveBridge {
   }
 
   private watchInterrupt(): void {
-    this.events.onUserSpeech();
     if (this.interruptTimer) return;
     this.interruptTimer = setTimeout(() => {
       this.interruptTimer = null;
-      if (Date.now() - this.lastAudioAt >= 350 && Date.now() - this.lastAudioAt <= 6000) {
-        this.events.onUserSpeech();
-      }
+      const quietFor = Date.now() - this.lastAudioAt;
+      if (quietFor >= 350 && quietFor <= 6000) this.events.onUserSpeech();
     }, 600);
   }
 
