@@ -5,6 +5,7 @@ export type UpgradeOfferIndex = 0 | 1;
 
 export const MATCH_SECONDS = 60;
 export const MANUAL_SPIN_INTERVAL = 1.1;
+export const RIVAL_SPIN_INTERVAL = 2;
 export const MAX_MATCH_ROUNDS = Math.ceil(MATCH_SECONDS / MANUAL_SPIN_INTERVAL);
 
 export type SideStats = {
@@ -29,6 +30,7 @@ export interface MatchSnapshot {
   elapsed: number;
   remaining: number;
   round: number;
+  rounds: Record<Side, number>;
   scores: Record<Side, number>;
   stats: MatchStats;
   upgrades: Record<Side, UpgradeId[]>;
@@ -49,8 +51,9 @@ export type ServerMessage =
   | { type: 'hello'; live: true; sessionId: string }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
-  | { type: 'snapshot'; snapshot: MatchSnapshot; lastSpin?: { player: SpinView; rival: SpinView } }
+  | { type: 'snapshot'; snapshot: MatchSnapshot; lastSpin?: { player: SpinView; rival: SpinView }; lastSpins?: Partial<Record<Side, SpinView>> }
   | { type: 'spin'; player: SpinView; rival: SpinView }
+  | { type: 'side_spin'; spin: SpinView }
   | { type: 'spin_status'; commandId: string; accepted: boolean; retryAfterMs: number }
   | { type: 'upgrade_offer'; offerIndex: UpgradeOfferIndex; closesAtElapsed: number }
   | { type: 'upgrade_applied'; offerIndex: UpgradeOfferIndex; player: UpgradeId; rival: UpgradeId }

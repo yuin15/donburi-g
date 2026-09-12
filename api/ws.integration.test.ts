@@ -138,19 +138,13 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
     if (second === 20 || second === 40) {
       const index = second === 20 ? 0 : 1;
       wire.send({ type: 'snapshot' });
-      await wire.waitFor(message => message.type === 'upgrade_offer' && message.offerIndex === index);
       wire.send({ type: 'upgrade', matchId: 'ws-integration-match', commandId: `choice-${index}`, offerIndex: index, upgradeId: index === 0 ? 'jackpot' : 'steady' });
       await wire.barrier();
     }
     const commandId = `manual-${second}`;
     wire.send({ type: 'spin', matchId: 'ws-integration-match', commandId });
     await wire.waitFor(message => message.type === 'spin_status' && message.commandId === commandId && message.accepted);
-    await wire.waitFor(message => message.type === 'spin' && message.player.round === second / 2 + 1);
-    if (second === 24 || second === 44) {
-      const index = second === 24 ? 0 : 1;
-      const applied = await wire.waitFor(message => message.type === 'upgrade_applied' && message.offerIndex === index);
-      expect(applied).toMatchObject({ player: index === 0 ? 'jackpot' : 'steady' });
-    }
+    await wire.waitFor(message => message.type === 'side_spin' && message.spin.side === 'player' && message.spin.round === second / 2 + 1);
     if (second === 24 && voice === 'closed') {
       wire.send({ type: 'voice_close' });
       await wire.waitFor(message => message.type === 'voice_status' && message.status === 'error');
@@ -164,9 +158,9 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   wire.send({ type: 'snapshot' });
   const ended = await wire.waitFor(message => message.type === 'match_ended');
   if (ended.type !== 'match_ended') throw new Error('missing_result');
-  expect(ended.snapshot).toMatchObject({ status: 'result', round: 30, elapsed: 60, remaining: 0, upgrades: { player: ['jackpot', 'steady'] } });
-  if (voice === 'connected') expect(ended.snapshot.upgrades.rival).toEqual(['steady', 'jackpot']);
-  expect(provider.brain).toHaveBeenCalledTimes(voice === 'connected' ? 2 : 1);
+  expect(ended.snapshot).toMatchObject({ status: 'result', rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, upgrades: { player: [], rival: [] } });
+  expect(wire.messages.some(message => message.type === 'upgrade_offer' || message.type === 'upgrade_applied')).toBe(false);
+  expect(provider.brain).not.toHaveBeenCalled();
   expect(provider.release).not.toHaveBeenCalled();
 
   await wire.barrier();
@@ -216,10 +210,10 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
     expect(matchVoice.sendMic).toHaveBeenCalledExactlyOnceWith('AQIDBA==');
   }
 
-  const spins = wire.messages.filter(message => message.type === 'spin');
-  expect(spins.map(message => message.player.round)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+  const spins = wire.messages.filter(message => message.type === 'side_spin').map(message => message.spin);
   for (const side of ['player', 'rival'] as const) {
-    const history = spins.map(message => message[side]);
+    const history = spins.filter(spin => spin.side === side);
+    expect(history.map(spin => spin.round)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
     let total = 0;
     for (const spin of history) {
       total += spin.payout;
@@ -238,7 +232,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   const beforeRequest = wire.messages.at(-1)!.streamSeq;
   wire.send({ type: 'snapshot' });
   const recovery = await wire.waitFor(message => message.type === 'snapshot', beforeRequest);
-  expect(recovery).toMatchObject({ snapshot: ended.snapshot, lastSpin: { player: spins[29].player, rival: spins[29].rival } });
+  expect(recovery).toMatchObject({ snapshot: ended.snapshot, lastSpins: { player: spins.filter(spin => spin.side === 'player').at(-1), rival: spins.filter(spin => spin.side === 'rival').at(-1) } });
   const closed = once(wire.client, 'close', { signal: AbortSignal.timeout(2000) });
   wire.send({ type: 'close' });
   const [code] = await closed;

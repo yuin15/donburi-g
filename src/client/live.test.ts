@@ -81,7 +81,7 @@ async function socket() {
 
 function resultSnapshot() {
   return {
-    matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0,
+    matchId: 'test-match', status: 'result', round: 30, rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0,
     scores: { player: 1200, rival: 0 },
     stats: {
       player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 1200 } },
@@ -251,7 +251,7 @@ describe('browser live connection lifecycle', () => {
     const spinId = instance.sendSpin();
     expect(spinId).toBeDefined();
     expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'spin', commandId: spinId, matchId: 'test-match' });
-    const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 0, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
+    const snapshot = { matchId: 'test-match', status: 'result', round: 30, rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, scores: { player: 0, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
     ws.message({ type: 'match_ended', snapshot });
     expect(received).toContainEqual({ type: 'match_ended', snapshot });
     await instance.disconnect();

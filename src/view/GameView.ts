@@ -1,6 +1,5 @@
-import type { MatchSnapshot, SpinView, UpgradeId } from '../../shared/protocol';
-import { PAYOUT, UPGRADE_DEFINITIONS } from '../domain/game';
-import { describePool } from '../domain/upgradePreview';
+import type { MatchSnapshot, SpinView } from '../../shared/protocol';
+import { PAYOUT } from '../domain/game';
 import type { GameCommands, GamePresentation, GameSound, GameViewState } from '../viewmodel/GameViewState';
 import { GameAudio } from './GameAudio';
 import { mountGameTemplate } from './GameTemplate';
@@ -15,8 +14,6 @@ export class GameView implements GamePresentation {
   private readonly elements = new Map<string, HTMLElement>();
   private events = new AbortController();
   private current: GameViewState | null = null;
-  private beforeUpgradeFocus: HTMLElement | null = null;
-  private oddsKey = '';
   private resultKey = '';
   private disposed = false;
 
@@ -67,12 +64,6 @@ export class GameView implements GamePresentation {
     this.q('#leave').addEventListener('click', () => commands.leave(), options);
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
     this.q('#effects').addEventListener('click', () => { unlock(); commands.toggleEffectsMuted(); }, options);
-    this.q('#upgrade').addEventListener('click', event => {
-      const button = (event.target as Element).closest<HTMLButtonElement>('button[data-up]');
-      if (!button || button.disabled) return;
-      unlock();
-      commands.chooseUpgrade(button.dataset.up as UpgradeId);
-    }, options);
     addEventListener('keydown', event => {
       const state = this.current;
       if (!state || state.gate.visible) return;
@@ -88,11 +79,6 @@ export class GameView implements GamePresentation {
         if (!event.repeat) { unlock(); commands.requestSpin(); }
         return;
       }
-      if (state.upgrade?.phase !== 'open' || (event.key !== '1' && event.key !== '2')) return;
-      if (event.target instanceof Element && event.target.closest('input,textarea,select')) return;
-      if (state.upgrade.choice) return;
-      unlock();
-      commands.chooseUpgrade(event.key === '1' ? 'steady' : 'jackpot');
     }, options);
     document.addEventListener('visibilitychange', () => commands.visibilityChanged(), options);
   }
@@ -136,14 +122,10 @@ export class GameView implements GamePresentation {
     this.text('#line', state.line);
     this.text('#heard', state.heard);
     this.text('#machineTrim', state.machineNotice);
-    this.text('#upgradeProgress', state.upgradeProgress);
-    this.renderBuild('player', snapshot.upgrades.player);
-    this.renderBuild('rival', snapshot.upgrades.rival);
-    this.text('#rivalUpgradeNote', state.rivalUpgradeNotice);
-    this.q('#rivalUpgradeNote').hidden = !state.rivalUpgradeNotice;
-    this.q('#rivalBuild').hidden = Boolean(state.rivalUpgradeNotice);
-    this.text('#lastSpin', state.lastSpin ? this.glyphs(state.lastSpin.player) : 'チェリー・ベル・7');
-    this.text('#rivalReels', state.lastSpin ? this.glyphs(state.lastSpin.rival) : 'チェリー・ベル・7');
+    this.text('#roundCount', String(snapshot.rounds.player).padStart(2, '0'));
+    this.text('#rivalRoundCount', String(snapshot.rounds.rival).padStart(2, '0'));
+    this.text('#lastSpin', state.lastSpin?.player ? this.glyphs(state.lastSpin.player) : 'チェリー・ベル・7');
+    this.text('#rivalReels', state.lastSpin?.rival ? this.glyphs(state.lastSpin.rival) : 'チェリー・ベル・7');
 
     this.text('#pay', state.payout?.player ? `+${state.payout.player.toLocaleString()}` : '');
     this.q('#pay').dataset.jackpot = String((state.payout?.player ?? 0) >= PAYOUT.seven);
@@ -161,7 +143,6 @@ export class GameView implements GamePresentation {
     if (state.startControl.spinState) start.dataset.spin = state.startControl.spinState;
     else delete start.dataset.spin;
     this.text('#spinHint', state.startControl.hint);
-    this.renderUpgrade(state, previous);
     this.renderResult(state.result);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
@@ -176,87 +157,6 @@ export class GameView implements GamePresentation {
     return spin.symbols.map(symbol => glyph[symbol]).join('　');
   }
 
-  private renderBuild(side: 'player' | 'rival', upgrades: readonly UpgradeId[]): void {
-    const row = this.q('#' + side + 'BuildRow');
-    const key = upgrades.join(',');
-    if (row.dataset.build === key) return;
-    row.dataset.build = key;
-    row.dataset.upgraded = String(upgrades.length);
-    this.text('#' + side + 'Build', upgrades.length ? upgrades.map(id => UPGRADE_DEFINITIONS[id].label).join(' / ') : '基本リール');
-    const { counts, total } = describePool(upgrades);
-    const strip = this.q('#' + side + 'Strip');
-    strip.setAttribute('aria-label', `絵柄${total}枚：チェリー${counts.cherry}枚、ベル${counts.bell}枚、7が${counts.seven}枚`);
-    strip.replaceChildren();
-    for (const symbol of ['cherry', 'bell', 'seven'] as const) {
-      const segment = document.createElement('span');
-      segment.className = 'build-segment ' + symbol;
-      segment.style.flexGrow = String(counts[symbol]);
-      segment.setAttribute('aria-hidden', 'true');
-      const icon = document.createElement('i');
-      icon.className = 'symbol-icon ' + symbol;
-      const count = document.createElement('b');
-      count.textContent = String(counts[symbol]);
-      segment.append(icon, count);
-      strip.append(segment);
-    }
-  }
-
-  private renderUpgrade(state: GameViewState, previous: GameViewState | null): void {
-    const panel = this.q('#upgrade');
-    const upgrade = state.upgrade;
-    if (!upgrade) {
-      const restore = panel.contains(document.activeElement);
-      panel.hidden = true;
-      this.q('.shell').dataset.upgrading = 'false';
-      this.oddsKey = '';
-      if (restore) {
-        const before = this.beforeUpgradeFocus;
-        if (before?.isConnected && !before.matches(':disabled') && !before.closest('[inert], [hidden]')) before.focus();
-        else this.focus('start');
-      }
-      this.beforeUpgradeFocus = null;
-      return;
-    }
-    if (upgrade.phase === 'open' && (previous?.upgrade?.phase !== 'open' || previous.upgrade.index !== upgrade.index)) {
-      this.beforeUpgradeFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    }
-    panel.hidden = false;
-    panel.dataset.phase = upgrade.phase;
-    this.q('.shell').dataset.upgrading = 'true';
-    this.text('#upgradeTitle', upgrade.phase === 'preview' ? '改造プレビュー' : 'リール改造');
-    this.text('#upgradeNo', `UPGRADE ${upgrade.index + 1} / 2`);
-    this.text('#upgradeChoice', upgrade.choiceText);
-    this.text('#upgradeRemain', upgrade.phase === 'preview' ? `選択まで ${Math.ceil(upgrade.remainingSeconds)}秒` : `残り ${Math.max(0, upgrade.remainingSeconds).toFixed(1)}秒`);
-    this.q('#upgradeClockFill').style.transform = `scaleX(${Math.max(0, Math.min(1, upgrade.progress))})`;
-    panel.querySelectorAll<HTMLButtonElement>('button[data-up]').forEach(button => {
-      button.disabled = upgrade.phase === 'preview' || upgrade.choice !== null;
-      button.setAttribute('aria-pressed', String(upgrade.choice === button.dataset.up));
-    });
-    const key = JSON.stringify(upgrade.options);
-    if (key !== this.oddsKey) {
-      this.oddsKey = key;
-      const percent = (value: number) => `${(value * 100).toFixed(1)}%`;
-      for (const id of ['steady', 'jackpot'] as const) {
-        const { before, after } = upgrade.options[id];
-        const odds = this.q('#' + id + 'Odds');
-        odds.replaceChildren();
-        for (const [label, from, to] of [['当たり率', before.hitChance, after.hitChance], ['7揃い', before.sevenChance, after.sevenChance]] as const) {
-          const row = document.createElement('span');
-          row.dataset.featured = String(id === 'steady' ? label === '当たり率' : label === '7揃い');
-          const change = document.createElement('strong');
-          const old = document.createElement('span');
-          old.className = 'odds-before';
-          old.textContent = `${percent(from)} → `;
-          change.append(old, percent(to));
-          row.append(`${label} `, change);
-          odds.append(row);
-        }
-      }
-    }
-    // Opening this non-modal panel must never turn a queued Space into a choice.
-    if (upgrade.choice && previous?.upgrade?.choice !== upgrade.choice) this.q('#upgradeChoice').focus();
-  }
-
   private renderResult(snapshot: MatchSnapshot | null): void {
     const panel = this.q('#result');
     panel.hidden = !snapshot;
@@ -268,11 +168,11 @@ export class GameView implements GamePresentation {
       this.resultKey = '';
       return;
     }
-    const key = `${snapshot.matchId}:${snapshot.round}:${snapshot.scores.player}:${snapshot.scores.rival}`;
+    const key = `${snapshot.matchId}:${snapshot.rounds.player}:${snapshot.rounds.rival}:${snapshot.scores.player}:${snapshot.scores.rival}`;
     if (key === this.resultKey) return;
     this.resultKey = key;
     panel.dataset.outcome = snapshot.winner ?? 'draw';
-    this.text('#resultRounds', `60 SECONDS · ${snapshot.round} SPINS`);
+    this.text('#resultRounds', '60 SECOND DUEL');
     this.q<HTMLDetailsElement>('#resultDetails').open = false;
     this.text('#resultEnglish', snapshot.winner === 'player' ? 'VICTORY' : snapshot.winner === 'rival' ? 'NEXT TIME' : 'DRAW');
     this.text('#resultTitle', snapshot.winner === 'player' ? '勝利！' : snapshot.winner === 'rival' ? '敗北' : '引き分け');
@@ -280,7 +180,7 @@ export class GameView implements GamePresentation {
     this.text('#resultRival', snapshot.scores.rival.toLocaleString());
     const margin = Math.abs(snapshot.scores.player - snapshot.scores.rival).toLocaleString();
     this.text('#resultGap', snapshot.winner === 'player' ? `${margin}コイン差で、ライバルを超えた。` : snapshot.winner === 'rival' ? `${margin}コイン差。次こそ、逆転を。` : '同じコイン数。決着は、次の60秒。');
-    this.text('#resultAgain', snapshot.winner === 'player' ? 'もう一勝、狙いにいこう。' : '改造を変えて、もう一度。');
+    this.text('#resultAgain', snapshot.winner === 'player' ? 'もう一勝、狙いにいこう。' : 'もう一度、60秒の勝負。');
     const rows = this.q<HTMLTableSectionElement>('#resultStats');
     rows.replaceChildren();
     const addRow = (label: string, player: string, rival: string, symbol?: string) => {
@@ -298,6 +198,7 @@ export class GameView implements GamePresentation {
       row.insertCell().textContent = player;
       row.insertCell().textContent = rival;
     };
+    addRow('回転数', `${snapshot.rounds.player}回`, `${snapshot.rounds.rival}回`);
     for (const [symbol, label] of [['cherry', 'チェリー'], ['bell', 'ベル'], ['seven', '7']] as const) {
       const value = (side: 'player' | 'rival') => {
         const count = snapshot.stats[side].wins[symbol];
@@ -310,13 +211,10 @@ export class GameView implements GamePresentation {
       return spin ? `${spin.payout.toLocaleString()}点（${spin.round}回転目）` : '当たりなし';
     };
     addRow('最高の一回', best('player'), best('rival'));
-    const build = (side: 'player' | 'rival') => snapshot.upgrades[side].map(id => UPGRADE_DEFINITIONS[id].label).join(' → ') || '未改造';
-    addRow('改造の順番', build('player'), build('rival'));
   }
 
-  playRound(player: SpinView, rival: SpinView, stopped: (celebrate?: boolean) => void): void {
-    this.scene.setUpgrades(player.upgrades ?? this.current?.snapshot.upgrades.player ?? [], rival.upgrades ?? this.current?.snapshot.upgrades.rival ?? []);
-    this.scene.play(player, rival, stopped);
+  playSpin(spin: SpinView, stopped: (celebrate?: boolean) => void): void {
+    this.scene.playSide(spin, stopped);
   }
   resetScene(): void {
     this.scene.stop();

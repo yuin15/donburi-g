@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
+import type { Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
 import { CabinetArt } from './CabinetArt';
 import { planTravel, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
 import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
@@ -48,8 +48,7 @@ const fragmentShader = `
   }`;
 
 interface PendingSpin {
-  player: SpinView;
-  rival: SpinView;
+  spin: SpinView;
   started: number;
   travel: ReelTravel[];
   complete: (celebrate: boolean) => void;
@@ -65,14 +64,14 @@ export class ReelScene {
   private planes: THREE.Mesh[] = [];
   private portraitTexture: THREE.Texture;
   private frame = 0;
-  private pending: PendingSpin | null = null;
+  private pending: Partial<Record<Side, PendingSpin>> = {};
   private winUntil = 0;
   private rivalWinUntil = 0;
   private disposed = false;
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private cabinet: CabinetArt;
   private loaded = 0;
-  private lastRound = 0;
+  private lastRound: Record<Side, number> = { player: 0, rival: 0 };
   private upgradeKey = '|';
   private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
   private activeStrips = this.stagedStrips;
@@ -157,10 +156,11 @@ export class ReelScene {
     this.stagedStrips = [buildReelStrip(player), buildReelStrip(rival)];
   }
 
-  private applyStagedStrips(): void {
-    if (this.activeStrips === this.stagedStrips) return;
+  private applyStagedStrips(target?: Side): void {
     this.materials.forEach((material, index) => {
       const side = index < 3 ? 0 : 1;
+      if (target && (side === 0 ? 'player' : 'rival') !== target) return;
+      if (this.activeStrips[side] === this.stagedStrips[side]) return;
       const offset = material.uniforms.offset.value as number;
       const symbol = symbolAtOffset(offset, this.activeStrips[side]);
       const strip = this.stagedStrips[side];
@@ -171,33 +171,55 @@ export class ReelScene {
       (material.uniforms.strip.value as Float32Array).set(strip.map(cell => SYMBOLS.indexOf(cell)));
       material.uniforms.stripLength.value = strip.length;
     });
-    this.activeStrips = this.stagedStrips;
+    this.activeStrips = [
+      target === 'rival' ? this.activeStrips[0] : this.stagedStrips[0],
+      target === 'player' ? this.activeStrips[1] : this.stagedStrips[1],
+    ];
   }
 
   play(player: SpinView, rival: SpinView, complete: (celebrate: boolean) => void): void {
-    if (this.disposed || player.round <= this.lastRound) return;
-    this.lastRound = player.round;
-    // Keep a timed burst in flight, but end an explicitly frozen preview.
-    this.clearWin(this.winUntil === Infinity);
-    this.applyStagedStrips();
-    this.pending = {
-      player, rival, complete, started: performance.now(),
-      travel: [...player.symbols, ...rival.symbols].map((symbol, i) => planTravel(this.materials[i].uniforms.offset.value, symbol, i % 3, this.activeStrips[i < 3 ? 0 : 1])),
+    let stopped = 0;
+    let celebrate = true;
+    const done = (value: boolean) => { celebrate &&= value; if (++stopped === 2) complete(celebrate); };
+    this.playSide(player, done);
+    this.playSide(rival, done);
+  }
+
+  playSide(spin: SpinView, complete: (celebrate: boolean) => void): void {
+    const side = spin.side;
+    if (this.disposed || spin.round <= this.lastRound[side]) return;
+    this.lastRound[side] = spin.round;
+    if (side === 'player') {
+      if (this.winUntil === Infinity) this.cabinet.stop();
+      this.clearPlayerWin();
+    } else this.clearRivalWin();
+    this.applyStagedStrips(side);
+    const start = side === 'player' ? 0 : 3;
+    this.pending[side] = {
+      spin, complete, started: performance.now(),
+      travel: spin.symbols.map((symbol, i) => planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
     };
-    this.host.dataset.spinning = 'true';
+    this.updateSpinning();
     this.requestRender();
+  }
+
+  private updateSpinning(): void {
+    this.host.dataset.playerSpinning = String(!!this.pending.player);
+    this.host.dataset.rivalSpinning = String(!!this.pending.rival);
+    this.host.dataset.spinning = String(!!this.pending.player || !!this.pending.rival);
   }
 
   /** Preview/reset path; matches use play() and its actual stop notification. */
   show(symbols: [SymbolId, SymbolId, SymbolId], payout = 0, rival: [SymbolId, SymbolId, SymbolId] = ['cherry', 'bell', 'seven'], still = false, rivalPayout = 0): void {
     if (this.disposed) return;
     this.clearWin();
-    this.pending = null;
-    this.lastRound = 0;
+    this.pending = {};
+    this.lastRound = { player: 0, rival: 0 };
     this.applyStagedStrips();
     this.host.dataset.round = '0';
+    this.host.dataset.playerRound = this.host.dataset.rivalRound = '0';
     [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol, this.activeStrips[i < 3 ? 0 : 1]); });
-    this.host.dataset.spinning = 'false';
+    this.updateSpinning();
     this.flash(payout, still, rivalPayout);
     this.requestRender();
   }
@@ -222,19 +244,26 @@ export class ReelScene {
   }
 
   private flash(payout: number, still = false, rivalPayout = 0): void {
+    this.flashSide('player', payout, still);
+    this.flashSide('rival', rivalPayout, still);
+  }
+
+  private flashSide(side: Side, payout: number, still = false): void {
     const now = performance.now();
     const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
-    const rivalDuration = this.motionPreference.matches ? 180 : rivalPayout >= 1200 ? 1200 : 650;
-    this.winUntil = payout > 0 ? still ? Infinity : now + duration : 0;
-    this.rivalWinUntil = rivalPayout > 0 ? still ? Infinity : now + rivalDuration : 0;
-    // A miss must neither start a new coin burst nor cut short an earlier one.
-    if (payout > 0) this.cabinet.flash(payout, now, duration, still);
-    this.host.dataset.win = String(payout > 0);
-    this.host.dataset.jackpot = String(payout >= 1200);
-    this.host.dataset.rivalWin = String(rivalPayout > 0);
-    this.host.dataset.rivalJackpot = String(rivalPayout >= 1200);
-    this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
-    this.materials.slice(3).forEach(m => { m.uniforms.winning.value = rivalPayout > 0 ? 1 : 0; });
+    const until = payout > 0 ? still ? Infinity : now + duration : 0;
+    if (side === 'player') {
+      this.winUntil = until;
+      // A miss or rival stop cannot cut short an earlier player coin burst.
+      if (payout > 0) this.cabinet.flash(payout, now, duration, still);
+      this.host.dataset.win = String(payout > 0);
+      this.host.dataset.jackpot = String(payout >= 1200);
+    } else {
+      this.rivalWinUntil = until;
+      this.host.dataset.rivalWin = String(payout > 0);
+      this.host.dataset.rivalJackpot = String(payout >= 1200);
+    }
+    this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
   }
 
   private clearPlayerWin(): void {
@@ -259,10 +288,12 @@ export class ReelScene {
 
   stop(): void {
     if (this.disposed) return;
-    if (this.pending) this.pending.travel.forEach((travel, i) => { this.materials[i].uniforms.offset.value = travel.to; });
-    this.pending = null;
-    this.lastRound = 0;
-    this.host.dataset.spinning = 'false';
+    for (const side of ['player', 'rival'] as const) this.pending[side]?.travel.forEach((travel, i) => {
+      this.materials[i + (side === 'player' ? 0 : 3)].uniforms.offset.value = travel.to;
+    });
+    this.pending = {};
+    this.lastRound = { player: 0, rival: 0 };
+    this.updateSpinning();
     this.clearWin();
     this.requestRender();
   }
@@ -275,7 +306,7 @@ export class ReelScene {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.pending = null;
+    this.pending = {};
     this.clearWin();
     cancelAnimationFrame(this.frame);
     removeEventListener('resize', this.resize);
@@ -313,22 +344,24 @@ export class ReelScene {
     this.frame = 0;
     if (this.disposed || document.hidden) return;
     const now = performance.now();
-    let completion: (() => void) | null = null;
-    if (this.pending) {
-      const pending = this.pending;
+    const completions: Array<() => void> = [];
+    for (const side of ['player', 'rival'] as const) {
+      const pending = this.pending[side];
+      if (!pending) continue;
       const elapsed = now - pending.started;
       const reduced = this.motionPreference.matches;
       const finished = elapsed >= (reduced ? 120 : pending.travel[2].duration);
-      this.materials.forEach((m, i) => {
+      this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach((m, i) => {
         if (!reduced || finished) m.uniforms.offset.value = finished ? pending.travel[i].to : travelAt(pending.travel[i], elapsed);
       });
       if (finished) {
-        this.pending = null;
-        this.host.dataset.spinning = 'false';
-        this.host.dataset.round = String(pending.player.round);
+        delete this.pending[side];
+        this.updateSpinning();
+        this.host.dataset[side === 'player' ? 'playerRound' : 'rivalRound'] = String(pending.spin.round);
+        if (side === 'player') this.host.dataset.round = String(pending.spin.round);
         // A long-hidden tab catches up without replaying old celebrations.
-        this.flash(elapsed > 1800 ? 0 : pending.player.payout, false, elapsed > 1800 ? 0 : pending.rival.payout);
-        completion = () => pending.complete(elapsed <= 1800);
+        this.flashSide(side, elapsed > 1800 ? 0 : pending.spin.payout);
+        completions.push(() => pending.complete(elapsed <= 1800));
       }
     }
     if (this.winUntil && now >= this.winUntil) this.clearPlayerWin();
@@ -340,7 +373,7 @@ export class ReelScene {
     const animating = this.cabinet.update(now, this.motionPreference.matches);
     this.renderer.render(this.scene, this.camera);
     // Scores, speech and sound follow the actual settled frame.
-    completion?.();
-    if (this.pending || animating || (Number.isFinite(this.rivalWinUntil) && now < this.rivalWinUntil)) this.requestRender();
+    completions.forEach(complete => complete());
+    if (this.pending.player || this.pending.rival || animating || (Number.isFinite(this.rivalWinUntil) && now < this.rivalWinUntil)) this.requestRender();
   };
 }

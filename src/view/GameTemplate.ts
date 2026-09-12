@@ -9,7 +9,7 @@ app.innerHTML = `
     <div class="countdown-card">
       <span class="countdown-caption">60 SECOND DUEL</span>
       <strong id="countdownValue">3</strong>
-      <p id="countdownHelp"><kbd>SPACE</kbd> / クリックで回す<small>両者のリールが、押すたび回転。</small></p>
+      <p id="countdownHelp"><kbd>SPACE</kbd> / クリックで回す<small>ライバルは2秒ごとに自動回転。</small></p>
     </div>
   </div>
   <header class="topbar">
@@ -35,40 +35,35 @@ app.innerHTML = `
     <span id="rivalMood">正々堂々、60秒。</span>
     <p id="line">「60秒。私に勝てる？」</p>
     <small id="heard"></small>
-    <div id="miniLabel">ライバルのリール <strong id="rivalPay" hidden></strong><span>CPU</span></div>
+    <div id="miniLabel">ライバルのリール <strong id="rivalPay" hidden></strong><span><b id="rivalRoundCount">00</b> 回転</span></div>
     <strong class="sr-only" id="rivalReels">チェリー・ベル・7</strong>
-    <div class="builds" id="builds" aria-label="改造後のリール構成">
-      <div id="playerBuildRow"><div class="build-heading"><span>あなたのリール</span><strong id="playerBuild">基本リール</strong></div><div class="build-strip" id="playerStrip" role="img"></div></div>
-      <div id="rivalBuildRow"><div class="build-heading"><span>相手のリール</span><strong id="rivalBuild">基本リール</strong><strong id="rivalUpgradeNote" role="status" hidden></strong></div><div class="build-strip" id="rivalStrip" role="img"></div></div>
+    <div id="duelRules">
+      <strong>ライバルは2秒ごとに自動回転</strong>
+      <span>あなたはクリック / SPACE。60秒の獲得コインで勝負。</span>
     </div>
     <div class="connection" id="connection">接続していません</div>
   </aside>
-  <div class="upgrade" id="upgrade" hidden>
-    <div class="upgrade-heading"><span id="upgradeNo"></span><b id="upgradeTitle">リール改造</b><strong id="upgradeRemain"></strong><span class="upgrade-clock" aria-hidden="true"><i id="upgradeClockFill"></i></span><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
-    <button data-up="steady" aria-pressed="false"><kbd>1</kbd><span class="symbol-icon cherry" aria-hidden="true"></span><strong>安定型</strong><small class="upgrade-pitch">小さく、何度も。</small><span class="upgrade-odds" id="steadyOdds"></span><small class="upgrade-target">チェリー3つで120点</small><small class="upgrade-selected">✓ この作戦でいく</small></button>
-    <button data-up="jackpot" aria-pressed="false"><kbd>2</kbd><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small class="upgrade-pitch">一撃、1,200点。</small><span class="upgrade-odds" id="jackpotOdds"></span><small class="upgrade-target">7が3つで1,200点</small><small class="upgrade-selected">✓ この作戦でいく</small></button>
-  </div>
   <footer>
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
       <small id="resultRounds">60 SECONDS</small>
       <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>
       <div class="result-score" id="resultScore"><div><small>あなたのコイン</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>ライバルのコイン</small><strong id="resultRival"></strong></div></div>
       <p id="resultGap"></p>
-      <details id="resultDetails"><summary>コインと改造の内訳 <span aria-hidden="true">＋</span></summary><table aria-label="対戦の配当と改造の内訳"><thead><tr><th scope="col">獲得コインの内訳</th><th scope="col">あなた</th><th scope="col">ライバル</th></tr></thead><tbody id="resultStats"></tbody></table></details>
-      <p class="result-again" id="resultAgain">改造を変えて、もう一度。</p>
+      <details id="resultDetails"><summary>コインの内訳 <span aria-hidden="true">＋</span></summary><table aria-label="対戦の獲得コイン内訳"><thead><tr><th scope="col">獲得コインの内訳</th><th scope="col">あなた</th><th scope="col">ライバル</th></tr></thead><tbody id="resultStats"></tbody></table></details>
+      <p class="result-again" id="resultAgain">もう一度、60秒の勝負。</p>
     </section>
     <button id="start" disabled>勝負する</button>
     <span id="spinHint" aria-live="polite">クリック / SPACE で回す</span>
     <div id="paytable" aria-label="3つそろうとチェリー120、ベル240、7は1200点"><span><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><i class="symbol-icon seven"></i>1,200</span></div>
-    <div id="upgradeProgress">⚙ リール改造<small>20秒・40秒で選択</small></div>
+    <div id="roundStatus"><span>あなた</span><strong id="roundCount">00</strong><small>SPINS</small></div>
   </footer>
 </section>
 <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
   <div class="gate-card">
     <div class="eyebrow">SLOT-CHAN · 60 SECOND DUEL</div>
-    <h2 id="gateTitle">回して、改造して。<br><em>ライバルを超えろ。</em></h2>
-    <p>押すたび、両者のリールが回る。<br>60秒のあいだに回して、改造して、<br>ライバルより多くのコインを手に入れよう。</p>
-    <p class="gate-strategy">安定型で小当たりを増やすか、<br>大勝負で1,200点を狙うか。<br>改造の5秒前から、効果を見比べられます。</p>
+    <h2 id="gateTitle">回して、そろえて。<br><em>ライバルを超えろ。</em></h2>
+    <p>あなたは連打。ライバルは自動回転。<br>60秒間にライバルより多くの<br>コインを手に入れよう。</p>
+    <p class="gate-strategy">中央の横一列が3つそろうと当たり。<br>7がそろえば1,200コイン。<br>最後まで逆転のチャンス。</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>クリック / SPACE で回す。<br>回転中も次の1回を予約。</span></div>
     <button id="practice" class="primary">CPUライバルと対戦 <span>→</span></button>
     <small>PC用・無料・マイク不要。横画面1280×720以上で遊べます。</small>

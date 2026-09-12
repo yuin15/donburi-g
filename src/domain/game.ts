@@ -1,5 +1,5 @@
 import type { MatchSnapshot, MatchStats, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol.js';
-import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from '../../shared/protocol.js';
+import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 
 export { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from '../../shared/protocol.js';
@@ -18,10 +18,12 @@ export interface MatchState {
   matchId: string;
   status: MatchStatus;
   spinMode: 'automatic' | 'manual';
+  upgradesEnabled: boolean;
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
   round: number;
+  rounds: Record<Side, number>;
   scores: Record<Side, number>;
   stats: MatchStats;
   pools: Record<Side, SymbolId[]>;
@@ -38,12 +40,13 @@ export interface MatchState {
 
 export type GameEvent =
   | { type: 'spin'; seq: number; at: number; player: SpinView; rival: SpinView }
+  | { type: 'side_spin'; seq: number; at: number; spin: SpinView }
   | { type: 'upgrade_open'; seq: number; at: number; offerIndex: 0 | 1; closesAt: number }
   | { type: 'upgrade_applied'; seq: number; at: number; offerIndex: 0 | 1; player: UpgradeId; rival: UpgradeId }
   | { type: 'leader_change'; seq: number; at: number; leader: Side | 'draw' }
   | { type: 'match_end'; seq: number; at: number; snapshot: MatchSnapshot };
 
-export const SPIN_INTERVAL = 2;
+export const SPIN_INTERVAL = RIVAL_SPIN_INTERVAL;
 export const UPGRADE_OPEN_SECONDS = [20, 40] as const;
 export const UPGRADE_CLOSE_SECONDS = [24, 44] as const;
 export const DEFAULT_UPGRADE: UpgradeId = 'steady';
@@ -92,11 +95,13 @@ function nextSeq(state: MatchState): number {
 }
 
 function spinSide(state: MatchState, side: Side): SpinView {
+  state.rounds[side] += 1;
+  state.round = state.rounds.player;
   const pool = state.activePools[side];
   const symbols = [0, 1, 2].map(() => pool[Math.floor(nextRandom(state, side) * pool.length)]) as [SymbolId, SymbolId, SymbolId];
   const payout = symbols[0] === symbols[1] && symbols[1] === symbols[2] ? PAYOUT[symbols[0]] : 0;
   state.scores[side] += payout;
-  const result = { round: state.round, side, symbols, payout, total: state.scores[side], upgrades: [...state.upgrades[side]] };
+  const result = { round: state.rounds[side], side, symbols, payout, total: state.scores[side], upgrades: [...state.upgrades[side]] };
   recordSpin(state.stats, result);
   return result;
 }
@@ -107,17 +112,25 @@ function applyUpgrade(state: MatchState, side: Side, id: UpgradeId): void {
   state.upgrades[side].push(id);
 }
 
-export function createMatch(seed = 0x51f15e, matchId = makeId(), spinMode: 'automatic' | 'manual' = 'automatic'): MatchState {
+export function createMatch(
+  seed = 0x51f15e,
+  matchId = makeId(),
+  spinMode: 'automatic' | 'manual' = 'automatic',
+  legacyOptions: { upgrades?: boolean } = {},
+): MatchState {
   const playerSeed = (seed ^ 0x9e3779b9) >>> 0 || 1;
   const rivalSeed = (seed ^ 0x85ebca6b) >>> 0 || 2;
   return {
     matchId,
     status: 'ready',
     spinMode,
+    // Retained only for historical rule/reel verification. Current matches use the base pool.
+    upgradesEnabled: legacyOptions.upgrades ?? false,
     lastManualSpinAt: null,
     elapsed: 0,
     remaining: MATCH_SECONDS,
     round: 0,
+    rounds: { player: 0, rival: 0 },
     scores: { player: 0, rival: 0 },
     stats: createMatchStats(),
     pools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
@@ -144,7 +157,7 @@ export function submitUpgrade(
   id: UpgradeId,
   atElapsed = state.elapsed,
 ): boolean {
-  if (state.status !== 'playing') return false;
+  if (state.status !== 'playing' || !state.upgradesEnabled) return false;
   if (!state.openOffers.has(offerIndex)) return false;
   if (atElapsed < UPGRADE_OPEN_SECONDS[offerIndex] || atElapsed >= UPGRADE_CLOSE_SECONDS[offerIndex]) return false;
   if (state.pending[side][offerIndex]) return false;
@@ -153,12 +166,14 @@ export function submitUpgrade(
   return true;
 }
 
-function performSpin(state: MatchState, at: number, events: GameEvent[]): void {
-  state.round += 1;
+function performSpin(state: MatchState, at: number, events: GameEvent[], side?: Side): void {
   const leaderBefore = currentLeader(state.scores);
-  const player = spinSide(state, 'player');
-  const rival = spinSide(state, 'rival');
-  events.push({ type: 'spin', seq: nextSeq(state), at, player, rival });
+  if (side) events.push({ type: 'side_spin', seq: nextSeq(state), at, spin: spinSide(state, side) });
+  else {
+    const player = spinSide(state, 'player');
+    const rival = spinSide(state, 'rival');
+    events.push({ type: 'spin', seq: nextSeq(state), at, player, rival });
+  }
   const leaderAfter = currentLeader(state.scores);
   if (leaderAfter !== leaderBefore && leaderAfter !== state.lastLeader) {
     state.lastLeader = leaderAfter;
@@ -167,12 +182,12 @@ function performSpin(state: MatchState, at: number, events: GameEvent[]): void {
 }
 
 function processSecond(state: MatchState, second: number, events: GameEvent[]): void {
-  if (state.spinMode === 'automatic' && second % SPIN_INTERVAL === 0 && second <= MATCH_SECONDS) {
-    performSpin(state, second, events);
+  if (second % SPIN_INTERVAL === 0 && second <= MATCH_SECONDS) {
+    performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
   }
 
   const openIndex = UPGRADE_OPEN_SECONDS.indexOf(second as 20 | 40);
-  if (openIndex >= 0) {
+  if (state.upgradesEnabled && openIndex >= 0) {
     const offerIndex = openIndex as 0 | 1;
     state.openOffers.add(offerIndex);
     events.push({
@@ -185,7 +200,7 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
   }
 
   const closeIndex = UPGRADE_CLOSE_SECONDS.indexOf(second as 24 | 44);
-  if (closeIndex >= 0) {
+  if (state.upgradesEnabled && closeIndex >= 0) {
     const offerIndex = closeIndex as 0 | 1;
     const player = state.pending.player[offerIndex] ?? DEFAULT_UPGRADE;
     const rival = state.pending.rival[offerIndex] ?? DEFAULT_UPGRADE;
@@ -228,7 +243,7 @@ export function requestManualSpin(state: MatchState, elapsedSeconds: number): Ga
   // Ignore binary floating-point noise at exact 1.1-second boundaries.
   if (state.lastManualSpinAt !== null && state.elapsed + 1e-9 < state.lastManualSpinAt + MANUAL_SPIN_INTERVAL) return events;
   state.lastManualSpinAt = state.elapsed;
-  performSpin(state, state.elapsed, events);
+  performSpin(state, state.elapsed, events, 'player');
   return events;
 }
 
@@ -244,6 +259,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     elapsed: state.elapsed,
     remaining: state.remaining,
     round: state.round,
+    rounds: { ...state.rounds },
     scores: { ...state.scores },
     stats: cloneMatchStats(state.stats),
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },

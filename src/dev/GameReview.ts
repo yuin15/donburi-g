@@ -1,6 +1,5 @@
 import type { MatchSnapshot, Side, SpinView } from '../../shared/protocol';
-import { createMatch, getSnapshot, PAYOUT, UPGRADE_CLOSE_SECONDS, UPGRADE_DEFINITIONS, UPGRADE_OPEN_SECONDS } from '../domain/game';
-import { describeUpgrade } from '../domain/upgradePreview';
+import { createMatch, getSnapshot, PAYOUT } from '../domain/game';
 import type { GameView } from '../view/GameView';
 import { RivalReactions } from '../viewmodel/RivalReactions';
 import { mountVisualReview, type ReviewExample } from '../view/VisualReview';
@@ -18,20 +17,10 @@ function fixtureSnapshot(): MatchSnapshot {
   const scores = { player: 1440, rival: 1200 };
   return {
     ...getSnapshot(createMatch(1, 'visual-fixture')),
-    status: 'playing', elapsed: 46, remaining: 14, round: 21, scores,
-    upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] },
+    status: 'playing', elapsed: 46, remaining: 14, round: 21, rounds: { player: 21, rival: 21 }, scores,
+    upgrades: { player: [], rival: [] },
     stats: fixtureStats(scores), eventSeq: 1,
   };
-}
-
-function rivalNotice(snapshot: MatchSnapshot): string {
-  if (snapshot.status !== 'playing') return '';
-  if (UPGRADE_OPEN_SECONDS.some((open, index) => snapshot.elapsed >= open && snapshot.elapsed < UPGRADE_CLOSE_SECONDS[index])) return '⚙ リール改造中';
-  const applied = snapshot.upgrades.rival;
-  const since = snapshot.elapsed - UPGRADE_CLOSE_SECONDS[applied.length - 1];
-  if (!applied.length || since < 0 || since >= 3.5) return '';
-  const definition = UPGRADE_DEFINITIONS[applied[applied.length - 1]];
-  return `${definition.addedSymbol === 'cherry' ? 'チェリー' : '7'} +${definition.addedCount} · ${definition.label}`;
 }
 
 function resultLine(snapshot: MatchSnapshot): string {
@@ -80,8 +69,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       connection: { text: 'DEV · 表示検収（API接続なし）', voiceReady: false, showVoiceControls: false },
       modeBadge: { text: 'CPU対戦', tone: 'practice' }, countdown: null,
       startControl: { disabled: true, label: '回転プレビュー', spinState: null, hint: 'クリック / SPACE で回す' },
-      upgrade: null, upgradeProgress: snapshot.status === 'playing' ? '改造完了・ラストスパート' : '改造チャンス 20秒・40秒',
-      rivalUpgradeNotice: rivalNotice(snapshot), machineNotice: '中央の1ラインで判定 · 60秒の獲得コインで勝負',
+      machineNotice: '中央の1ラインで判定 · 60秒の獲得コインで勝負',
       result: null, payout: null, cue: null, expression: 'neutral',
       rivalMood: '正々堂々、60秒。', line: '「60秒。私に勝てる？」', heard: '',
     };
@@ -91,8 +79,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
   const showSnapshot = (snapshot: MatchSnapshot) => {
     const gap = state.scores.player - state.scores.rival;
     render({
-      snapshot, rivalUpgradeNotice: rivalNotice(snapshot),
-      upgradeProgress: snapshot.status === 'playing' ? snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - snapshot.elapsed)}秒` : snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - snapshot.elapsed)}秒` : '改造完了・ラストスパート' : snapshot.status === 'result' ? '次は、どの作戦でいく？' : '改造チャンス 20秒・40秒',
+      snapshot,
       expression: performance.now() >= reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : state.expression,
       rivalMood: rivalMood(state.scores, snapshot.status === 'result'),
     });
@@ -134,8 +121,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     clearTimers();
     view.stopScene();
     render({
-      snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null, upgrade: null,
-      upgradeProgress: '次は、どの作戦でいく？', rivalUpgradeNotice: '',
+      snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
       expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
       rivalMood: snapshot.winner === 'player' ? '次こそ、負けない。' : snapshot.winner === 'rival' ? 'もう一度、挑む？' : '決着は、次の勝負で。',
       line: resultLine(snapshot), heard: '',
@@ -159,13 +145,6 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
 
   const preview = (example: ReviewExample) => {
     const snapshot = fixtureSnapshot();
-    if (example === 'upgrade') {
-      snapshot.elapsed = 42; snapshot.remaining = 18;
-      snapshot.upgrades = { player: ['steady'], rival: ['steady'] };
-    } else if (example === 'upgrade-preview') {
-      snapshot.elapsed = 15; snapshot.remaining = 45; snapshot.round = 7;
-      snapshot.upgrades = { player: [], rival: [] };
-    }
     reset(snapshot);
     showSnapshot(snapshot);
     view.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
@@ -184,27 +163,15 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       view.scene.show(player.symbols, player.payout, rival.symbols, true, rival.payout);
       settle(player, rival, true, true);
     }
-    if (example === 'upgrade' || example === 'upgrade-preview') {
-      const open = example === 'upgrade';
-      const index = open ? 1 : 0;
-      render({
-        upgrade: {
-          phase: open ? 'open' : 'preview', index, remainingSeconds: open ? 2 : 5, progress: open ? .5 : 1,
-          choice: null, choiceText: open ? 'クリック / キー 1・2 で選択' : '見比べよう。受付後に選べます',
-          options: { steady: describeUpgrade(snapshot.upgrades.player, 'steady'), jackpot: describeUpgrade(snapshot.upgrades.player, 'jackpot') },
-        },
-        upgradeProgress: open ? '改造を選ぼう！' : '改造まで 5秒',
-      });
-    }
     if (example === 'draw' || example === 'defeat') {
-      snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30;
+      snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 };
       snapshot.scores = { player: 1440, rival: example === 'draw' ? 1440 : 2640 };
       snapshot.stats = fixtureStats(snapshot.scores); snapshot.winner = example === 'draw' ? 'draw' : 'rival';
       showResult(snapshot);
     }
     if (example.startsWith('live-') || example === 'rematch-ready') {
       // Fixed caption states check layout only. Live ordering belongs to VM tests.
-      snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.winner = 'player';
+      snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 }; snapshot.winner = 'player';
       showResult(snapshot);
       const error = example === 'live-result-error';
       const ready = example === 'live-caption';
@@ -222,7 +189,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       }
     }
     if (example === 'final') {
-      snapshot.status = 'result'; snapshot.round = 30; snapshot.remaining = 0; snapshot.elapsed = 60;
+      snapshot.status = 'result'; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 }; snapshot.remaining = 0; snapshot.elapsed = 60;
       snapshot.scores = { player: 3600, rival: 3240 }; snapshot.winner = 'player'; snapshot.stats = fixtureStats(snapshot.scores);
       showSnapshot(snapshot);
       render({ startControl: { disabled: true, label: '最終停止中', spinState: null, hint: `${snapshot.round}回転の勝負` } });
