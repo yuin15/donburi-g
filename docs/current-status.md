@@ -29,8 +29,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `108f6440625b35b02848a22691606741b7da0b19`（PR #84）。#82の英語UI・大型スコア・左右別BIG WINに、無音PCMの滞留解消、会話優先、割り込みACK待ち、マイク低遅延化、字幕連結を追加。
-- Vercel READY: `dpl_CbGsUkzyfk3RyRdNExqzLE5N9geK`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開コード: `63a5827f650052db5af5af630b573d6848ee51dd`（PR #87）。既定は映像なしのGPT-Live音声。ブラウザPCM再生・割り込み待ち音声の消去・任意映像・接続画面の調整を追加。
+- Vercel READY: `dpl_FCjMhbZS6tJQExRwrnSzg6LvgVGg`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #87のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34692346148 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34692381994 （success）。公開画面のJS `index-DcXOweyw.js` / CSS `index-C_glZ5y0.css`を照合。
 - #84のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34690618750 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34690704198 （success）。
 - 公開実APIの通し接続は97.761秒、準備4.665秒、388イベントの連番欠落0。手動16回/240点対自動30回/600点、配当内訳一致、WebSocket正常終了1000。VercelログでGPTの76秒＋結果4秒をともにfinalized=trueと確認。LiveAvatarは履歴95秒/1.6クレジット・終了時刻あり、残存接続0件。[公開Liveの記録](voice-spike.md)。
 - #82の公開Chromeで8回/0点対30回/1,440点の60秒対戦、配当内訳、再戦初期化、Space予約、退出を確認。外部/API要求なし。[英語版の公開確認](english-win-presentation.md)。
