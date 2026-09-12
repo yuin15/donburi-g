@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
+import type { ClientMessage, ServerMessage, SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
   advanceMatch,
@@ -16,16 +16,18 @@ import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
 import { chooseRivalUpgrade } from './rivalBrain.js';
+import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('start') }),
   z.object({
     type: z.literal('upgrade'),
+    matchId: z.string().min(1).max(100),
     commandId: z.string().min(1).max(80),
     upgradeId: z.enum(['steady', 'jackpot']),
     offerIndex: z.union([z.literal(0), z.literal(1)]),
   }),
-  z.object({ type: z.literal('mic'), audio: z.string().min(1).max(256_000) }),
+  z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
   z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
@@ -37,6 +39,17 @@ const RESULT_REACTION_MS = 8_000;
 export class MatchSession {
   private readonly state: MatchState;
   private readonly commands = new Set<string>();
+  private streamSeq = 0;
+  private lastSpin: { player: SpinView; rival: SpinView } | undefined;
+  private messageWindow = 0;
+  private messagesInWindow = 0;
+  private audioInWindow = 0;
+  private reactions = new ReactionQueue(text => {
+    if (!this.voiceReady || this.closed) return;
+    this.pushContext('発話直前の確定情報');
+    this.gpt?.requestReaction(text);
+  });
+  private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
   private resultStop: NodeJS.Timeout | null = null;
@@ -117,7 +130,11 @@ export class MatchSession {
   }
 
   handleRaw(raw: string): void {
-    if (this.closed || raw.length > 300_000) return;
+    if (this.closed) return;
+    if (raw.length > 300_000) { void this.shutdown('message_too_large'); return; }
+    const second = Math.floor(Date.now() / 1000);
+    if (second !== this.messageWindow) { this.messageWindow = second; this.messagesInWindow = 0; this.audioInWindow = 0; }
+    if (++this.messagesInWindow > 120) { void this.shutdown('message_rate_exceeded'); return; }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -168,6 +185,7 @@ export class MatchSession {
     this.voiceDisabled = true;
     this.voiceReady = false;
     this.voiceAbort.abort();
+    this.reactions.close();
     this.media?.close();
     const closeGpt = this.gpt?.close().catch(() => undefined);
     this.gpt = null;
@@ -188,10 +206,13 @@ export class MatchSession {
       return;
     }
     if (message.type === 'snapshot') {
+      this.tick();
       this.emitSnapshot();
       return;
     }
     if (message.type === 'mic') {
+      this.audioInWindow += message.audio.length;
+      if (this.audioInWindow > 192_000) { void this.shutdown('audio_rate_exceeded'); return; }
       if (this.voiceReady) this.gpt?.sendMic(message.audio);
       return;
     }
@@ -204,6 +225,10 @@ export class MatchSession {
       return;
     }
     if (message.type === 'upgrade') {
+      if (message.matchId !== this.sessionId) {
+        this.emitSafeError('wrong_match', '別の対戦への操作は受付できません。', true);
+        return;
+      }
       // Arrival time, not the previous interval tick, decides the deadline.
       this.tick();
       if (this.commands.has(message.commandId)) return;
@@ -228,7 +253,7 @@ export class MatchSession {
     startMatch(this.state);
     this.startedAt = Date.now();
     this.emitSnapshot();
-    this.gpt?.requestReaction('対戦が今始まる。短く挑発して。');
+    this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
     this.timer = setInterval(() => this.tick(), 100);
   }
 
@@ -237,20 +262,26 @@ export class MatchSession {
     const elapsed = (Date.now() - this.startedAt) / 1000;
     const events = advanceMatch(this.state, elapsed);
     for (const event of events) this.handleGameEvent(event);
+    if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing') {
+      this.warnedTime = true;
+      this.reactions.offer('last-ten', '残り10秒を切った。短くラストスパートの一言。', 30, () => this.state.status === 'playing');
+    }
     if (Date.now() - this.lastSnapshotAt >= 250) this.emitSnapshot();
   }
 
   private handleGameEvent(event: GameEvent): void {
     if (event.type === 'spin') {
+      this.lastSpin = { player: event.player, rival: event.rival };
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= 1200) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。');
-      if (event.rival.payout >= 1200) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。');
+      if (event.player.payout >= 1200 && event.rival.payout >= 1200) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した得点差を踏まえて短く反応して。', event.player.round);
+      else if (event.player.payout >= 1200) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
+      else if (event.rival.payout >= 1200) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
       return;
     }
     if (event.type === 'leader_change') {
       this.pushContext('首位交代');
-      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。');
-      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。');
+      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', Math.floor(event.at / 2));
+      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', Math.floor(event.at / 2));
       return;
     }
     if (event.type === 'upgrade_open') {
@@ -266,7 +297,7 @@ export class MatchSession {
         rival: event.rival,
       });
       this.pushContext('改造確定');
-      this.gpt?.requestReaction(`改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`);
+      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing');
       return;
     }
     if (event.type === 'match_end') {
@@ -278,7 +309,8 @@ export class MatchSession {
         : event.snapshot.winner === 'rival'
           ? 'あなたは勝った。嫌味になりすぎない勝利コメントを一言。'
           : '引き分け。再戦したくなる一言。';
-      this.gpt?.requestReaction(direction);
+      this.media?.interrupt();
+      this.reactions.offer('result', direction, 100, () => this.state.status === 'result', true);
       if (this.timer) clearInterval(this.timer);
       this.resultStop = setTimeout(() => void this.shutdown('result_complete'), RESULT_REACTION_MS);
     }
@@ -292,16 +324,24 @@ export class MatchSession {
       : fallback;
     if (this.closed) return;
     const choice = this.voiceDisabled ? fallback : proposed;
-    const accepted = submitUpgrade(this.state, 'rival', offerIndex, choice.upgradeId, this.state.elapsed);
+    // A delayed interval must not extend the model's four-second choice window.
+    const arrivedAt = Math.max(this.state.elapsed, (Date.now() - this.startedAt) / 1000);
+    const accepted = submitUpgrade(this.state, 'rival', offerIndex, choice.upgradeId, arrivedAt);
     if (accepted) {
       const label = choice.upgradeId === 'jackpot' ? '大勝負' : '安定型';
       this.emit({ type: 'rival_line', text: `作戦を決めた。${label}で行く。`, reason: `upgrade_${choice.source}` });
     }
   }
 
-  private react(reason: string, instruction: string): void {
+  private react(reason: string, instruction: string, round: number): void {
+    if (round !== this.state.round) return;
     this.pushContext(reason);
-    this.gpt?.requestReaction(instruction);
+    this.reactions.offer(`${reason}:${round}`, instruction, reason.includes('jackpot') ? 80 : 60, () => {
+      if (this.state.status !== 'playing' || this.state.round !== round) return false;
+      if (reason === 'player_leads') return this.state.scores.player > this.state.scores.rival;
+      if (reason === 'rival_leads') return this.state.scores.rival > this.state.scores.player;
+      return true;
+    });
   }
 
   private pushContext(reason: string): void {
@@ -313,7 +353,7 @@ export class MatchSession {
 
   private emitSnapshot(): void {
     this.lastSnapshotAt = Date.now();
-    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state) });
+    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), lastSpin: this.lastSpin });
   }
 
   private emitSafeError(code: string, message: string, recoverable: boolean): void {
@@ -322,6 +362,6 @@ export class MatchSession {
 
   private emit(message: ServerMessage): void {
     if (this.frontend.readyState !== 1) return;
-    this.frontend.send(JSON.stringify(message));
+    this.frontend.send(JSON.stringify({ ...message, sessionId: this.sessionId, streamSeq: ++this.streamSeq, serverTime: Date.now() }));
   }
 }

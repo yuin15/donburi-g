@@ -35,18 +35,28 @@
 
 ## 描画性能
 
-実Windows Chrome 152、Ryzen 7 8700G、RTX 4070 Ti SUPER、60Hz、1920×1080、DPR 1。Chromeを最前面にし、重いビルド処理を並行しない条件で4スピンを計測。全端末で厳密に60fpsを保証する値ではない。
+実Windows Chrome 152、Ryzen 7 8700G、RTX 4070 Ti SUPER、60Hz、1920×1080、DPR 1。Chromeを最前面にし、重いビルド処理を並行しない条件で4スピンと小当たり・金貨演出を計測。全端末で厳密に60fpsを保証する値ではない。
 
 | 測定 | 結果 | 初期予算 |
 | --- | --- | --- |
-| 回転中フレーム時間 | 中央値17.7ms、p95 18.1ms、242標本 | p95 20ms以下、60fpsを目標 |
+| 回転・当たり中フレーム時間 | 中央値17.6ms、p95 18.1ms、388標本 | p95 20ms以下、60fpsを目標 |
 | 描画呼び出し | 通常9、金貨最大時33 | 80以下 |
 | 三角形 | 通常204、金貨最大時252 | 60,000以下 |
 | テクスチャ | 4点、mipmap込み概算20.4MiB | 48MiB以下 |
 | 5秒間の静止 | 追加描画0フレーム | 静止/非表示で連続描画しない |
 | 画像 | 4点合計536,648 bytes | 初期転送全体2.5MB以内 |
 
-[録画なし](evidence/visual-redesign/rendering-metrics.json)、[録画あり](evidence/visual-redesign/recording-metrics.json)、[静止](evidence/visual-redesign/idle-metrics.json)の測定値を添付。通常CPU入口は本番ビルドの主JS約135KB gzipとCSS約4KB gzipだけを読み、LiveKit SDKを未読込と確認。2試合後のResource Timingにも外部オリジンやAPI要求なし。公開URLでも再確認して公開記録へ追記する。
+[録画なし・回転と当たりを含む](evidence/visual-redesign/rendering-metrics.json)、[録画時の回転区間](evidence/visual-redesign/recording-metrics.json)、[静止](evidence/visual-redesign/idle-metrics.json)の測定値を添付。通常CPU入口は本番ビルドの主JS約135KB gzipとCSS約4KB gzipだけを読み、LiveKit SDKを未読込と確認。2試合後のResource Timingにも外部オリジンやAPI要求なし。PR #42ではLiveClient自体も遅延読込へ移し、CPU用主JSは約133KB gzipになった。
+
+## 公開版の通し確認
+
+PR #41のmain `e99e88009c32f6fe0253d5c9d38409eda8d5fb9f`、Vercel `dpl_FSGJF8cRW24uwLu75jb4bTbsKhDS` はREADY。公開URLは https://slot-chan.vercel.app 。マージ後CI https://github.com/yuin15/donburi-g/actions/runs/34670929185 は成功。
+
+- 公開Chromeで40秒の改造を数字キー1で選択。終盤にページを25秒凍結し、復帰後360対840、双方30回転の決着へ追いついた。[対戦画面](evidence/visual-redesign/public-playing-1280.webp)、[結果1280](evidence/visual-redesign/public-result-1280.webp)、[結果1920](evidence/visual-redesign/public-result-1920.webp)、[390×844](evidence/visual-redesign/public-mobile-390.webp)。
+- 再戦を押した直後から0対0・未改造・結果非表示へ戻り、Enterでカウントダウンを取消できた。低減モーション設定の認識も確認。
+- [公開通信](evidence/visual-redesign/public-network.json)は初期転送約0.684MB、外部オリジン/API要求なし、任意SDK未読込、描画キャンバス1つ、検収ツールなし。JavaScriptエラーログ0件。faviconの404を1件検出し、PR #42で既存の金貨アイコンを指定した。
+
+公開CPU対戦と任意Liveの検証範囲を区別する。Chromeの権限設定画面への移動はブラウザの安全規則で拒否されたため、実マイク拒否の操作確認はスキップした。模擬マイク拒否テストをその代わりの実機結果とは記載しない。
 
 ## 自動確認と範囲
 

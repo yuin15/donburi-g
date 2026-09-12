@@ -10,7 +10,7 @@ import {
   type GameEvent,
   type MatchState,
 } from './domain/game';
-import { LiveClient } from './client/live';
+import type { LiveClient } from './client/live';
 import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
 import { GameAudio } from './view/GameAudio';
@@ -424,7 +424,14 @@ function onLiveMessage(message: ServerMessage): void {
   }
   if (message.type === 'snapshot') {
     liveSnapshot = message.snapshot;
+    if (message.lastSpin) handleSpin(message.lastSpin.player, message.lastSpin.rival);
     renderSnapshot(message.snapshot);
+    if (message.snapshot.status === 'result') presentation.end(message.snapshot);
+    if (message.snapshot.status === 'playing' && !activeOffer) {
+      const elapsed = message.snapshot.elapsed;
+      if (elapsed >= 20 && elapsed < 24) showUpgrade(0, 24);
+      if (elapsed >= 40 && elapsed < 44) showUpgrade(1, 44);
+    }
     return;
   }
   if (message.type === 'spin') {
@@ -482,6 +489,8 @@ async function connectLive(code: string): Promise<void> {
   liveSnapshot = null;
   resetBattleUi();
   q('#connection').textContent = 'マイク許可を確認中…';
+  const { LiveClient } = await import('./client/live');
+  if (current !== revision) throw new Error('connection_cancelled');
   const client = new LiveClient(avatarVideo);
   liveClient = client;
   client.setMuted(muted);
