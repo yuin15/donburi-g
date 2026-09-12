@@ -19,7 +19,7 @@
 
 ## 確認した範囲
 
-- 型検査・lint・228テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
+- 型検査・lint・232テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
 - ローカルChromeの無操作60秒はプレイヤー0回/0点、ライバル30回/600点で決着。再戦後のSpace操作で、片側のみ・両側同時の回転を確認。[今回の画面検証](independent-duel.md)。
 - 開始カウントダウンの先行Space取消防止、結果の字幕保持など、過去の修正は引き続き有効。[開始操作](countdown-start.md)、[MVVM移行](mvvm-verification.md)。
 - 過去の改造や両者同時回転の検証資料は、その当時の履歴。現在の操作・規則は[ゲーム規則](game-rules.md)を正とする。
@@ -30,8 +30,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `98a5ee0cf2d6f082ea021941c342a8701c092bda`（PR #89の実装コミット）。#87の映像なし音声に、現在の首位を明示する文脈と重複するルール説明の削減を追加。クライアントの画面・操作は#87と同じ。
-- Vercel READY: `dpl_2zb5jzsH19SPBJssR8pfAAU8KseM`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開コード: `97ca8c69c45631d8990ed66f8db8041ffd00595a`（PR #91の実装コミット）。#87の映像なし音声と#89の現在の首位を明示する文脈に、音声上限後の試合継続を追加。クライアントの画面・操作は#87と同じ。
+- Vercel READY: `dpl_BXXgGMqGpNTaepupCCVqPLRtLTFB`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #91の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34694460576 （success）。ローカルと公開実APIで80秒待機後に開始し、音声上限後も4回の手動回転を受理、8回対30回・60秒の結果まで確定。公開では1,320対240点、1,399イベントの欠落0、正常終了1000。GPT利用はローカル113秒、公開111秒が確定済み。
 - #89の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34692986660 （success）。実文脈生成処理を使う合成局面で首位への返答を確認。音声を人が聞いた遅延の検証とは分ける。未認証の音声アクセスはHTTP 401を維持。
 - #87のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34692346148 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34692381994 （success）。公開画面のJS `index-DcXOweyw.js` / CSS `index-C_glZ5y0.css`を照合。
 - #84のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34690618750 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34690704198 （success）。
