@@ -13,12 +13,13 @@
 - 金色の筐体・4表情の架空ライバル・下向きリールを維持。Three.js描画は1つ、共有WebPは4点。小リールの絵柄は正方形を保つ。
 - PCの1280×720以上が対象。通常CPU対戦にAPI・マイク・DBは不要。任意Liveの失敗で同じ試合は止まらない。
 - #81で画面内タイトルを非表示にし、英語UIと大型の左右得点を採用。BIG WIN・電球・コインは当たった側だけを強調し、逆転判定は両者の停止を待つ。[画面検証](english-win-presentation.md)。
+- #90で音声の120秒制限と試合の終了を分離。音声終了後も同じ60秒対戦を完走し、開始待ちは90秒で終了する。
 - 声だけの接続を既定にし、映像は追加のチェック項目へ分離（#86）。映像未選択ならLiveAvatarキーは不要で、LiveKitも読み込まない。既存のライバル画像と声で対戦できる。
 - 主JSは139.68KB gzip、CSSは4.85KB gzip。CPU入口では任意Live/LiveKitを読み込まない。
 
 ## 確認した範囲
 
-- 型検査・lint・228テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
+- 型検査・lint・232テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
 - ローカルChromeの無操作60秒はプレイヤー0回/0点、ライバル30回/600点で決着。再戦後のSpace操作で、片側のみ・両側同時の回転を確認。[今回の画面検証](independent-duel.md)。
 - 開始カウントダウンの先行Space取消防止、結果の字幕保持など、過去の修正は引き続き有効。[開始操作](countdown-start.md)、[MVVM移行](mvvm-verification.md)。
 - 過去の改造や両者同時回転の検証資料は、その当時の履歴。現在の操作・規則は[ゲーム規則](game-rules.md)を正とする。
@@ -29,8 +30,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `98a5ee0cf2d6f082ea021941c342a8701c092bda`（PR #89の実装コミット）。#87の映像なし音声に、現在の首位を明示する文脈と重複するルール説明の削減を追加。クライアントの画面・操作は#87と同じ。
-- Vercel READY: `dpl_2zb5jzsH19SPBJssR8pfAAU8KseM`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開コード: `97ca8c69c45631d8990ed66f8db8041ffd00595a`（PR #91の実装コミット）。#87の映像なし音声と#89の現在の首位を明示する文脈に、音声上限後の試合継続を追加。クライアントの画面・操作は#87と同じ。
+- Vercel READY: `dpl_BXXgGMqGpNTaepupCCVqPLRtLTFB`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #91の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34694460576 （success）。ローカルと公開実APIで80秒待機後に開始し、音声上限後も4回の手動回転を受理、8回対30回・60秒の結果まで確定。公開では1,320対240点、1,399イベントの欠落0、正常終了1000。GPT利用はローカル113秒、公開111秒が確定済み。
 - #89の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34692986660 （success）。実文脈生成処理を使う合成局面で首位への返答を確認。音声を人が聞いた遅延の検証とは分ける。未認証の音声アクセスはHTTP 401を維持。
 - #87のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34692346148 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34692381994 （success）。公開画面のJS `index-DcXOweyw.js` / CSS `index-C_glZ5y0.css`を照合。
 - #84のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34690618750 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34690704198 （success）。
@@ -56,7 +58,7 @@
 | #7 | 連番/ID/実行時スキーマ、欠落時snapshot復旧、期限・頻度・データ量制限、2試合分離、実localhost WebSocket＋MatchSessionの通常/音声停止2経路 | Vercel実接続での画面との通し照合。認証・利用枠・外部プロバイダーは結合試験で代替 |
 | #3 | ローカル実API動画・人による音声再生、公開97秒接続と完走、match/resultのusage確定 | 公開ブラウザでの3回の開始/終了、実音声・映像・割り込み・遅延 |
 | #8 | 実況候補の選別、会話優先、文脈更新の集約、PCM発話区切り、音声消去ACK、字幕断片の連結、結果音声の世代分離 | 実際の発声内容と遅延、聞こえる割り込み、既にブラウザへ到達した再生音声の扱い |
-| #11 | 秘密保護、認証、停止スイッチ、入力制限、120秒以内の終了開始、両世代GPTのusage確定、LiveAvatarの終了履歴と残存0件、映像トークンの120秒上限要求、後始末テスト | 映像の120秒上限の実満了確認、一般開放する場合の全体上限 |
+| #11 | 秘密保護、認証、停止スイッチ、入力制限、120秒以内の音声終了開始、両世代GPTのusage確定、LiveAvatarの終了履歴と残存0件、映像トークンの120秒上限要求、無料Sandboxの自動終了・残存0件、後始末テスト | 映像の120秒上限の実満了確認、一般開放する場合の全体上限 |
 | #12 | 実Chromeの通し対戦とPC描画 | 実Edge、初見の方の遊びやすさ・音質評価、実マイク拒否 |
 
 Chromeの権限設定画面への移動はブラウザの安全規則で拒否されたため、実マイク拒否の操作は行っていない。模擬テストを実機確認とは扱わない。

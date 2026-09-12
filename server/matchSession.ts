@@ -37,6 +37,8 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
 ]);
 
 const MAX_SESSION_MS = 120_000;
+// A late start must still leave a full 60-second game inside Vercel's 180s budget.
+const MAX_LOBBY_MS = 90_000;
 const RESULT_REACTION_MS = 8_000;
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
@@ -59,6 +61,8 @@ export class MatchSession {
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
+  private lobbyStop: NodeJS.Timeout | null = null;
+  private lobbyDeadline = 0;
   private resultStop: NodeJS.Timeout | null = null;
   private resultSilence: NodeJS.Timeout | null = null;
   private sessionDeadline = 0;
@@ -104,7 +108,9 @@ export class MatchSession {
     this.emit({ type: 'hello', live: true, sessionId: this.sessionId });
     this.emit({ type: 'voice_status', status: 'connecting' });
     this.sessionDeadline = Date.now() + MAX_SESSION_MS;
-    this.hardStop = setTimeout(() => void this.shutdown('max_duration'), MAX_SESSION_MS);
+    this.lobbyDeadline = Date.now() + MAX_LOBBY_MS;
+    this.lobbyStop = setTimeout(() => void this.shutdown('lobby_timeout'), MAX_LOBBY_MS);
+    this.hardStop = setTimeout(() => this.expireVoice(), MAX_SESSION_MS);
     try {
       if (this.voiceMode === 'avatar') {
         this.avatar = await startAvatarSession();
@@ -179,6 +185,8 @@ export class MatchSession {
 
   handleRaw(raw: string): void {
     if (this.closed) return;
+    if (this.sessionDeadline && Date.now() >= this.sessionDeadline && !this.voiceDisabled) this.expireVoice();
+    if (this.closed) return;
     if (raw.length > 300_000) { void this.shutdown('message_too_large'); return; }
     const second = Math.floor(Date.now() / 1000);
     if (second !== this.messageWindow) { this.messageWindow = second; this.messagesInWindow = 0; this.audioInWindow = 0; }
@@ -206,6 +214,7 @@ export class MatchSession {
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     if (this.hardStop) clearTimeout(this.hardStop);
+    if (this.lobbyStop) clearTimeout(this.lobbyStop);
     if (this.resultStop) clearTimeout(this.resultStop);
     if (this.state.status !== 'result') abortMatch(this.state);
     const closeVoice = this.stopVoice();
@@ -220,14 +229,22 @@ export class MatchSession {
     return this.stopping;
   }
 
-  private failVoice(): void {
+  private expireVoice(): void {
+    if (this.closed) return;
+    // Settle a delayed final tick before deciding whether there is still a game.
+    this.tick();
+    if (this.state.status === 'playing') this.failVoice('Voice time limit reached · Your duel continues.');
+    else void this.shutdown('max_duration');
+  }
+
+  private failVoice(message?: string): void {
     if (this.closed || this.voiceDisabled) return;
     if (!this.gameReady) {
       this.emitSafeError('voice_error', '音声・映像へ接続できません。CPU対戦を開始できます。', false);
       void this.shutdown('voice_error');
       return;
     }
-    this.emit({ type: 'voice_status', status: 'error', message: this.state.status === 'result' ? '結果の音声を終了しました。対戦結果は確定しています。' : '音声・映像を終了しました。CPUとの対戦は続きます。' });
+    this.emit({ type: 'voice_status', status: 'error', message: message ?? (this.state.status === 'result' ? 'Final reaction ended · Your result is saved.' : 'Voice closed · Your duel continues.') });
     void this.stopVoice();
   }
 
@@ -330,6 +347,9 @@ export class MatchSession {
       return;
     }
     if (this.state.status !== 'ready') return;
+    if (Date.now() >= this.lobbyDeadline) { void this.shutdown('lobby_timeout'); return; }
+    if (this.lobbyStop) clearTimeout(this.lobbyStop);
+    this.lobbyStop = null;
     startMatch(this.state);
     this.startedAt = Date.now();
     this.pushContext();

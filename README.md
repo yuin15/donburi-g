@@ -55,7 +55,7 @@ Optional:
 - `MAX_DAILY_SESSIONS` — default `10`, per running process
 - `MAX_CONCURRENT_SESSIONS` — default `1`, per running process
 
-This is a small invitation-only demo hosted on Vercel. No Redis/Upstash account or database is required. Connection limits are in memory: they reset on process restart and are independent across Vercel instances, so they are not a global spending cap. Provider sessions still stop after at most 120 seconds; normal completion and browser exit release their resources. Keep the invitation private and enable live mode only for the demo. Vercel Firewall rate limiting can be configured separately if wider sharing is needed.
+This is a small invitation-only demo hosted on Vercel. No Redis/Upstash account or database is required. Connection limits are in memory: they reset on process restart and are independent across Vercel instances, so they are not a global spending cap. Voice teardown starts by 120 seconds; a game already in progress continues to its full 60-second result. An unused lobby closes at 90 seconds, so a late game still finishes before 150 seconds. Provider finalization is checked separately; normal completion and browser exit also release resources. Keep the invitation private and enable live mode only for the demo. Vercel Firewall rate limiting can be configured separately if wider sharing is needed.
 
 Voice path:
 

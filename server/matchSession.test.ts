@@ -256,6 +256,50 @@ describe('live match cleanup', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it.each(['audio', 'avatar'] as const)('keeps the full manual duel after the %s voice deadline', async voiceMode => {
+    const { session, messages, release, close } = setup('late-match', 'manual', voiceMode);
+    await session.initialize();
+    await vi.advanceTimersByTimeAsync(80_000);
+    session.handleRaw('{"type":"start"}');
+    session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"before-limit"}');
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(provider.gptClose).toHaveBeenCalledOnce();
+    expect(provider.stop).toHaveBeenCalledTimes(voiceMode === 'avatar' ? 1 : 0);
+    expect(close).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'error')).toHaveLength(1);
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"after-limit"}');
+    await vi.advanceTimersByTimeAsync(20_001);
+    expect(messages.filter(m => m.type === 'match_ended')).toMatchObject([{
+      snapshot: { matchId: 'late-match', status: 'result', elapsed: 60, remaining: 0, rounds: { player: 2, rival: 30 } },
+    }]);
+    expect(provider.mic).not.toHaveBeenCalled();
+    expect(provider.gptConnect).toHaveBeenCalledOnce();
+    expect(provider.gptClose).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['timer', 'late-start'])('closes the idle lobby at 90 seconds via %s without starting a shortened game', async trigger => {
+    const { session, messages, release, close } = setup();
+    await session.initialize();
+    if (trigger === 'timer') await vi.advanceTimersByTimeAsync(90_000);
+    else {
+      vi.setSystemTime(Date.now() + 90_000);
+      session.handleRaw('{"type":"start"}');
+    }
+    await session.shutdown('test_finished');
+    expect(messages.some(m => m.type === 'snapshot' && m.snapshot.status === 'playing')).toBe(false);
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'closed')).toMatchObject([{ message: 'lobby_timeout' }]);
+    expect(provider.stop).toHaveBeenCalledOnce();
+    expect(provider.gptClose).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('drops result audio and captions past the deadline even before a stalled timer can run', async () => {
     const { session, messages } = setup();
     await session.initialize();
