@@ -505,10 +505,12 @@ export class MatchSession {
         return spin ? `${name}${spin.round}回目、絵柄[${spin.symbols.join(',')}]、配当${spin.payout}点` : `${name}はまだ回転していない`;
       }).join(';')}。`
       : '直近の確定回転: まだ回転していない。';
+    const leader = snapshot.scores.player === snapshot.scores.rival ? '同点' : snapshot.scores.player > snapshot.scores.rival ? 'プレイヤー' : 'あなた';
     const reelContext = this.state.upgradesEnabled
       ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
-      : '両者とも同じ基本リール。プレイヤーは手動、あなたは2秒ごとに独立して自動回転する。60秒の獲得コインで勝負し、追加の選択操作はない。';
-    return `ゲーム確定情報: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
+      : '';
+    // Static rules belong in the startup persona; repeat only the current facts.
+    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {
