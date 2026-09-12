@@ -14,6 +14,8 @@
 
 Upgrade windows open at elapsed 20s and 40s. They close at 24s and 44s.
 
+The UI previews each choice for 5 seconds before its window (15–20s and 35–40s). Preview buttons and number keys cannot submit early. The displayed probabilities use the current applied pool plus each proposed upgrade: three identical symbols on the middle line, with independent draws from the same pool. The second preview includes the first applied upgrade. Selection remains limited to the original 4-second window.
+
 Boundary ordering is deterministic:
 
 1. Complete the spin whose completion time is the boundary.
@@ -23,6 +25,8 @@ Boundary ordering is deterministic:
 Therefore the spin completing at 24s uses the pre-upgrade pool; the next spin uses the newly applied pool.
 
 Unselected or timed-out upgrades default to `steady`.
+
+After the deadline, a short receipt names the applied upgrade and explicitly explains the default when no choice was submitted. It takes effect on the following spin.
 
 - `steady`: add six cherries to that side's reel pool, favoring frequent small payouts.
 - `jackpot`: add one seven to that side's reel pool, favoring rare 1,200-point payouts.
