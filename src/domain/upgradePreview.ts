@@ -18,19 +18,21 @@ function summarize(counts: Record<SymbolId, number>): UpgradePoolPreview {
   };
 }
 
-/** Public rule probabilities for three independent reels; no match or random state is read. */
-export function describeUpgrade(applied: readonly UpgradeId[], choice: UpgradeId): {
-  before: UpgradePoolPreview;
-  after: UpgradePoolPreview;
-} {
+/** Public pool composition and probabilities; no match or random state is read. */
+export function describePool(applied: readonly UpgradeId[]): UpgradePoolPreview {
   const counts: Record<SymbolId, number> = { cherry: 0, bell: 0, seven: 0 };
   for (const symbol of BASE_POOL) counts[symbol] += 1;
   for (const id of applied) {
     const definition = UPGRADE_DEFINITIONS[id];
     counts[definition.addedSymbol] += definition.addedCount;
   }
-  const afterCounts = { ...counts };
-  const choiceDefinition = UPGRADE_DEFINITIONS[choice];
-  afterCounts[choiceDefinition.addedSymbol] += choiceDefinition.addedCount;
-  return { before: summarize(counts), after: summarize(afterCounts) };
+  return summarize(counts);
+}
+
+/** Public rule probabilities for three independent reels; no match or random state is read. */
+export function describeUpgrade(applied: readonly UpgradeId[], choice: UpgradeId): {
+  before: UpgradePoolPreview;
+  after: UpgradePoolPreview;
+} {
+  return { before: describePool(applied), after: describePool([...applied, choice]) };
 }

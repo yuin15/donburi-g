@@ -19,7 +19,7 @@ export function mountVisualReview(port: ReviewPort): void {
   controls.innerHTML = `<details><summary>ローカル検収ツール（本番には含まれません）</summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
     <button data-example="normal">通常</button><button data-example="small">小当たり</button><button data-example="jackpot">7揃い・逆転</button><button data-example="rival-jackpot">相手が7揃い</button><button data-example="both-jackpot">両者7揃い</button><button data-example="quiet">両者はずれ</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button><button data-example="upgrade">改造選択</button><button data-example="upgrade-preview">改造の予告</button>
     <button data-example="defeat">敗北</button><button data-example="live-caption">Live字幕の保持</button><button data-example="live-result-error">結果音声の接続失敗</button><button data-example="live-result-closed">結果音声の正常終了</button><button data-example="rematch-ready">Live再戦の準備</button>
-    <button id="recordMotion">8秒の回転を録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
+    <button id="recordMotion">8秒の回転を録画</button><button id="recordUpgrades">改造したリールを録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
     </div><output id="reviewStats" style="display:block;margin:8px 0"></output><details><summary>録画データ</summary><textarea id="recordingData" readonly aria-label="生成した回転動画のデータ"></textarea><video id="reviewVideo" src="/docs/evidence/visual-redesign/downward-reels-1920.webm" preload="metadata" controls muted style="display:block;max-width:400px"></video><button id="slowMotion">1/4速度で再生</button><label>動画時刻（秒）<input id="videoSeek" type="number" min="0" step="0.033" value="0"></label><button id="exportFrame">現在の動画フレームを書き出す</button><textarea id="frameData" readonly aria-label="動画フレームの画像データ"></textarea></details></details>`;
   document.body.append(controls);
   const find = <T extends HTMLElement>(id: string) => controls.querySelector<T>('#' + id)!;
@@ -52,7 +52,7 @@ export function mountVisualReview(port: ReviewPort): void {
     find<HTMLTextAreaElement>('frameData').value = canvas.toDataURL('image/png');
   };
 
-  const run = async (record: boolean) => {
+  const run = async (record: boolean, upgraded = false) => {
     const button = find<HTMLButtonElement>('recordMotion');
     button.disabled = true;
     port.reset();
@@ -85,11 +85,12 @@ export function mountVisualReview(port: ReviewPort): void {
     for (let i = 0; i < examples.length; i += 1) {
       const payout = [0, 240, 120, 1200][i];
       total += payout;
-      const player: SpinView = { side: 'player', round: i + 1, symbols: examples[i], payout, total };
-      const rival: SpinView = { side: 'rival', round: i + 1, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: 0 };
+      const round = i + (upgraded ? 23 : 1);
+      const player: SpinView = { side: 'player', round, symbols: examples[i], payout, total };
+      const rival: SpinView = { side: 'rival', round, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: 0 };
       recordSpin(matchStats, player);
       recordSpin(matchStats, rival);
-      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: i * 2 + 2, remaining: 58 - i * 2, round: i + 1, scores: { player: total, rival: 0 }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
+      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, scores: { player: total, rival: 0 }, stats: cloneMatchStats(matchStats), upgrades: upgraded ? { player: ['steady', 'steady'], rival: ['jackpot', 'jackpot'] } : { player: [], rival: [] }, eventSeq: i + 1 });
       port.spin(player, rival);
       await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 2400 : 2000));
     }
@@ -109,6 +110,7 @@ export function mountVisualReview(port: ReviewPort): void {
     button.disabled = false;
   };
   find('recordMotion').onclick = () => { void run(true); };
+  find('recordUpgrades').onclick = () => { void run(true, true); };
   find('measureMotion').onclick = () => { void run(false); };
   port.preview('normal');
 }

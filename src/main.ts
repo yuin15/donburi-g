@@ -8,11 +8,13 @@ import {
   startMatch,
   UPGRADE_DEFINITIONS,
   UPGRADE_OPEN_SECONDS,
+  UPGRADE_CLOSE_SECONDS,
+  SPIN_INTERVAL,
   PAYOUT,
   type GameEvent,
   type MatchState,
 } from './domain/game';
-import { describeUpgrade } from './domain/upgradePreview';
+import { describePool, describeUpgrade } from './domain/upgradePreview';
 import type { LiveClient } from './client/live';
 import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
@@ -52,7 +54,10 @@ app.innerHTML = `
     <small id="heard"></small>
     <div id="miniLabel">ライバルのリール <span>CPU</span></div>
     <strong class="sr-only" id="rivalReels">チェリー・ベル・7</strong>
-    <div class="builds" id="builds"><div><span>あなたの改造</span><strong id="playerBuild">未改造</strong></div><div><span>相手の改造</span><strong id="rivalBuild">未改造</strong></div></div>
+    <div class="builds" id="builds" aria-label="改造後のリール構成">
+      <div id="playerBuildRow"><div class="build-heading"><span>あなたのリール</span><strong id="playerBuild">基本リール</strong></div><div class="build-strip" id="playerStrip" role="img"></div></div>
+      <div id="rivalBuildRow"><div class="build-heading"><span>相手のリール</span><strong id="rivalBuild">基本リール</strong></div><div class="build-strip" id="rivalStrip" role="img"></div></div>
+    </div>
     <div class="connection" id="connection">接続していません</div>
   </aside>
   <div class="upgrade" id="upgrade" hidden>
@@ -128,6 +133,7 @@ let practiceTimer: number | null = null;
 let practiceStartedAt = 0;
 let liveClient: LiveClient | null = null;
 let liveSnapshot: MatchSnapshot | null = null;
+let liveReelUpgrades: MatchSnapshot['upgrades'] = { player: [], rival: [] };
 let voiceReady = false;
 let gameConnected = false;
 let lastInviteCode = '';
@@ -211,8 +217,34 @@ function glyphs(spin: SpinView): string {
   return spin.symbols.map((symbol) => glyph[symbol]).join('　');
 }
 
+function renderBuild(side: 'player' | 'rival', upgrades: readonly UpgradeId[]): void {
+  const row = q('#' + side + 'BuildRow');
+  const key = upgrades.join(',');
+  if (row.dataset.build === key) return;
+  row.dataset.build = key;
+  row.dataset.upgraded = String(upgrades.length);
+  q('#' + side + 'Build').textContent = upgrades.length ? upgrades.map(id => UPGRADE_DEFINITIONS[id].label).join(' / ') : '基本リール';
+  const { counts, total } = describePool(upgrades);
+  const strip = q('#' + side + 'Strip');
+  strip.setAttribute('aria-label', `絵柄${total}枚：チェリー${counts.cherry}枚、ベル${counts.bell}枚、7が${counts.seven}枚`);
+  strip.replaceChildren();
+  for (const symbol of ['cherry', 'bell', 'seven'] as const) {
+    const segment = document.createElement('span');
+    segment.className = 'build-segment ' + symbol;
+    segment.style.flexGrow = String(counts[symbol]);
+    segment.setAttribute('aria-hidden', 'true');
+    const icon = document.createElement('i');
+    icon.className = 'symbol-icon ' + symbol;
+    const count = document.createElement('b');
+    count.textContent = String(counts[symbol]);
+    segment.append(icon, count);
+    strip.append(segment);
+  }
+}
+
 function renderSnapshot(snapshot: MatchSnapshot): void {
   latestSnapshot = snapshot;
+  scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
   const scores = presentation.scores;
   q('#time').textContent = String(Math.max(0, Math.ceil(snapshot.remaining))).padStart(2, '0');
   q('#ps').textContent = scores.player.toLocaleString();
@@ -226,9 +258,8 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
   q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
   if (performance.now() >= reactionUntil) scene.setExpression(gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral');
   q('#rivalMood').textContent = snapshot.status === 'result' ? (gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。') : gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。';
-  const buildLabel = (upgrades: UpgradeId[]) => upgrades.length ? upgrades.map(id => id === 'steady' ? '安定型' : '大勝負').join(' / ') : '未改造';
-  q('#playerBuild').textContent = buildLabel(snapshot.upgrades.player);
-  q('#rivalBuild').textContent = buildLabel(snapshot.upgrades.rival);
+  renderBuild('player', snapshot.upgrades.player);
+  renderBuild('rival', snapshot.upgrades.rival);
   q('#machineTrim').textContent = performance.now() < upgradeReceiptUntil ? upgradeReceipt : '中央の1ラインで判定 · 60秒の獲得コインで勝負';
   if (!activeOffer) {
     const upcoming = snapshot.status === 'playing' ? UPGRADE_OPEN_SECONDS.findIndex(at => snapshot.elapsed >= at - 5 && snapshot.elapsed < at) : -1;
@@ -393,6 +424,7 @@ function showResult(snapshot: MatchSnapshot): void {
 
 function resetBattleUi(): void {
   playerChoices = {};
+  liveReelUpgrades = { player: [], rival: [] };
   upgradeReceiptUntil = 0;
   presentation.reset();
   scene.stop();
@@ -414,6 +446,7 @@ function resetBattleUi(): void {
   q('#pay').textContent = '';
   q('#lastSpin').textContent = 'チェリー・ベル・7';
   q('#rivalReels').textContent = 'チェリー・ベル・7';
+  scene.setUpgrades([], []);
   scene.show(['cherry', 'bell', 'seven']);
   q('#line').textContent = '「60秒。私に勝てる？」';
   q('#heard').textContent = '';
@@ -421,7 +454,10 @@ function resetBattleUi(): void {
   renderSnapshot(getSnapshot(createMatch(1, 'preview')));
 }
 
-function handleSpin(player: SpinView, rival: SpinView): void {
+function handleSpin(player: SpinView, rival: SpinView, upgrades = latestSnapshot?.upgrades): void {
+  // Boundary rounds use the old pool, including when catching up from a newer snapshot.
+  const applied = UPGRADE_CLOSE_SECONDS.filter(at => at < player.round * SPIN_INTERVAL).length;
+  scene.setUpgrades(upgrades?.player.slice(0, applied) ?? [], upgrades?.rival.slice(0, applied) ?? []);
   if (presentation.spin(player, rival)) {
     q('#pay').textContent = '';
     clearTimeout(cueTimer);
@@ -485,7 +521,7 @@ function prepareLiveResult(snapshot: MatchSnapshot): void {
 }
 
 function handlePracticeEvent(event: GameEvent): void {
-  if (event.type === 'spin') handleSpin(event.player, event.rival);
+  if (event.type === 'spin') handleSpin(event.player, event.rival, practiceState?.upgrades);
   if (event.type === 'upgrade_open' && (practiceState?.elapsed ?? 60) < event.closesAt) {
     showUpgrade(event.offerIndex, event.closesAt);
     later(() => {
@@ -553,7 +589,8 @@ function onLiveMessage(message: ServerMessage): void {
   if (message.type === 'snapshot') {
     prepareLiveResult(message.snapshot);
     liveSnapshot = message.snapshot;
-    if (message.lastSpin) handleSpin(message.lastSpin.player, message.lastSpin.rival);
+    liveReelUpgrades = { player: [...message.snapshot.upgrades.player], rival: [...message.snapshot.upgrades.rival] };
+    if (message.lastSpin) handleSpin(message.lastSpin.player, message.lastSpin.rival, message.snapshot.upgrades);
     renderSnapshot(message.snapshot);
     if (message.snapshot.status === 'result') presentation.end(message.snapshot);
     if (message.snapshot.status === 'playing' && !activeOffer) {
@@ -564,7 +601,7 @@ function onLiveMessage(message: ServerMessage): void {
     return;
   }
   if (message.type === 'spin') {
-    handleSpin(message.player, message.rival);
+    handleSpin(message.player, message.rival, liveReelUpgrades);
     return;
   }
   if (message.type === 'upgrade_offer') {
@@ -572,6 +609,9 @@ function onLiveMessage(message: ServerMessage): void {
     return;
   }
   if (message.type === 'upgrade_applied') {
+    // A delayed server tick can send the next spin before its latest snapshot.
+    liveReelUpgrades.player[message.offerIndex] = message.player;
+    liveReelUpgrades.rival[message.offerIndex] = message.rival;
     confirmUpgrade(message.offerIndex, message.player);
     return;
   }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Mesh, Scene, ShaderMaterial, Texture, type BufferGeometry, type Material } from 'three';
 import type { SpinView, SymbolId } from '../../shared/protocol';
-import { settledOffset } from './ReelMotion';
+import { SYMBOLS } from './ReelMotion';
 
 const graphics = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), size: vi.fn() }));
 vi.mock('three', async (importOriginal) => {
@@ -46,9 +46,14 @@ function frame(ms = 16) {
   pending.forEach(callback => callback(performance.now()));
 }
 function scene(): Scene { return graphics.render.mock.calls.at(-1)![0] as Scene; }
-function reelOffsets() {
+function reelCenters() {
   return scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial)
-    .map(m => m.material.uniforms.offset.value % 3);
+    .map(m => {
+      const { offset, strip, stripLength } = m.material.uniforms;
+      if (!Number.isInteger(offset.value)) return null;
+      const cell = ((-offset.value % stripLength.value) + stripLength.value) % stripLength.value;
+      return SYMBOLS[strip.value[cell]];
+    });
 }
 
 beforeEach(() => {
@@ -90,16 +95,16 @@ describe('stage rendering and cleanup', () => {
     frame();
     const player = spin();
     const rival = { ...spin(1, ['bell', 'seven', 'cherry']), side: 'rival' as const };
-    const completed = vi.fn(() => expect(reelOffsets()).toEqual([...player.symbols, ...rival.symbols].map(settledOffset)));
+    const completed = vi.fn(() => expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]));
     view.play(player, rival, completed);
     frame(819);
     expect(completed).not.toHaveBeenCalled();
     frame(1);
-    expect(reelOffsets()[0]).toBe(settledOffset('seven'));
-    expect(reelOffsets()[1]).not.toBe(settledOffset('cherry'));
+    expect(reelCenters()[0]).toBe('seven');
+    expect(reelCenters()[1]).not.toBe('cherry');
     frame(120);
-    expect(reelOffsets()[1]).toBe(settledOffset('cherry'));
-    expect(reelOffsets()[2]).not.toBe(settledOffset('bell'));
+    expect(reelCenters()[1]).toBe('cherry');
+    expect(reelCenters()[2]).not.toBe('bell');
     frame(120);
     expect(completed).toHaveBeenCalledOnce();
     expect(frames.size).toBe(0);
