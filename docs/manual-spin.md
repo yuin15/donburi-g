@@ -15,4 +15,14 @@ CPU・Liveとも最短1.1秒間隔で、両者が同じ回数だけ抽選され�
 
 [改造中の操作画面](evidence/manual-spin/upgrade-1280.webp) · [実回転数の結果画面](evidence/manual-spin/result-1280.webp) · [操作記録](evidence/manual-spin/local-flow.json)
 
-公開後の通常CPU確認は別途追記する。
+## 公開確認
+
+PR #66のコード `65a21e34d6978bd23d6f2f1eef47b28fd5159fb0` を https://slot-chan.vercel.app に公開。Vercel `dpl_GmPiL3PNCQTp2BtuodXgbnvXTdYh` READY、[マージ後CI成功](https://github.com/yuin15/donburi-g/actions/runs/34678942012)。#63/#64をクローズした。
+
+公開Chromeで実際に連打し、32回転・840対1,080の敗北まで確認した。1回目はキー1で安定型、2回目は無入力の既定安定型。残り0秒で最終停止中となり、31回転の表示から32回転目の確定得点へ更新した後に結果が出る。締切で予約は取り消され、余分な33回転目は生じなかった。
+
+再戦は得点・回転数・構成・予約を初期化し、Spaceと追加クリックで2回転して停止した。1920×1080で両者が回転する状態を目視。外部/API通信0、JavaScriptエラー0。公開の無効Live入口もHTTP 401 / WebSocket1008で拒否される。
+
+[公開プレイ画面](evidence/manual-spin/public-play-1920.webp) · [公開32回転の結果](evidence/manual-spin/public-result-1280.webp) · [公開操作記録](evidence/manual-spin/public-flow.json)
+
+公開JS `index-DPJmBELS.js`、CSS `index-nEaOVh7L.css` が検証版と一致する。主JS137.41KB gzip、CSS5.37KB gzip。

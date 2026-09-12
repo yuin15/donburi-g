@@ -1,0 +1,160 @@
+{
+  "cases": [
+    {
+      "case": "idle-before-input",
+      "button": "回す",
+      "hint": "クリック / SPACE · 両者が1回転",
+      "offer": "",
+      "phase": "hidden",
+      "playerBuild": "基本リール",
+      "result": false,
+      "resultRounds": "60 SECONDS",
+      "rivalBuild": "基本リール",
+      "round": "0",
+      "scores": [
+        "0",
+        "0"
+      ],
+      "spinning": "false",
+      "time": "57"
+    },
+    {
+      "case": "first-choice",
+      "button": "次も回す",
+      "hint": "もう一度押すと、次を予約",
+      "offer": "UPGRADE 1 / 2",
+      "phase": "open",
+      "playerBuild": "基本リール",
+      "result": false,
+      "resultRounds": "60 SECONDS",
+      "rivalBuild": "基本リール",
+      "round": "15",
+      "scores": [
+        "120",
+        "120"
+      ],
+      "spinning": "true",
+      "time": "40"
+    },
+    {
+      "case": "first-upgrade-applied",
+      "button": "予約済み",
+      "hint": "次の1回を予約しました",
+      "offer": "UPGRADE 1 / 2",
+      "phase": "hidden",
+      "playerBuild": "安定型",
+      "result": false,
+      "resultRounds": "60 SECONDS",
+      "rivalBuild": "安定型",
+      "round": "20",
+      "scores": [
+        "240",
+        "240"
+      ],
+      "spinning": "true",
+      "time": "34"
+    },
+    {
+      "case": "before-final",
+      "button": "予約済み",
+      "hint": "次の1回を予約しました",
+      "offer": "UPGRADE 2 / 2",
+      "phase": "hidden",
+      "playerBuild": "安定型 / 安定型",
+      "result": false,
+      "resultRounds": "60 SECONDS",
+      "rivalBuild": "安定型 / 安定型",
+      "round": "29",
+      "scores": [
+        "720",
+        "960"
+      ],
+      "spinning": "true",
+      "time": "04"
+    },
+    {
+      "case": "deadline-with-pending-spin",
+      "button": "最終停止中",
+      "hint": "32回転の勝負",
+      "offer": "UPGRADE 2 / 2",
+      "phase": "hidden",
+      "playerBuild": "安定型 / 安定型",
+      "result": false,
+      "resultRounds": "60 SECONDS",
+      "rivalBuild": "安定型 / 安定型",
+      "round": "31",
+      "scores": [
+        "840",
+        "960"
+      ],
+      "spinning": "true",
+      "time": "00"
+    },
+    {
+      "case": "final-result",
+      "button": "再戦する",
+      "hint": "32回転の勝負",
+      "offer": "UPGRADE 2 / 2",
+      "phase": "hidden",
+      "playerBuild": "安定型 / 安定型",
+      "result": true,
+      "resultRounds": "60 SECONDS · 32 SPINS",
+      "rivalBuild": "安定型 / 安定型",
+      "round": "32",
+      "scores": [
+        "840",
+        "1,080"
+      ],
+      "spinning": "false",
+      "time": "00"
+    },
+    {
+      "case": "public-rematch-reset",
+      "button": "回す",
+      "hint": "クリック / SPACE · 両者が1回転",
+      "offer": "UPGRADE 2 / 2",
+      "phase": "hidden",
+      "playerBuild": "基本リール",
+      "result": false,
+      "resultRounds": "60 SECONDS · 32 SPINS",
+      "rivalBuild": "基本リール",
+      "round": "0",
+      "scores": [
+        "0",
+        "0"
+      ],
+      "spinning": "false",
+      "time": "59"
+    },
+    {
+      "case": "public-rematch-two-spins",
+      "button": "回す",
+      "hint": "クリック / SPACE · 両者が1回転",
+      "offer": "UPGRADE 2 / 2",
+      "phase": "hidden",
+      "playerBuild": "基本リール",
+      "result": false,
+      "resultRounds": "60 SECONDS · 32 SPINS",
+      "rivalBuild": "基本リール",
+      "round": "2",
+      "scores": [
+        "120",
+        "120"
+      ],
+      "spinning": "false",
+      "time": "55"
+    }
+  ],
+  "resources": [
+    "https://slot-chan.vercel.app/assets/index-DPJmBELS.js",
+    "https://slot-chan.vercel.app/assets/index-nEaOVh7L.css",
+    "https://slot-chan.vercel.app/art/symbols.webp",
+    "https://slot-chan.vercel.app/art/coin.webp",
+    "https://slot-chan.vercel.app/art/rival-expressions.webp",
+    "https://slot-chan.vercel.app/art/casino-stage.webp",
+    "https://slot-chan.vercel.app/art/symbols.webp",
+    "https://slot-chan.vercel.app/art/coin.webp",
+    "https://slot-chan.vercel.app/art/coin.webp"
+  ],
+  "errors": []
+}
