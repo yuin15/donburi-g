@@ -19,7 +19,7 @@ const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('missing_app');
 
 app.innerHTML = `
-<section class="shell">
+<section class="shell" inert>
   <header class="topbar">
     <h1>Slot-chan</h1>
     <div class="timer"><small>残り</small><b id="time">60</b><span>秒</span></div>
@@ -48,7 +48,7 @@ app.innerHTML = `
     </aside>
   </div>
   <div class="upgrade" id="upgrade" hidden>
-    <div><b>リール改造を選べ！</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite"></small></div>
+    <div><b>リール改造を選べ！</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
     <button data-up="steady" aria-pressed="false"><strong>🍒 安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><kbd>1</kbd></button>
     <button data-up="jackpot" aria-pressed="false"><strong>7 大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><kbd>2</kbd></button>
   </div>
@@ -59,10 +59,10 @@ app.innerHTML = `
     <p>3つそろうと 🍒 ${PAYOUT.cherry} ／ 🔔 ${PAYOUT.bell} ／ 7 ${PAYOUT.seven.toLocaleString()} 点</p>
   </footer>
 </section>
-<div class="gate" id="gate">
+<div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
   <div class="gate-card">
     <div class="eyebrow">Slot-chan</div>
-    <h2>リールを改造して<br><em>60秒で勝ちきれ。</em></h2>
+    <h2 id="gateTitle">リールを改造して<br><em>60秒で勝ちきれ。</em></h2>
     <p>自動で回るスロットを20秒・40秒に改造。相手より多く稼げば勝ち！ CPUも同じルールで勝負します。</p>
     <button id="practice" class="primary">CPUライバルと対戦</button>
     <small>無料・マイク不要。音声や映像がなくても遊べます。</small>
@@ -111,7 +111,19 @@ let effectsMuted = false;
 let warnedTime = false;
 let previousLeader: 'player' | 'rival' | null = null;
 let cueTimer = 0;
+let beforeUpgradeFocus: HTMLElement | null = null;
 const battleTimers = new Set<number>();
+
+function focusBattleControl(): void {
+  (startButton.disabled ? q<HTMLButtonElement>('#leave') : startButton).focus();
+}
+
+function setGateVisible(visible: boolean): void {
+  q('.shell').inert = visible;
+  gate.hidden = !visible;
+  if (visible) q('#practice').focus();
+  else focusBattleControl();
+}
 
 function later(action: () => void, delay: number): void {
   const current = revision;
@@ -150,7 +162,7 @@ function returnToGate(message: string): void {
   modeBadge.textContent = '未接続';
   modeBadge.className = '';
   q('#sound').hidden = true;
-  gate.hidden = false;
+  setGateVisible(true);
   startButton.disabled = true;
   q<HTMLButtonElement>('#liveConnect').disabled = false;
   q('#gateMessage').textContent = message;
@@ -207,6 +219,7 @@ function announce(text: string, sound: 'lead' | 'warning' | 'jackpot'): void {
 }
 
 function showUpgrade(index: 0 | 1, closesAt: number): void {
+  beforeUpgradeFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   effects.play('choose');
   activeOffer = { index, closesAt };
   q('#upgradeNo').textContent = `${index + 1}/2`;
@@ -216,11 +229,18 @@ function showUpgrade(index: 0 | 1, closesAt: number): void {
     button.setAttribute('aria-pressed', 'false');
   });
   upgradePanel.hidden = false;
+  upgradePanel.querySelector<HTMLButtonElement>('button')?.focus();
 }
 
 function hideUpgrade(): void {
+  const restoreFocus = upgradePanel.contains(document.activeElement);
   activeOffer = null;
   upgradePanel.hidden = true;
+  if (restoreFocus) {
+    if (beforeUpgradeFocus?.isConnected && !beforeUpgradeFocus.matches(':disabled') && !beforeUpgradeFocus.closest('[inert], [hidden]')) beforeUpgradeFocus.focus();
+    else focusBattleControl();
+  }
+  beforeUpgradeFocus = null;
 }
 
 function showResult(snapshot: MatchSnapshot): void {
@@ -422,6 +442,7 @@ async function countdownThen(action: () => void): Promise<void> {
   const current = revision;
   const overlay = q<HTMLDivElement>('#countdown');
   overlay.hidden = false;
+  q('#leave').focus();
   for (const value of [3, 2, 1]) {
     overlay.textContent = String(value);
     await new Promise((resolve) => window.setTimeout(resolve, 450));
@@ -462,7 +483,7 @@ q<HTMLButtonElement>('#liveConnect').onclick = async () => {
   try {
     await connectLive(code);
     lastInviteCode = code;
-    gate.hidden = true;
+    setGateVisible(false);
     q<HTMLInputElement>('#invite').value = '';
   } catch {
     if (revision === attempt) prepareCpuMatch('音声・映像を利用できないため、CPU対戦を準備しました。開始ボタンで遊べます。');
@@ -477,7 +498,7 @@ function prepareCpuMatch(message = 'CPUライバル / マイク不要・外部AP
   renderSnapshot(getSnapshot(createMatch(1, 'preview')));
   mode = 'practice';
   q<HTMLButtonElement>('#liveConnect').disabled = false;
-  gate.hidden = true;
+  setGateVisible(false);
   modeBadge.textContent = 'CPU対戦';
   modeBadge.className = 'practice';
   q('#sound').hidden = true;
@@ -522,7 +543,7 @@ upgradePanel.addEventListener('click', (event) => {
     item.setAttribute('aria-pressed', String(item === button));
   });
   q('#upgradeChoice').textContent = `選択済み: ${upgradeId === 'steady' ? '🍒 安定型' : '7 大勝負'}`;
-  button.blur();
+  q('#upgradeChoice').focus();
 });
 
 addEventListener('keydown', (event) => {
