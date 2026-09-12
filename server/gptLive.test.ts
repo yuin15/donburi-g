@@ -148,9 +148,13 @@ describe('live conversation pacing', () => {
     expect(events.onUserSpeech).toHaveBeenCalledOnce();
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onAudio).not.toHaveBeenCalled();
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'interrupted old reply' }));
+    expect(events.onTranscript).not.toHaveBeenCalled();
     for (let i = 0; i < 3; i++) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onAudio).toHaveBeenLastCalledWith(voice);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'new reply' }));
+    expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'new reply');
     const count = socket.send.mock.calls.length;
     bridge.requestReaction('stale game commentary');
     expect(socket.send).toHaveBeenCalledTimes(count);

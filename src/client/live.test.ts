@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ServerMessage } from '../../shared/protocol';
 
 const pcm = vi.hoisted(() => ({ prepare: vi.fn(), close: vi.fn(), play: vi.fn(), interrupt: vi.fn(), setMuted: vi.fn() }));
 vi.mock('./LiveAudioPlayer', () => ({ LiveAudioPlayer: class {
@@ -403,6 +404,8 @@ describe('browser live connection lifecycle', () => {
 });
 it('connects and plays voice without an avatar or a LiveKit room, with one playback route', async () => {
   const instance = client();
+  const forwarded: ServerMessage[] = [];
+  instance.addEventListener('message', event => forwarded.push((event as CustomEvent<ServerMessage>).detail));
   const connecting = instance.connect('test', 'audio');
   const ws = await socket();
   ws.open();
@@ -418,6 +421,8 @@ it('connects and plays voice without an avatar or a LiveKit room, with one playb
   expect(pcm.play).toHaveBeenCalledExactlyOnceWith(audio);
   ws.message({ type: 'voice_interrupt' });
   expect(pcm.interrupt).toHaveBeenCalledOnce();
+  expect(forwarded.at(-1)).toEqual({ type: 'voice_interrupt' });
+  expect(forwarded.some(message => message.type === 'voice_audio')).toBe(false);
   ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
   expect(media.connect).not.toHaveBeenCalled();
   instance.setMuted(true);

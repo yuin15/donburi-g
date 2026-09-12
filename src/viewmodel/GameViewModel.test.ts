@@ -220,6 +220,29 @@ describe('game view model', () => {
     expect(session.disconnect).toHaveBeenCalledOnce();
   });
 
+  it('starts a fresh caption after an interruption and clears conversation feedback on expiry and disconnect', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({ type: 'transcript', role: 'assistant', delta: '私が勝って' });
+    expect(h.vm.state.conversation).toBe('replying');
+    session.emit({ type: 'voice_interrupt' });
+    expect(h.vm.state.line).toBe('Listening…');
+    expect(h.vm.state.conversation).toBe('listening');
+    session.emit({ type: 'transcript', role: 'user', delta: '今どっちが上？' });
+    session.emit({ type: 'transcript', role: 'assistant', delta: '今は' });
+    session.emit({ type: 'transcript', role: 'assistant', delta: '同点だね。' });
+    expect(h.vm.state.line).toBe('今は同点だね。');
+    expect(h.vm.state.heard).toBe('YOU: 今どっちが上？');
+    await h.clock.advance(3000);
+    expect(h.vm.state.conversation).toBe('idle');
+    expect(h.vm.state.line).toBe('今は同点だね。');
+    session.emit({ type: 'voice_interrupt' });
+    session.emit({ type: 'voice_status', status: 'closed' });
+    expect(h.vm.state.conversation).toBe('idle');
+    h.vm.dispose();
+    expect(h.clock.timers.size).toBe(0);
+  });
+
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {
     const h = setup();
     const session = await beginLive(h);

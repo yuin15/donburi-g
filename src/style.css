@@ -39,3 +39,8 @@
 #voicePanel[data-muted="true"]{color:#c5b8a4;border-color:#b6a38244}#voicePanel[data-muted="true"] #mic{background:#24242b;border-color:#897966;color:#e0d0ba}#voicePanel[data-muted="true"] .mic-slash{opacity:1}
 .mic-meter{display:flex;align-items:center;gap:.18cqw;flex:none;height:2cqw}.mic-meter i{display:block;width:.23cqw;border-radius:2px;background:#30463f;height:.75cqw;transition:background 100ms,box-shadow 100ms}.mic-meter i:nth-child(2),.mic-meter i:nth-child(4){height:1.15cqw}.mic-meter i:nth-child(3){height:1.65cqw}.mic-meter i.active{background:#91f5c6;box-shadow:0 0 8px #79efb866}
 .mic-copy{min-width:0;display:grid;gap:.22cqw}.mic-copy strong{font:750 .94cqw/1.3 system-ui;letter-spacing:.1em}.mic-copy small{font:.78cqw/1.3 system-ui;color:#c0cabb}
+#rivalMood[data-conversation=listening],#rivalMood[data-conversation=replying]{gap:.65cqw;font:750 .85cqw/1 system-ui;letter-spacing:.1em;color:#b9ffdd;background:linear-gradient(90deg,#09251ee8,#09251e00 85%)}
+#rivalMood[data-conversation=replying]{color:#ffe3a1;background:linear-gradient(90deg,#3c280ce8,#3c280c00 85%)}
+#rivalMood[data-conversation=listening]::before,#rivalMood[data-conversation=replying]::before{content:'';width:.5cqw;height:.5cqw;flex:none;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor}
+#line[data-conversation=listening]{color:#c7f4dd;background:#09231fe8;border-color:#80bd9a;box-shadow:0 4px 14px #0006,inset 0 0 24px #4ce4a00c}
+#line[data-conversation=listening]::before{border-bottom-color:#80bd9a}

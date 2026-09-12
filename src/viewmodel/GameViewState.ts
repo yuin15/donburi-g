@@ -30,6 +30,7 @@ export interface GameViewState {
   readonly rivalMood: string;
   readonly line: string;
   readonly heard: string;
+  readonly conversation: 'idle' | 'listening' | 'replying';
   readonly microphone: { readonly visible: boolean; readonly active: boolean; readonly muted: boolean; readonly level: number };
   readonly voiceMuted: boolean;
   readonly effectsMuted: boolean;

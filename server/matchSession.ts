@@ -167,7 +167,7 @@ export class MatchSession {
         if (!current() || resultOnly) return;
         this.reactions.conversationActivity();
         if (this.voiceMode === 'avatar') this.media?.interrupt();
-        else this.emit({ type: 'voice_interrupt' });
+        this.emit({ type: 'voice_interrupt' });
       },
       onError: () => { if (current()) this.failVoice(); },
       // Old-session usage still belongs to this game even after its output is invalidated.

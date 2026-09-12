@@ -146,7 +146,9 @@ export class GameView implements GamePresentation {
     this.q('#rivalMeter').style.width = `${total ? state.scores.rival / total * 100 : 50}%`;
     this.text('#scoreGap', gap === 0 ? 'EVEN' : `${Math.abs(gap).toLocaleString()} ${gap > 0 ? 'AHEAD' : 'BEHIND'}`);
     this.q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
-    this.text('#rivalMood', state.rivalMood);
+    this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
+    this.q('#rivalMood').dataset.conversation = state.conversation;
+    this.q('#line').dataset.conversation = state.conversation;
     this.text('#line', state.line);
     this.text('#heard', state.heard);
     this.text('#machineTrim', state.machineNotice);
