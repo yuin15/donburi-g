@@ -20,7 +20,7 @@ Defaults:
 - server shutdown begins no later than 120 seconds from provider initialization
 - result input/output window: at most 8 seconds, bounded by that original 120-second deadline
 - GPT-Live connections: at most 2 per match, sequential (play, then final reaction); one LiveAvatar session
-- rival reasoning: max two calls per match, each ~2.5 second timeout
+- rival upgrade reasoning: disabled in the current game (the preserved legacy upgrade path allows at most two calls, each ~2.5 seconds)
 - mic input per one-second bucket: 192,000 base64 characters
 - messages per one-second bucket: 120; individual JSON payload: 300,000 characters
 - gap recovery on the same game socket: 5-second timeout
@@ -31,6 +31,12 @@ Defaults:
 The process tracks admitted starts, active leases, and used tickets. Session teardown removes the active lease but retains replay protection through ticket expiry. Leases expire after 180 seconds. Restarting or scaling Vercel functions resets or splits these counters; they are intentionally modest demo safeguards, not global spending caps. Use a private invite and short demo sessions. Vercel Firewall rules may be added for wider access without introducing a database. They have not been configured by this code change.
 
 The 120-second deadline starts teardown; it is not proof that provider billing or remote resources have already stopped. GPT finalization can take up to 5 seconds, and the subsequent avatar stop request has a 10-second timeout. Verify final usage and residual remote sessions separately. Result reconnection never resets the original deadline. If old GPT closure or the matching LiveAvatar buffer-clear ACK fails, abandon result speech and retain the finished game.
+
+## Current invitation-only deployment
+
+On 2026-09-12, the user-authorized GPT-Live-1 demo was enabled on production using the existing Vercel Secret variables. The allowed origin is `https://slot-chan.vercel.app`. The real production transport check finalized 76 seconds for play plus 4 seconds for the result; these are usage measurements, not a currency charge or a provider quota guarantee. See [verification and remaining checks](voice-spike.md).
+
+The demo remains invitation-only. Cross-instance global quotas and provider-side remaining-session/billing inspection are still tracked in #11; do not describe the process-local limits as a public service spending cap.
 
 ## Kill switch
 

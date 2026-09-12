@@ -46,7 +46,29 @@ The browser microphone now requests 24kHz with interactive latency and uses 1,02
 
 Sources: [GPT-Live context and conversation](https://developers.openai.com/api/docs/guides/live-conversations), [GPT-Live interruption prompting](https://developers.openai.com/api/docs/guides/live-prompting), [LiveAvatar utterances and interruption acknowledgments](https://docs.liveavatar.com/docs/lite-mode/events).
 
-Production verification remains open. Record, without conversation content or credentials:
+## 2026-09-12 production transport verification
+
+Deployment `dpl_CbGsUkzyfk3RyRdNExqzLE5N9geK` (source `108f6440625b35b02848a22691606741b7da0b19`, PR #84) is READY at `https://slot-chan.vercel.app`. Existing server-only secrets are retained; `LIVE_MODE_ENABLED=true`. Unauthenticated CPU play remains independent.
+
+A real authenticated public WebSocket used synthesized question audio, held a ready connection for 22 seconds, then played the full 60-second game. This was a protocol client, not a browser listening test.
+
+| Measurement | Observed |
+| --- | --- |
+| Access response | HTTP 200 |
+| Provider readiness from access request | 4,665ms |
+| Total access/connection/teardown duration | 97,761ms |
+| Ordered server messages | 388, with 0 sequence gaps |
+| Manual spins / independent rival spins | 16 / 30 |
+| Final player / rival coins | 240 / 600 |
+| Payout totals vs symbol counts | Match for both sides |
+| User / assistant transcript characters | 12 / 178; content not retained |
+| WebSocket close | 1000, no reported errors |
+| GPT-Live match usage from Vercel logs | 76 seconds, finalized=true |
+| GPT-Live result usage from Vercel logs | 4 seconds, finalized=true |
+
+The 22-second ready hold was only to exercise the 90-second transport acceptance case; the normal browser starts its countdown after connection readiness. The production runtime region was `iad1`. Vercel status and the terminal usage logs were checked separately from the client's normal close. LiveAvatar residual-session inspection and actual browser audio/video timing remain open.
+
+Production browser verification remains open. Record, without conversation content or credentials:
 
 - deployment/commit
 - browser and network
