@@ -408,6 +408,7 @@ function resetBattleUi(): void {
   battleTimers.clear();
   clearTimeout(assistantResetTimer);
   resultPanel.hidden = true;
+  q<HTMLDetailsElement>('#resultDetails').open = false;
   q('#resultStats').replaceChildren();
   hideUpgrade();
   q('#pay').textContent = '';
