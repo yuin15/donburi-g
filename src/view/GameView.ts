@@ -126,7 +126,18 @@ export class GameView implements GamePresentation {
     this.scene.setExpression(state.expression);
     const seconds = Math.max(0, Math.ceil(snapshot.remaining));
     this.text('#time', `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
-    this.q('#timer').classList.toggle('urgent', snapshot.status === 'playing' && snapshot.remaining <= 10);
+    const finale = snapshot.status === 'playing' && seconds > 0 && seconds <= 10 && !state.gate.visible;
+    this.q('#timer').classList.toggle('urgent', finale);
+    this.q('.shell').dataset.finale = String(finale);
+    this.text('#timerCaption', finale ? 'FINAL SECONDS' : 'TIME LEFT');
+    this.scene.setFinalSeconds(finale ? seconds : 0);
+    if (finale && previous && Math.ceil(previous.snapshot.remaining) !== seconds && !document.hidden) {
+      if (seconds <= 5) this.audio.countdownTick(seconds, state.connection.voiceReady);
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) this.q('#time').animate([
+        { transform: 'scale(1.12)', color: '#fff4d0' },
+        { transform: 'scale(1)', color: '#ffac8c' },
+      ], { duration: 260, easing: 'ease-out' });
+    }
     this.text('#ps', state.scores.player.toLocaleString());
     this.text('#rs', state.scores.rival.toLocaleString());
     const total = state.scores.player + state.scores.rival;
@@ -192,6 +203,14 @@ export class GameView implements GamePresentation {
     this.text('#queueStatus', state.startControl.spinState === 'queued' ? 'NEXT SPIN QUEUED ✓' : state.result ? 'START A NEW ROUND' : 'CLICK TO SPIN');
     this.q('#roundStatus').dataset.queued = String(state.startControl.spinState === 'queued');
     this.q('#connection').hidden = state.mode !== 'live' || state.microphone.visible;
+    const record = state.sessionRecord;
+    this.q('#bestRun').hidden = !record.best;
+    this.q('#spaceKey').hidden = !!record.best;
+    this.text('#bestScore', record.best.toLocaleString());
+    this.text('#recordCoins', record.best.toLocaleString());
+    this.text('#recordStreak', record.streak ? '× ' + record.streak : '—');
+    this.text('#recordLabel', record.newBest ? 'NEW PERSONAL BEST' : 'SESSION BEST');
+    this.q('#resultRecords').dataset.record = String(record.newBest);
     this.renderResult(state.result);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
@@ -228,8 +247,8 @@ export class GameView implements GamePresentation {
     this.text('#resultPlayer', snapshot.scores.player.toLocaleString());
     this.text('#resultRival', snapshot.scores.rival.toLocaleString());
     const margin = Math.abs(snapshot.scores.player - snapshot.scores.rival).toLocaleString();
-    this.text('#resultGap', snapshot.winner === 'player' ? `You won by ${margin} coins.` : snapshot.winner === 'rival' ? `Just ${margin} coins apart. Go again?` : 'Same coins. One more round to settle it.');
-    this.text('#resultAgain', snapshot.winner === 'player' ? 'Keep the streak going.' : 'Your next big win could change everything.');
+    this.text('#resultGap', snapshot.winner === 'player' ? `You won by ${margin} coins.` : snapshot.winner === 'rival' ? `${margin} coins behind. Go again?` : 'Same coins. One more round to settle it.');
+    this.text('#resultAgain', snapshot.winner === 'player' ? 'Keep the streak going. One more round?' : 'Beat your best. Your next spin could change everything.');
     const rows = this.q<HTMLTableSectionElement>('#resultStats');
     rows.replaceChildren();
     const addRow = (label: string, player: string, rival: string, symbol?: string) => {

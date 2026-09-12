@@ -12,7 +12,7 @@ app.innerHTML = `
     </div>
   </div>
   <header class="topbar">
-    <div class="timer" id="timer" aria-label="Time remaining"><small>TIME LEFT</small><b id="time">1:00</b></div>
+    <div class="timer" id="timer" aria-label="Time remaining"><small id="timerCaption">TIME LEFT</small><b id="time">1:00</b></div>
     <div class="status-cluster" id="status"><span id="modeBadge">CPU DUEL</span><button id="sound" aria-label="Mute AI voice" aria-pressed="false" hidden>VOICE ON</button><button id="effects" aria-label="Mute sound effects" aria-pressed="false">SOUND ON</button><button id="leave">EXIT</button></div>
   </header>
   <div class="scores">
@@ -50,12 +50,13 @@ app.innerHTML = `
       <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>
       <div class="result-score" id="resultScore"><div><small>YOUR COINS</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>RIVAL COINS</small><strong id="resultRival"></strong></div></div>
       <p id="resultGap"></p>
+      <div class="result-records" id="resultRecords"><div><small id="recordLabel">SESSION BEST</small><strong id="recordCoins">0</strong></div><div><small>WIN STREAK</small><strong id="recordStreak">0</strong></div></div>
       <details id="resultDetails"><summary>ROUND STATS <span aria-hidden="true">＋</span></summary><table aria-label="Match coin breakdown"><thead><tr><th scope="col">COIN BREAKDOWN</th><th scope="col">YOU</th><th scope="col">RIVAL</th></tr></thead><tbody id="resultStats"></tbody></table></details>
       <p class="result-again" id="resultAgain">One more round?</p>
     </section>
     <button id="start" disabled>PLAY</button><span id="spinHint" aria-live="polite">CLICK / SPACE TO SPIN</span>
     <div id="paytable" aria-label="Three cherries pay 120, bells 240, sevens 1200"><span><small>×3</small><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><small>×3</small><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><small>×3</small><i class="symbol-icon seven"></i>1,200</span></div>
-    <div id="roundStatus"><kbd>SPACE</kbd><small id="queueStatus">CLICK TO SPIN</small></div>
+    <div id="roundStatus"><kbd id="spaceKey">SPACE</kbd><div id="bestRun" hidden><small>SESSION BEST</small><strong id="bestScore"></strong></div><small id="queueStatus">CLICK TO SPIN</small></div>
   </footer>
 </section>
 <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">

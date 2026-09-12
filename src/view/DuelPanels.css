@@ -2,7 +2,7 @@
 .result {
   position: absolute; z-index: 5; display: flex; flex-direction: column;
   --result-accent: #ffe4a2;
-  left: 8%; top: 31%; width: 48%; height: auto; padding: .85cqw 1.55cqw .7cqw;
+  left: 8%; top: 27.5%; width: 48%; height: auto; padding: .85cqw 1.55cqw .7cqw;
   gap: .25cqw; align-items: stretch; justify-content: flex-start;
   border: 1px solid #dfb872; border-radius: .2cqw;
   background: radial-gradient(ellipse at 85% 0,#6f481ee0,transparent 65%),linear-gradient(135deg,#211911f5,#0b0e15f5);
@@ -32,6 +32,7 @@
 .result summary span { font-size: 1.1cqw; transition: transform .15s; }
 .result details[open] summary span { transform: rotate(45deg); }
 .result:has(details[open]) { top: 22.5%; }
+.result:has(details[open]) .result-records,
 .result:has(details[open])>small,
 .result:has(details[open]) #resultEnglish,
 .result:has(details[open]) .result-emblem,
@@ -50,3 +51,10 @@
 .result .symbol-icon { width: 1.3cqw; height: 1.3cqw; margin-right: .35cqw; }
 .result .result-again { margin: .2cqw 0 0; font-size: .75cqw; color: #bcae96; text-align: center; }
 @keyframes result-arrive { from { opacity: 0; transform: translateY(12px) scale(.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.result-records{display:flex;justify-content:space-between;gap:1.5cqw;margin:.25cqw 0;padding:.45cqw .85cqw;border:1px solid #b79a5655;border-radius:.25cqw;background:linear-gradient(100deg,#5c3c142e,#070a1266)}
+.result-records>div{display:flex;align-items:center;gap:.65cqw}.result-records small{font:700 .62cqw/1.25 system-ui;letter-spacing:.08em;color:#cfb98b}.result-records strong{font:700 1.55cqw/1 Georgia;color:#fff1c5;font-variant-numeric:tabular-nums}
+.result-records[data-record=true]{border-color:#ebc05d99;background:linear-gradient(100deg,#88501777,#3e270d66);box-shadow:inset 0 0 18px #ffb23818}.result-records[data-record=true]>div:first-child small{color:#ffe59c}.result-records[data-record=true]>div:first-child strong{text-shadow:0 0 14px #f6bd4788}
+#bestRun{display:flex;align-items:center;gap:.6cqw}#bestRun>small{max-width:4.2cqw;font:700 .57cqw/1.35 system-ui;letter-spacing:.09em;color:#dac28b}#bestRun>strong{font:700 1.65cqw/1 Georgia;color:#ffe8a6;font-variant-numeric:tabular-nums;text-shadow:0 1px #000}
+.shell[data-finale=true] #machineTrim{font-size:.86cqw;font-weight:800;color:#ffd391;letter-spacing:.18em;text-shadow:0 0 10px #e98432}
+.shell[data-finale=true] #timerCaption{color:#ffc487;letter-spacing:.12em}
+.shell[data-finale=true] #start{filter:drop-shadow(0 0 8px #ff9b4755)}

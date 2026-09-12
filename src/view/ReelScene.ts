@@ -70,6 +70,7 @@ export class ReelScene {
   private pending: Partial<Record<Side, PendingSpin>> = {};
   private winUntil = 0;
   private rivalWinUntil = 0;
+  private finalSeconds = 0;
   private disposed = false;
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private cabinet: CabinetArt;
@@ -218,6 +219,7 @@ export class ReelScene {
     this.clearWin();
     this.pending = {};
     this.portraitReactionUntil = 0;
+    this.setFinalSeconds(0);
     this.lastRound = { player: 0, rival: 0 };
     this.applyStagedStrips();
     this.host.dataset.round = '0';
@@ -246,6 +248,13 @@ export class ReelScene {
     this.portraitTexture.repeat.set(size, size);
     this.portraitTexture.offset.set(this.portraitExpression % 2 * .5 + inset, (this.portraitExpression < 2 ? .5 : 0) + inset);
     return remaining > 0;
+  }
+
+  setFinalSeconds(seconds: number): void {
+    if (this.disposed || seconds === this.finalSeconds) return;
+    this.finalSeconds = seconds;
+    this.cabinet.setFinalSeconds(seconds);
+    this.requestRender();
   }
 
   /** Decorate the confirmed result without changing the settled reels or payout. */

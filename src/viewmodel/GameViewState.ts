@@ -23,6 +23,7 @@ export interface GameViewState {
   };
   readonly machineNotice: string;
   readonly result: MatchSnapshot | null;
+  readonly sessionRecord: { readonly best: number; readonly streak: number; readonly newBest: boolean };
   readonly payout: Readonly<Record<Side, number>> | null;
   readonly cue: { readonly text: string; readonly kind: 'lead' | 'warning' | 'jackpot' } | null;
   readonly expression: GameExpression;
