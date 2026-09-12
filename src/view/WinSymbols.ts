@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Side } from '../../shared/protocol';
 import { STAGE_HEIGHT } from './StageLayout';
 import { createSymbolModels, type SymbolModels, type WinSymbol } from './SymbolModels';
+import { createSymbolAtlas } from './SymbolAtlas';
 
 /** Small 3D rewards between the WIN label and amount, clear of the payline. */
 export class WinSymbols {
@@ -38,6 +39,10 @@ export class WinSymbols {
     const player = copies('player'), rival = copies('rival');
     this.models = { player: player.models, rival: rival.models };
     this.materials = { player: player.materials, rival: rival.materials };
+  }
+
+  createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
+    return createSymbolAtlas(renderer, this.source);
   }
 
   update(side: Side, kind: WinSymbol | null, progress: number, opacity: number, reducedMotion: boolean): void {

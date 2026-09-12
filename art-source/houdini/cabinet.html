@@ -6,13 +6,13 @@
 <style>
 *{box-sizing:border-box}body{margin:0;height:100vh;overflow:hidden;background:radial-gradient(ellipse at 53% 71%,#352614,#11131a 60%,#080b10);color:#ffe8b9;font-family:Georgia,serif}canvas{display:block}
 header{position:absolute;top:5%;left:5%;pointer-events:none}header small{font:11px system-ui;letter-spacing:.25em;color:#c79e60}h1{font:400 44px/1.1 Georgia;margin:12px 0}header p{font:12px/1.8 system-ui;color:#aeb2bd;max-width:320px}#stage{height:100%;width:100%}
-.caption{position:absolute;left:14%;width:24%;bottom:22%;text-align:center;pointer-events:none}.caption b{display:block;font-size:26px;font-weight:400}.caption span{display:block;margin-top:9px;font:10px system-ui;letter-spacing:.16em;color:#bc9b70}
+.caption{position:absolute;left:9%;width:29%;bottom:12%;text-align:center;pointer-events:none}.caption b{display:block;font-size:26px;font-weight:400}.caption span{display:block;margin-top:9px;font:10px system-ui;letter-spacing:.16em;color:#bc9b70}
 footer{position:absolute;bottom:4%;left:5%;right:5%;display:flex;gap:18px;justify-content:space-between;align-items:center}footer p{font:10px/1.8 system-ui;letter-spacing:.12em;color:#b9a782}button{border:1px solid #877044;border-radius:99px;padding:11px 19px;background:#141516cc;color:#ffdf9d;cursor:pointer}button:hover{background:#3e2a18}button:focus-visible{outline:2px solid #f4d796;outline-offset:3px}
 </style>
 <header><small>SLOT-CHAN / HOUDINI COLLECTION 02</small><h1>Built to win.</h1><p>Scarlet enamel. Machined gold.<br>A freestanding cabinet, front to back.</p></header>
 <div id="stage" aria-label="Three dimensional red seven and complete gold slot cabinet"></div>
 <div class="caption"><b>Lucky seven</b><span>GOLD BEVEL / RED ENAMEL</span></div>
-<footer><p>DRAG TO ORBIT · SCROLL TO ZOOM<br>HOUDINI GEOMETRY / THREE.JS MATERIALS</p><div><button id="front">Front</button> <button id="angle">Three-quarter</button> <button id="back">Back</button> <button id="press">Press SPIN</button></div></footer>
+<footer><p>DRAG TO ORBIT · SCROLL TO ZOOM<br>HOUDINI GEOMETRY / THREE.JS MATERIALS</p><div><button id="front">Front</button> <button id="angle">Three-quarter</button> <button id="side">Side</button> <button id="back">Back</button> <button id="press">Press SPIN</button></div></footer>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -27,10 +27,10 @@ document.querySelector('#stage').append(renderer.domElement);
 const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(34,innerWidth/innerHeight,.1,100);
 camera.position.set(0,1.0,17);
 const environment=createGoldCoinEnvironment();
-const finish=new THREE.TextureLoader().load('/art/casino-stage.webp',()=>render());finish.colorSpace=THREE.SRGBColorSpace;
-const cabinet=new CabinetModel(environment,{frontTexture:finish});cabinet.group.position.set(1.95,-2.52,0);cabinet.group.scale.setScalar(.67);cabinet.group.rotation.y=-.38;
+const cabinet=new CabinetModel(environment);cabinet.group.position.set(1.95,-2.52,0);cabinet.group.scale.setScalar(.67);cabinet.group.rotation.y=-.38;
 const symbols=createSymbolModels(environment);
-const seven=symbols.seven.clone(true);seven.position.set(-4.0,-.25,0);seven.scale.setScalar(1.25);seven.rotation.set(.04,-.35,-.09);
+const seven=symbols.seven.clone(true);seven.position.set(-4,0,0);seven.scale.setScalar(1.40);seven.rotation.set(.04,-.35,-.09);
+seven.position.y+=-2.46-new THREE.Box3().setFromObject(seven).min.y;
 for(const [column,x] of [-1.83,.06,1.87].entries()){
   for(const [row,kind] of [column===1?'cherry':'bell','seven',column===1?'bell':'cherry'].entries()){
     const glyph=symbols[kind].clone(true);glyph.scale.setScalar(kind==='seven'?.62:.58);
@@ -42,17 +42,17 @@ for(const [column,x] of [-1.83,.06,1.87].entries()){
 const label=document.createElement('canvas');label.width=512;label.height=128;
 const pen=label.getContext('2d');pen.fillStyle='#ffe9ac';pen.textAlign='center';pen.textBaseline='middle';pen.font='bold 106px Georgia';pen.fillText('SPIN',256,69);
 const lettering=new THREE.Mesh(new THREE.PlaneGeometry(1.8,.45),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(label),transparent:true,depthWrite:false}));
-lettering.position.set(-.43,1.32,1.195);cabinet.group.getObjectByName('cabinet-spin-button').add(lettering);
+lettering.position.set(-.43,1.32,1.26);cabinet.group.getObjectByName('cabinet-spin-button').add(lettering);
 scene.add(cabinet.group,seven,new THREE.AmbientLight(0xffe6ce,1.3));
 const key=new THREE.DirectionalLight(0xffeed4,2.4);key.position.set(-5,8,10);key.castShadow=true;key.shadow.mapSize.set(1024,1024);Object.assign(key.shadow.camera,{left:-9,right:9,top:8,bottom:-8,near:.1,far:35});key.shadow.bias=-.0005;scene.add(key);
 const rim=new THREE.DirectionalLight(0xc0d9ff,1.4);rim.position.set(5,4,-5);scene.add(rim);
 const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.ShadowMaterial({opacity:.35}));floor.rotation.x=-Math.PI/2;floor.position.y=-2.67;floor.receiveShadow=true;scene.add(floor);
-cabinet.group.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true;}});seven.traverse(node=>{if(node.isMesh)node.castShadow=true;});
+cabinet.group.traverse(node=>{if(node.isMesh){node.castShadow=node.name!=='cabinet-glass';node.receiveShadow=node.name!=='cabinet-glass';}});seven.traverse(node=>{if(node.isMesh)node.castShadow=true;});
 const plinth=new THREE.Mesh(new THREE.CylinderGeometry(1.35,1.44,.20,64),new THREE.MeshStandardMaterial({color:0x18171a,metalness:.5,roughness:.3,envMap:environment}));plinth.position.set(-4,-2.56,0);plinth.receiveShadow=true;scene.add(plinth);
 const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.03,0);controls.minDistance=10;controls.maxDistance=27;controls.enablePan=false;controls.addEventListener('change',()=>render());controls.update();
 function render(){renderer.render(scene,camera);document.querySelector('#stage').dataset.triangles=String(renderer.info.render.triangles);}
 function pose(angle){cabinet.group.rotation.y=angle;camera.position.set(0,1,17);controls.target.set(0,.03,0);controls.update();render();}
-document.querySelector('#front').onclick=()=>pose(0);document.querySelector('#angle').onclick=()=>pose(-.52);document.querySelector('#back').onclick=()=>pose(Math.PI);
+document.querySelector('#front').onclick=()=>pose(0);document.querySelector('#angle').onclick=()=>pose(-.68);document.querySelector('#side').onclick=()=>pose(-Math.PI/2);document.querySelector('#back').onclick=()=>pose(Math.PI);
 document.querySelector('#press').onclick=()=>{cabinet.press(performance.now());const tick=now=>{const active=cabinet.update(now,false);render();if(active)requestAnimationFrame(tick);};requestAnimationFrame(tick);};
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();render();}addEventListener('resize',resize);resize();
 </script>

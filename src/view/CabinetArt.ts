@@ -35,8 +35,8 @@ export class CabinetArt {
   private resultStarted = 0;
   private resultUntil = 0;
 
-  constructor(frontTexture?: THREE.Texture) {
-    this.body = new CabinetModel(this.coinEnvironment, { reels: false, frontTexture });
+  constructor() {
+    this.body = new CabinetModel(this.coinEnvironment, { reels: false });
     this.body.group.scale.setScalar(100);
     this.body.group.position.set(530, STAGE_HEIGHT - 870, 0);
     this.group.add(this.body.group);
@@ -59,6 +59,7 @@ export class CabinetArt {
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
   press(now: number): void { this.body.press(now); }
+  createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget { return this.winSymbols.createReelAtlas(renderer); }
 
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
     const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
