@@ -9,7 +9,7 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 3. Server validates origin, live-mode kill switch, required configuration and invite code.
 4. Server returns a short-lived HMAC-signed ticket bound to the browser origin.
 5. Browser upgrades `/api/ws?ticket=...`.
-6. WebSocket verifies origin and ticket, then acquires a quota lease. The invitation-only demo defaults to an in-process store; its limits do not span instances or restarts. An optional shared store provides cross-instance quotas. Ticket reuse is rejected by the selected store. CPU play needs neither store nor this connection.
+6. WebSocket verifies origin and ticket, then acquires an in-process quota lease for this invitation-only demo. Its limits and ticket-reuse tracking do not span instances or restarts. Shared/global spending limits are not implemented in this demo and would be a separate requirement before wider paid access. CPU play needs neither a database nor this connection.
 
 ## Client messages
 

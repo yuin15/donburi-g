@@ -20,7 +20,10 @@ Defaults:
 - server session hard limit: 120 seconds
 - normal result reaction window: 8 seconds
 - rival reasoning: max two calls per match, each ~2.5 second timeout
-- max mic WebSocket message: 256 KB base64 field
+- mic input per one-second bucket: 192,000 base64 characters
+- messages per one-second bucket: 120; individual JSON payload: 300,000 characters
+- gap recovery on the same game socket: 5-second timeout
+- spontaneous live reactions: up to 5 during play plus 1 final result; pending candidates expire in 1.8 seconds
 - daily starts per running process: 10 (configurable)
 - concurrent sessions per running process: 1 (configurable)
 
