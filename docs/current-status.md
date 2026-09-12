@@ -43,6 +43,12 @@
 
 ## 公開記録
 
+### PRでレビューする追加モデル
+
+Issue #106で、Houdini製の7と筐体を追加。編集元、OBJ、正面・斜め・背面のプレビュー、Three.jsへの組み込みを用意した。今回の依頼はPRまでで、以下の公開版は更新していない。[今回のモデルと確認記録](houdini-cabinet.md)。
+
+### 公開済みの記録
+
 - URL: https://slot-chan.vercel.app
 - 公開した実装: `5dcdd5e510dca6945e1a23423c6b51b823700fc7`（PR #105の実装コミット）。Houdiniの3モデルと連打中の立体演出を維持し、会話の割り込みと字幕を仕上げた。[今回の変更](conversation-feedback.md)。
 - Vercel READY: `dpl_HF5AGihuBt7Uns7bzELRAmDapD9H`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。

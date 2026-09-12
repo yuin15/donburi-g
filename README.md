@@ -81,11 +81,13 @@ TypeScript / Vite / Three.jsで実装し、**MVVM**でゲーム規則・進行�
 | [`src/domain/`](src/domain/) | Model。抽選、配当、回転間隔、試合の集計 |
 | [`src/viewmodel/`](src/viewmodel/) | ViewModel。進行、入力予約、表示状態、CPU/Liveの切り替え |
 | [`src/view/`](src/view/) | View。DOM、配置、Three.jsのリール・当たり演出、効果音 |
-| [`art-source/houdini/`](art-source/houdini/) | コイン・ベル・チェリーの制作スクリプト、OBJ、拡大プレビュー |
+| [`art-source/houdini/`](art-source/houdini/) | コイン・ベル・チェリー・7・筐体の制作スクリプト、OBJ、拡大プレビュー |
 | [`src/client/`](src/client/) | 通信、マイク、音声再生、任意の映像接続 |
 | [`server/`](server/) / [`api/`](api/) | ライブ対戦、外部API、接続の開始と終了 |
 
 筐体・リール・光・立体モデルは1つのThree.js描画にまとめ、文字と操作はHTML/CSSで扱います。背景・表情・絵柄は3枚の共有WebP。Houdini製のコインは厚み・両面の7・刻みのある縁を持ち、24枚が同じ形状を共有します。ベル・チェリーの小当たりでは、WINの横に[同じ種類の立体モデル](docs/houdini-symbols.md)が現れます。効果音はWeb Audioで合成しています。静止中・非表示中は連続描画を止め、LiveAvatar用SDKは映像を選んだときだけ読み込みます。
+
+7の立体モデルと背面まで持つ筐体も追加しました。7揃いのWIN表示、押し込める赤いボタン、角度を変えて見られる制作プレビューを含みます。[モデルと画面](docs/houdini-cabinet.md)。この追加分はPRでレビューする段階で、公開デモへの反映はまだ行っていません。
 
 詳しい責務と変更例は [architecture.md](docs/architecture.md)、作業方針は [AGENTS.md](AGENTS.md) を参照してください。
 
@@ -116,4 +118,4 @@ GitHub Actionsでも上記を実行します。変更に必要な確認と既存
 
 **APIキー、トークン、署名鍵、招待コード、環境ファイル、個人のメールアドレス、実際の会話・マイク音声をコミットしないでください。** 引き継ぎ時の秘密値はコードと別の安全な経路で共有します。[SECURITY.md](SECURITY.md) / [運用手順](docs/operations.md)。
 
-筐体・キャラクター表情・絵柄・アイコン用コインは本プロジェクト用に生成した画像です。[画像素材](docs/visual-assets.md) / [画面検証](docs/visual-redesign-verification.md)。当たり演出用のコイン・ベル・チェリーはHoudini Apprenticeで制作し、ゲームソンの非商用デモ向けとして扱います。[3Dモデルの制作元・利用条件](art-source/houdini/README.md)。LiveAvatarとGPT-Liveの接続設計は、MITライセンスの `heygen-com/liveavatar-gpt-live-demos` を参考にしています。[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+筐体・キャラクター表情・絵柄・アイコン用コインは本プロジェクト用に生成した画像です。[画像素材](docs/visual-assets.md) / [画面検証](docs/visual-redesign-verification.md)。3Dのコイン・ベル・チェリー・7・筐体はHoudini Apprenticeで制作し、ゲームソンの非商用デモ向けとして扱います。[3Dモデルの制作元・利用条件](art-source/houdini/README.md)。LiveAvatarとGPT-Liveの接続設計は、MITライセンスの `heygen-com/liveavatar-gpt-live-demos` を参考にしています。[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
