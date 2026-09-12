@@ -96,6 +96,8 @@ def build_geometry(geo, segments=64, reeds=48):
 
 
 def main():
+    from obj_export import compact_obj
+
     root = Path(__file__).resolve().parents[2]
     local = root / ".art-build"
     exported = root / "art-source" / "houdini" / "exports"
@@ -128,15 +130,8 @@ def main():
     geometry = output.geometry()
     asset = exported / "slot-chan-coin.obj"
     geometry.saveToFile(str(asset))
-    # Five decimals are far below one screen pixel at the game's scale. Keep
-    # the web asset compact while retaining full precision in the native scene.
-    lines = []
-    for line in asset.read_text().splitlines():
-        if line.startswith(("v ", "vn ")):
-            parts = line.split()
-            line = parts[0] + " " + " ".join(str(round(float(value), 5)) for value in parts[1:])
-        lines.append(line.rstrip())
-    asset.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Weld only identical exported values; keep sharp normals and native precision.
+    compact_obj(asset)
     hou.hipFile.save(str(local / "slot-chan-coin.hipnc"), save_to_recent_files=False)
     print(json.dumps({"houdini": hou.applicationVersionString(),
                       "points": len(geometry.points()), "polygons": len(geometry.prims()),

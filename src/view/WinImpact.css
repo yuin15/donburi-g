@@ -8,7 +8,7 @@
 .win-burst[data-jackpot=true] small{font-size:1.9cqw;color:#fff1c4}
 .duel-gap{border:1px solid #a07c4477;border-radius:99px;background:linear-gradient(90deg,#0a0802cc,#090b12ed,#0a0802cc);box-shadow:0 2px 5px #0008;letter-spacing:.1em}
 .scores strong{transform-origin:80% 60%}
-#miniLabel[data-win=true]{border-color:#94d4ff;background:linear-gradient(100deg,#153f63f2,#070f1cfa);box-shadow:0 0 24px #70c4ff77,inset 0 1px #e0f5ff99;color:#e2f5ff}
+#miniLabel[data-win=true]{border-color:#94d4ff;background:linear-gradient(90deg,#153f63f2,transparent 35%,transparent 68%,#070f1cfa);box-shadow:0 0 24px #70c4ff77,inset 0 1px #e0f5ff99;color:#e2f5ff}
 #miniLabel[data-jackpot=true]{color:#fff4ca;border-color:#ffe9a7;box-shadow:0 0 26px #ffb94066,inset 0 1px #fff2c299}
 #rivalPay{font-size:2.9cqw}
 #start[data-spin=queued]{box-shadow:inset 0 0 20px #ffcf7dcc,0 0 18px #ffa64755}

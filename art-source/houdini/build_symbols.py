@@ -143,6 +143,8 @@ def build_cherry(geo):
 
 
 def main():
+    from obj_export import compact_obj
+
     root = Path(__file__).resolve().parents[2]
     local, exports = root / ".art-build", root / "art-source" / "houdini" / "exports"
     local.mkdir(exist_ok=True)
@@ -167,13 +169,7 @@ def main():
         geometry = output.geometry()
         asset = exports / ("slot-chan-" + kind + ".obj")
         geometry.saveToFile(str(asset))
-        lines = []
-        for line in asset.read_text().splitlines():
-            if line.startswith(("v ", "vn ")):
-                parts = line.split()
-                line = parts[0] + " " + " ".join(str(round(float(value), 5)) for value in parts[1:])
-            lines.append(line.rstrip())
-        asset.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        compact_obj(asset)
         report.append({"model": kind, "points": len(geometry.points()), "triangles": len(geometry.prims()), "bytes": asset.stat().st_size})
     hou.node("/obj").layoutChildren()
     hou.hipFile.save(str(local / "slot-chan-symbols.hipnc"), save_to_recent_files=False)

@@ -38,4 +38,8 @@ OBJは無料版で対応する書き出し形式です。制作に利用したAp
 
 材質とOBJ読み込みは`src/view/SymbolModels.ts`で管理します。外部のテクスチャやフォントは使いません。これらもApprenticeで制作した非商用デモ向け素材です。
 
+`src/view/WinSymbols.ts`が両者のWIN表示へモデルを配置します。ベルは小さく揺れ、チェリーは弾みます。次の回転ではその側のモデルを消し、先に飛び出したコインだけが飛び終わるようにしています。動きを減らす設定ではモデルを静止表示します。
+
+`obj_export.py`は、Houdiniから書き出した同一の位置・UV・法線をまとめます。面の並びと部位名、面取りや硬い縁の法線を保ち、3モデルのOBJ合計は約566KBです。通常のゲーム開発ではOBJを再生成する必要はなく、Houdini未導入でも`npm run dev`で遊べます。
+
 参考: [Houdini製品比較](https://www.sidefx.com/products/compare/)、[Apprenticeの条件](https://www.sidefx.com/get/try-houdini/)、[Python SOP](https://www.sidefx.com/docs/houdini/nodes/sop/python.html)。

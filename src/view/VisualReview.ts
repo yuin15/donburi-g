@@ -2,7 +2,7 @@ import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import type { ReelScene } from './ReelScene';
 import { cloneMatchStats, createMatchStats, recordSpin } from '../domain/matchStats';
 
-export type ReviewExample = 'final-seconds' | 'session-best' | 'mic-live' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
+export type ReviewExample = 'final-seconds' | 'session-best' | 'mic-live' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'bell-cherry' | 'cherry-bell' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
 interface ReviewPort {
   scene: ReelScene;
   preview: (example: ReviewExample) => void;
@@ -17,7 +17,7 @@ export function mountVisualReview(port: ReviewPort): void {
   controls.id = 'visualReview';
   controls.style.cssText = 'position:fixed;z-index:80;left:8px;bottom:8px;max-width:96vw;padding:8px;background:#080b14ed;border:1px solid #cba768;color:white;font:12px system-ui';
   controls.innerHTML = `<details><summary>ローカル検収ツール（本番には含まれません）</summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-    <button data-example="normal">通常</button><button data-example="final-seconds">残り8秒</button><button data-example="session-best">自己ベスト・3連勝</button><button data-example="small">小当たり</button><button data-example="jackpot">7揃い・逆転</button><button data-example="rival-jackpot">相手が7揃い</button><button data-example="both-jackpot">両者7揃い</button><button data-example="quiet">両者はずれ</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button>
+    <button data-example="normal">通常</button><button data-example="final-seconds">残り8秒</button><button data-example="session-best">自己ベスト・3連勝</button><button data-example="small">小当たり</button><button data-example="bell-cherry">ベル／チェリー</button><button data-example="cherry-bell">チェリー／ベル</button><button data-example="jackpot">7揃い・逆転</button><button data-example="rival-jackpot">相手が7揃い</button><button data-example="both-jackpot">両者7揃い</button><button data-example="quiet">両者はずれ</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button>
     <button data-example="defeat">敗北</button><button data-example="live-caption">Live字幕の保持</button><button data-example="live-result-error">結果音声の接続失敗</button><button data-example="live-result-closed">結果音声の正常終了</button><button data-example="rematch-ready">Live再戦の準備</button>
     <button data-example="mic-live">マイク入力あり</button><button data-example="mic-quiet">マイク待機</button><button data-example="mic-muted">マイクミュート</button>
     <button id="recordMotion">8秒の回転を録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
@@ -81,17 +81,19 @@ export function mountVisualReview(port: ReviewPort): void {
     };
     requestAnimationFrame(measure);
     const examples: SpinView['symbols'][] = [['cherry', 'bell', 'seven'], ['bell', 'bell', 'bell'], ['cherry', 'cherry', 'cherry'], ['seven', 'seven', 'seven']];
-    let total = 0;
+    let total = 0, rivalTotal = 0;
     const matchStats = createMatchStats();
     for (let i = 0; i < examples.length; i += 1) {
       const payout = [0, 240, 120, 1200][i];
       total += payout;
       const round = i + 1;
       const player: SpinView = { side: 'player', round, symbols: examples[i], payout, total };
-      const rival: SpinView = { side: 'rival', round, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: 0 };
+      const rivalPayout = i === 1 ? 120 : i === 2 ? 240 : 0;
+      rivalTotal += rivalPayout;
+      const rival: SpinView = { side: 'rival', round, symbols: i === 1 ? ['cherry', 'cherry', 'cherry'] : i === 2 ? ['bell', 'bell', 'bell'] : ['bell', 'seven', 'cherry'], payout: rivalPayout, total: rivalTotal };
       recordSpin(matchStats, player);
       recordSpin(matchStats, rival);
-      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, scores: { player: total, rival: 0 }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
+      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
       port.spin(player, rival);
       await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 2400 : 2000));
     }
