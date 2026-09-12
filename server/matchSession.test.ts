@@ -90,9 +90,10 @@ describe('live match cleanup', () => {
     await session.initialize();
     session.handleRaw('{"type":"set_score","player":36000}');
     session.handleRaw('{"type":"upgrade","matchId":"test-match","commandId":"bad","offerIndex":0,"upgradeId":"always-seven"}');
+    session.handleRaw('{"type":"mic","audio":"not base64"}');
     session.handleRaw('{"type":"snapshot"}');
     expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, scores: { player: 0, rival: 0 } } });
-    expect(messages.filter(m => m.type === 'error')).toHaveLength(2);
+    expect(messages.filter(m => m.type === 'error')).toHaveLength(3);
     for (let i = 0; i < 130; i += 1) session.handleRaw('{"type":"snapshot"}');
     await vi.advanceTimersByTimeAsync(1);
     expect(release).toHaveBeenCalledOnce(); expect(close).toHaveBeenCalledOnce();

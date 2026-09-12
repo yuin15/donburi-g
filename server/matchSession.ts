@@ -27,7 +27,7 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
     upgradeId: z.enum(['steady', 'jackpot']),
     offerIndex: z.union([z.literal(0), z.literal(1)]),
   }),
-  z.object({ type: z.literal('mic'), audio: z.string().min(1).max(256_000) }),
+  z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
   z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
