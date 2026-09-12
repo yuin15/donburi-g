@@ -5,13 +5,13 @@ import {
   createMatch,
   getSnapshot,
   startMatch,
-  submitUpgrade,
   UPGRADE_DEFINITIONS,
   PAYOUT,
   type GameEvent,
   type MatchState,
 } from './domain/game';
 import { LiveClient } from './client/live';
+import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
 import { GameAudio } from './view/GameAudio';
 
@@ -273,7 +273,7 @@ function handlePracticeEvent(event: GameEvent): void {
     later(() => {
       if (!practiceState || practiceState.status !== 'playing') return;
       const pick: UpgradeId = practiceState.scores.rival < practiceState.scores.player ? 'jackpot' : Math.random() > 0.5 ? 'jackpot' : 'steady';
-      submitUpgrade(practiceState, 'rival', event.offerIndex, pick, practiceState.elapsed);
+      submitCpuUpgrade(practiceState, 'rival', event.offerIndex, pick, practiceStartedAt);
     }, 700);
   }
   if (event.type === 'upgrade_applied') {
@@ -514,7 +514,7 @@ upgradePanel.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-up]');
   if (!button || button.disabled || !activeOffer) return;
   const upgradeId = button.dataset.up as UpgradeId;
-  if (mode === 'practice' && practiceState && !submitUpgrade(practiceState, 'player', activeOffer.index, upgradeId, practiceState.elapsed)) return;
+  if (mode === 'practice' && practiceState && !submitCpuUpgrade(practiceState, 'player', activeOffer.index, upgradeId, practiceStartedAt)) return;
   if (mode === 'live') liveClient?.send({ type: 'upgrade', commandId: crypto.randomUUID(), upgradeId, offerIndex: activeOffer.index });
   effects.play('choose');
   upgradePanel.querySelectorAll('button').forEach((item) => {
