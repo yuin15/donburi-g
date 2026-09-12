@@ -44,7 +44,7 @@ OBJは無料版で対応する書き出し形式です。制作に利用したAp
 
 ## 7と筐体
 
-`build_cabinet.py`で、金縁と赤いエナメル面を重ねた7、背面まで厚みを持つ筐体を制作します。Houdini Apprentice 22.0.429で生成済みです。
+`build_cabinet.py`で、金縁と赤いエナメル面を重ねた7、背面まで厚みを持つ筐体を制作します。Houdini Apprentice 22.0.429で生成済みです。7の輪郭はベジェ曲線、縁は丸い断面、筐体は奥へ絞った曲面で構成しています。
 
 ```powershell
 & 'C:/Program Files/Side Effects Software/Houdini 22.0.429/bin/hython.exe' art-source/houdini/build_cabinet.py
@@ -52,8 +52,8 @@ OBJは無料版で対応する書き出し形式です。制作に利用したAp
 
 | 出力 | 内容 |
 | --- | --- |
-| `exports/slot-chan-seven.obj` | 124三角形、4,824 bytes。金色の本体・面取り・赤い内側を部位で分離 |
-| `exports/slot-chan-cabinet.obj` | 8,840三角形、407,244 bytes。枠・側板・背板・操作盤・赤いボタン・レバー・脚・無地のリールドラム |
+| `exports/slot-chan-seven.obj` | 6,252三角形、321,351 bytes。曲線の輪郭、丸い金縁、暗い内縁、赤いエナメル面 |
+| `exports/slot-chan-cabinet.obj` | 36,974三角形、1,982,633 bytes。丸い窓枠、曲面の側板と操作盤、装飾、背板、ボタン、レバー、脚、無地のドラム |
 | `.art-build/slot-chan-cabinet.hipnc` | 2モデルを収めた編集用シーン。Git対象外。リポジトリのルートに生成 |
 
 `/obj/slot_chan_seven/procedural_seven`と`/obj/slot_chan_cabinet/procedural_cabinet`が制作ノードです。Python SOPに生成コードを埋め込んでおり、編集用シーンを別のPCへ移しても元のスクリプトの絶対パスを必要としません。スクリプトから再生成する場合は、同じフォルダーの`build_symbols.py`と`obj_export.py`も使います。
@@ -62,13 +62,15 @@ OBJは無料版で対応する書き出し形式です。制作に利用したAp
 
 OBJは形状と法線・部位名を保持し、材質はThree.js側で設定します。
 
-- `seven_gold` / `seven_enamel`: `src/view/SymbolModels.ts`で金属・エナメルを設定。
-- `cabinet_*`: `src/view/CabinetModel.ts`で金属・漆調の側板・黒いパネル・赤いボタンを設定。同じ材質の部位はまとめて描画。
+- `seven_gold` / `seven_border` / `seven_enamel`: `src/view/SymbolModels.ts`で金属・内縁・エナメルを設定。
+- `cabinet_*`: `src/view/CabinetModel.ts`で金属・濃いワイン色の塗装・黒いパネル・赤いボタンを設定。同じ材質の部位はまとめて描画。
 - `cabinet_spin_button`: 押し込み用に独立。レバーの赤い持ち手は`cabinet_button`。
 - `cabinet_reel_0`〜`2`: 拡大プレビュー用の無地ドラム。ゲーム側では省き、既存の下向き回転リールを表示。
 
-正面の装飾パネルには、既存の`public/art/casino-stage.webp`の対応部分をテクスチャとして使います。外枠・厚み・レバー・ボタン・背面は立体形状です。ゲームの回転中の絵柄は既存の共有画像を維持し、7の立体モデルは両者の7揃いのWIN表示に使います。
+正面にも側面と共通の材質を使い、筐体の面へ背景写真を貼る処理は撤去しました。金属には小さな加工目のテクスチャをコードで生成し、粗さと微細な凹凸へ使います。窓の薄いガラスはThree.js側で追加する透明な板で、OBJには含めません。ゲームの大きな背景画像は引き続き使用します。
 
-`npm run dev`の後、`/art-source/houdini/cabinet.html`で2モデルを確認できます。ドラッグ・ホイールで回転と拡大、**Front / Three-quarter / Back**で角度を切り替え、**Press SPIN**でボタンを押せます。このページは開発専用です。[モデルとゲーム内の画面、確認記録](../../docs/houdini-cabinet.md)。
+`src/view/SymbolAtlas.ts`が、ベル・チェリー・7を起動時に一度だけ1536×512の画像へ描画します。両者の回転リールはこの共有画像を曲面へ貼り、WIN表示は元の立体モデルを使います。これで通常回転と当たりの絵柄を揃えています。回転中の絵柄自体を毎フレーム立体として描画する方式ではありません。HTMLの小さな配当アイコンは既存画像です。
+
+`npm run dev`の後、`/art-source/houdini/cabinet.html`で2モデルを確認できます。ドラッグ・ホイールで回転と拡大、**Front / Three-quarter / Side / Back**で角度を切り替え、**Press SPIN**でボタンを押せます。このページは開発専用です。[仕上げ後のモデル・ゲーム画面・確認記録](../../docs/houdini-finish.md)、[初版の記録](../../docs/houdini-cabinet.md)。
 
 参考: [Houdini製品比較](https://www.sidefx.com/products/compare/)、[Apprenticeの条件](https://www.sidefx.com/get/try-houdini/)、[Python SOP](https://www.sidefx.com/docs/houdini/nodes/sop/python.html)。
