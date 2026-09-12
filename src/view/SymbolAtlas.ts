@@ -19,7 +19,7 @@ export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolM
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1.20, 1.20, 1.20, -1.20, .1, 15);
   camera.position.z = 6;
-  const light = new THREE.DirectionalLight(0xfff3dd, 2.0);
+  const light = new THREE.DirectionalLight(0xfff3dd, 2.8);
   light.position.set(-3, 4, 8);
   light.castShadow = true;
   light.shadow.mapSize.set(512, 512);
@@ -27,9 +27,9 @@ export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolM
   light.shadow.bias = -.0008;
   light.shadow.normalBias = .005;
   light.shadow.radius = 3;
-  const paper = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ color: 0xffeed2, roughness: 1 }));
+  const paper = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshBasicMaterial({ color: 0xffe2ac }));
   paper.position.z = -.58;
-  scene.add(paper, light, new THREE.AmbientLight(0xfff4e1, 1.1));
+  scene.add(paper, light, new THREE.AmbientLight(0xe7edff, .3));
   try {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;

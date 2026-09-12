@@ -32,18 +32,21 @@ export class CabinetModel {
   private button: THREE.Mesh | null = null;
   private pressedAt = -Infinity;
   private grain = brushedFinish();
+  private viewSlope: number;
 
-  constructor(environment: THREE.Texture, options: { reels?: boolean } = {}) {
+  constructor(environment: THREE.Texture, options: { reels?: boolean; viewSlope?: number } = {}) {
+    this.viewSlope = options.viewSlope ?? 0;
+    const presentation = new THREE.Matrix4().set(1, 0, 0, 0, 0, 1, -this.viewSlope, 0, 0, 0, 1, 0, 0, 0, 0, 1);
     const gold = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .94, roughness: .22, roughnessMap: this.grain, bumpMap: this.grain, bumpScale: .0009, envMap: environment, envMapIntensity: 1.5 });
-    const lacquer = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .05, roughness: .32, clearcoat: .8, clearcoatRoughness: .17, envMap: environment, envMapIntensity: .9 });
+    const lacquer = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .05, roughness: .24, clearcoat: 1, clearcoatRoughness: .1, envMap: environment, envMapIntensity: .28 });
     const black = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .2, roughness: .28, clearcoat: .5, clearcoatRoughness: .3, envMap: environment, envMapIntensity: .65 });
     const chrome = new THREE.MeshStandardMaterial({ color: 0xd8dfeb, metalness: .96, roughness: .17, envMap: environment, envMapIntensity: 1.4 });
-    const ruby = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .03, roughness: .19, clearcoat: 1, clearcoatRoughness: .12, envMap: environment, envMapIntensity: .8 });
+    const ruby = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .03, roughness: .16, clearcoat: 1, clearcoatRoughness: .07, envMap: environment, envMapIntensity: .5 });
     const ivory = new THREE.MeshStandardMaterial({ color: 0xffedcb, metalness: 0, roughness: .46 });
     this.materials = [gold, lacquer, black, chrome, ruby, ivory];
     const palette: Record<string, number> = {
       cabinet_gold: 0xc9a263, cabinet_highlight: 0xf1d79b, cabinet_shadow: 0x684428,
-      cabinet_engraving: 0x92734a, cabinet_body: 0x260f16, cabinet_lacquer: 0x20090f,
+      cabinet_engraving: 0x92734a, cabinet_body: 0x270409, cabinet_lacquer: 0x200308,
       cabinet_black: 0x08090e, cabinet_back: 0x121016, cabinet_vent: 0x24232a,
       cabinet_button: 0xbb0b26, cabinet_spin_button: 0xc10a21,
     };
@@ -54,6 +57,8 @@ export class CabinetModel {
       const isReel = node.name.startsWith('cabinet_reel');
       (Array.isArray(node.material) ? node.material : [node.material]).forEach(value => value.dispose());
       if (isReel && options.reels === false) { geometry.dispose(); return; }
+      // Elevate the game view without distorting the printed reel columns.
+      geometry.applyMatrix4(presentation);
       const color = new THREE.Color(palette[node.name] ?? 0xffffff);
       const positions = geometry.getAttribute('position');
       const normals = geometry.getAttribute('normal');
@@ -90,7 +95,7 @@ export class CabinetModel {
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xd4e3ec, roughness: .10, metalness: .05, transparent: true, opacity: .055, depthWrite: false, envMap: environment, envMapIntensity: .45 });
     const window = new THREE.Mesh(glassGeometry, glass);
     window.name = 'cabinet-glass';
-    window.position.set(-.015, 4.675, .51);
+    window.position.set(-.015, 4.675 - .51 * this.viewSlope, .51);
     this.group.add(window);
     this.geometries.push(glassGeometry);
     this.materials.push(glass);
@@ -102,7 +107,10 @@ export class CabinetModel {
   update(now: number, reducedMotion: boolean): boolean {
     const elapsed = now - this.pressedAt;
     const pressing = !reducedMotion && elapsed >= 0 && elapsed < 180;
-    if (this.button) this.button.position.z = pressing ? -Math.sin(elapsed / 180 * Math.PI) * .045 : 0;
+    if (this.button) {
+      this.button.position.z = pressing ? -Math.sin(elapsed / 180 * Math.PI) * .045 : 0;
+      this.button.position.y = -this.button.position.z * this.viewSlope;
+    }
     return pressing;
   }
 

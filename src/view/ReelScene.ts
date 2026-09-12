@@ -31,7 +31,7 @@ const fragmentShader = `
     vec4 ink = texture2D(atlas,vec2((symbol+clamp(x,.003,.997))/3.,1.-cell));
     float inside = step(0.,x)*step(x,1.);
     gl_FragColor = mix(ivory,ink,inside);
-    float edge = mini>.5 ? abs(vUv.y-.5)*.34 : pow(abs(vUv.y-.5)*2.,2.4)*.66;
+    float edge = mini>.5 ? abs(vUv.y-.5)*.34 : pow(abs(vUv.y-.5)*2.,2.2)*.88;
     float seam = pow(abs(vUv.x-.5)*2.,12.)*.2;
     gl_FragColor.rgb *= 1.-edge-seam;
     float center = 1.-smoothstep(.43,.6,abs(row));
@@ -44,6 +44,7 @@ const fragmentShader = `
       float line = (1.-smoothstep(.003,.014,abs(abs(row)-.51)))*winning;
       gl_FragColor.rgb += vec3(.8,.4,.08)*line;
     }
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
 
@@ -58,7 +59,7 @@ interface PendingSpin {
 export class ReelScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.OrthographicCamera(0, STAGE_WIDTH, STAGE_HEIGHT, 0, 0.1, 500);
+  private camera = new THREE.OrthographicCamera(0, STAGE_WIDTH, STAGE_HEIGHT, 0, 0.1, 1500);
   private materials: THREE.ShaderMaterial[] = [];
   private reelMeshes: THREE.Mesh[] = [];
   private textures: THREE.Texture[] = [];
@@ -85,22 +86,25 @@ export class ReelScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
     Object.assign(this.renderer.domElement.style, { width: '100%', height: '100%', display: 'block' });
     host.append(this.renderer.domElement);
     host.dataset.artReady = 'false';
     this.camera.position.z = 200;
     this.scene.background = new THREE.Color(0x08090d);
-    const background = this.load('/art/casino-stage.webp');
+    const background = this.load('/art/casino-room.webp');
     this.cabinet = new CabinetArt();
-    this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xffe8be, 2.2));
-    const light = new THREE.PointLight(0xffe8c2, 160000);
-    light.position.set(330, 800, 160);
-    this.scene.add(light);
-    const key = new THREE.DirectionalLight(0xffeed3, 1.4);
-    key.position.set(-250, 1100, 950);
+    this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xe5ebff, .35));
+    const key = new THREE.DirectionalLight(0xffe9c4, 3.5);
+    key.position.set(-300, 1200, 1000);
     key.target.position.set(520, 430, 0);
     this.scene.add(key, key.target);
-    this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
+    const fill = new THREE.DirectionalLight(0xb8d7ff, .8);
+    fill.position.set(1700, 650, 600);
+    fill.target.position.set(700, 450, 0);
+    this.scene.add(fill, fill.target);
+    this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, -600);
     this.portraitTexture = this.load('/art/rival-expressions.webp');
     this.portraitTexture.repeat.set(.5, .5);
     this.portraitTexture.offset.set(0, .5);
@@ -147,7 +151,7 @@ export class ReelScene {
   }
 
   private addPlane(texture: THREE.Texture, rect: Rect, z: number): void {
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(rect.w, rect.h), new THREE.MeshBasicMaterial({ map: texture }));
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(rect.w, rect.h), new THREE.MeshBasicMaterial({ map: texture, toneMapped: false }));
     this.place(plane, rect, z);
     this.planes.push(plane);
     this.scene.add(plane);

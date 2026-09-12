@@ -1,6 +1,7 @@
 import './style.css';
 import './view/DuelPanels.css';
 import './view/WinImpact.css';
+import './view/ArtDirection.css';
 import { createLiveSessionFactory } from './client/LiveSession';
 import { GameView } from './view/GameView';
 import { GameViewModel } from './viewmodel/GameViewModel';

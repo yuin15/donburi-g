@@ -11,7 +11,23 @@
 |`public/art/symbols.webp`|チェリー・ベル・7、3×1アトラス|本プロジェクト用に新規生成|
 |`public/art/coin.webp`|大当たりの金貨、透過テクスチャを24枚まで共有|本プロジェクト用に新規生成|
 
-4点合計536,648 bytes。ステージ1672×941、人物1448×1086、絵柄1536×512、金貨256×256。Three.jsのmipmap込み概算テクスチャ量は約20.4MiB。
+初版4点合計536,648 bytes。ステージ1672×941、人物1448×1086、絵柄1536×512、金貨256×256。初版のThree.js mipmap込み概算テクスチャ量は約20.4MiB。現在のゲーム背景は下記のCasino roomを使用する。旧ステージ画像は制作履歴として保持する。
+
+## Casino room
+
+2026-09-13 / #109。Codex内蔵imagegenで背景を新規生成。旧ステージ画像は色・照明の参考だけに渡し、筐体・人物・額縁・文字・操作部を含めない素材へ作り直した。
+
+- 最終素材: `public/art/casino-room.webp`
+- 実寸: 1672×941 / 184,766 bytes。プロンプトの希望解像度とは異なる生成結果の実寸を記録している。
+- 出所: 本プロジェクト用の生成画像。外部APIキーを使う生成CLIは使用していない。
+- 生成PNGはローカル保存し、WebP品質91への圧縮のみ実施。描き足し・合成は行っていない。
+- 本素材には筐体やライバルを描き込まず、Three.jsの筐体・枠と既存の表情画像をゲーム内で重ねる。
+
+使用したプロンプト:
+
+```text
+Create a new finished background plate for this desktop casino slot duel game, wide 16:9 composition, 2560x1440. The attached image is a reference for warm brass lighting, midnight navy velvet, dark marble, and art deco casino atmosphere ONLY. Remove all game objects from the composition: NO slot machine, NO reels, NO portrait frames, NO screens, NO buttons, NO people, NO coins, NO text, NO logos, NO UI. An elegant, dimly lit private casino salon with deep midnight blue and black velvet curtains, tall understated brass wall ribs at the far left and right edges, a few warm out-of-focus amber light points, restrained art deco detail, cinematic photographic rendering. The center 85 percent is deliberately calm and dark to support a separately rendered three-dimensional game cabinet and character panels. Bottom 16 percent is a dark polished black marble counter with subtle low-contrast warm reflections, a believable surface for the cabinet to stand on. Keep bright lights at the far periphery; no bright chandelier or decorative focal point in the middle. Strong depth, rich shadow, low visual clutter. This is a game background asset, not an image of the completed game. Preserve refined casino warmth without the extremely busy sharp background details of the reference.
+```
 
 ## 生成プロンプト
 

@@ -6,6 +6,7 @@ import { PAYOUT } from '../domain/game';
 import { WinSymbols } from './WinSymbols';
 import type { WinSymbol } from './SymbolModels';
 import { CabinetModel } from './CabinetModel';
+import { CasinoStage } from './CasinoStage';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null });
@@ -18,6 +19,7 @@ export class CabinetArt {
   private coinEnvironment = createGoldCoinEnvironment();
   private winSymbols = new WinSymbols(this.coinEnvironment);
   private body: CabinetModel;
+  private stage = new CasinoStage(this.coinEnvironment);
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
   private coinMaterials: Record<Side, THREE.MeshStandardMaterial>;
   private coins: THREE.Mesh[];
@@ -36,10 +38,10 @@ export class CabinetArt {
   private resultUntil = 0;
 
   constructor() {
-    this.body = new CabinetModel(this.coinEnvironment, { reels: false });
+    this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
     this.body.group.scale.setScalar(100);
     this.body.group.position.set(530, STAGE_HEIGHT - 870, 0);
-    this.group.add(this.body.group);
+    this.group.add(this.body.group, this.stage.group);
     this.coinMaterials = {
       player: createGoldCoinMaterial(this.coinEnvironment),
       rival: createGoldCoinMaterial(this.coinEnvironment),
@@ -109,7 +111,7 @@ export class CabinetArt {
 
   private makeBulbs(side: Side): THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> {
     const player = side === 'player';
-    const bounds = player ? { x: 258, y: 241, w: 550, h: 330 } : { x: 1033, y: 689, w: 435, h: 103 };
+    const bounds = player ? { x: 258, y: 249, w: 550, h: 330 } : { x: 1033, y: 689, w: 435, h: 103 };
     const points: Array<[number, number]> = [];
     for (let i = 0; i < 8; i++) {
       const x = bounds.x + bounds.w * i / 7;
@@ -270,6 +272,7 @@ export class CabinetArt {
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
     this.body.dispose();
+    this.stage.dispose();
     this.coinEnvironment.dispose();
     this.bulbGeometry.dispose();
     this.sparkleGeometry.dispose();
