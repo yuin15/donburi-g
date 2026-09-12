@@ -9,19 +9,19 @@ export class WinSymbols {
   readonly group = new THREE.Group();
   private readonly source: SymbolModels;
   private readonly models: Record<Side, Record<WinSymbol, THREE.Group>>;
-  private readonly materials: Record<Side, THREE.MeshStandardMaterial[]>;
+  private readonly materials: Record<Side, THREE.Material[]>;
 
   constructor(environment: THREE.Texture) {
     this.source = createSymbolModels(environment);
     const copies = (side: Side) => {
-      const materials = new Map<THREE.MeshStandardMaterial, THREE.MeshStandardMaterial>();
+      const materials = new Map<THREE.Material, THREE.Material>();
       const copy = (kind: WinSymbol) => {
         const group = this.source[kind].clone(true);
         group.name = side + '-win-' + kind;
         group.visible = false;
         group.traverse(node => {
           if (!(node instanceof THREE.Mesh)) return;
-          const original = node.material as THREE.MeshStandardMaterial;
+          const original = node.material as THREE.Material;
           let material = materials.get(original);
           if (!material) {
             material = original.clone();
@@ -44,7 +44,7 @@ export class WinSymbols {
       icon.name = 'paytable-' + kind;
       icon.position.set(154.3 + index * 64.7, STAGE_HEIGHT - 768, 148);
       icon.rotation.set(kind === 'bell' ? -.18 : 0, -.12, kind === 'seven' ? -.06 : 0);
-      icon.scale.setScalar(kind === 'bell' ? 12.5 : 12);
+      icon.scale.setScalar(kind === 'bell' ? 18 : 17);
       this.group.add(icon);
     });
   }

@@ -214,7 +214,9 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
           voiceReady: ready, showVideo: ready, showVoiceControls: ready,
           text: error ? '結果の音声を終了しました。対戦結果は確定しています。' : ready ? 'マイク停止 / 結果のひとこと' : '会話接続終了',
         },
-        line: error ? resultLine(snapshot) : '「検収字幕: いい勝負だったね。」',
+        line: error ? resultLine(snapshot) : ready
+          ? '検収用の長い字幕です。最後まで接戦だったね。ベルがそろったところは驚いたけれど、まだまだ負けないよ。次の試合も三つの絵柄をそろえて、たくさんのコインを集めよう。もう一回勝負する？'
+          : '「検収字幕: いい勝負だったね。」',
       });
       if (example === 'rematch-ready') {
         reset();

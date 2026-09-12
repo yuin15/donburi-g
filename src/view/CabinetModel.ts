@@ -37,16 +37,17 @@ export class CabinetModel {
   constructor(environment: THREE.Texture, options: { reels?: boolean; viewSlope?: number } = {}) {
     this.viewSlope = options.viewSlope ?? 0;
     const presentation = new THREE.Matrix4().set(1, 0, 0, 0, 0, 1, -this.viewSlope, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-    const gold = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .94, roughness: .22, roughnessMap: this.grain, bumpMap: this.grain, bumpScale: .0009, envMap: environment, envMapIntensity: 1.5 });
+    const gold = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .88, roughness: .3, roughnessMap: this.grain, bumpMap: this.grain, bumpScale: .0014, envMap: environment, envMapIntensity: 1.0 });
     const lacquer = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .05, roughness: .24, clearcoat: 1, clearcoatRoughness: .1, envMap: environment, envMapIntensity: .28 });
     const black = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .2, roughness: .28, clearcoat: .5, clearcoatRoughness: .3, envMap: environment, envMapIntensity: .65 });
     const chrome = new THREE.MeshStandardMaterial({ color: 0xd8dfeb, metalness: .96, roughness: .17, envMap: environment, envMapIntensity: 1.4 });
     const ruby = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .03, roughness: .16, clearcoat: 1, clearcoatRoughness: .07, envMap: environment, envMapIntensity: .5 });
     const ivory = new THREE.MeshStandardMaterial({ color: 0xffedcb, metalness: 0, roughness: .46 });
-    this.materials = [gold, lacquer, black, chrome, ruby, ivory];
+    const lamp = new THREE.MeshStandardMaterial({ color: 0xffeec9, emissive: 0xffbb44, emissiveIntensity: 2, roughness: .3 });
+    this.materials = [gold, lacquer, black, chrome, ruby, ivory, lamp];
     const palette: Record<string, number> = {
-      cabinet_gold: 0xc9a263, cabinet_highlight: 0xf1d79b, cabinet_shadow: 0x684428,
-      cabinet_engraving: 0x92734a, cabinet_body: 0x270409, cabinet_lacquer: 0x200308,
+      cabinet_gold: 0xb5823b, cabinet_highlight: 0xe7c488, cabinet_shadow: 0x41280e,
+      cabinet_engraving: 0x735328, cabinet_body: 0x210409, cabinet_lacquer: 0x210509,
       cabinet_black: 0x08090e, cabinet_back: 0x121016, cabinet_vent: 0x24232a,
       cabinet_button: 0xbb0b26, cabinet_spin_button: 0xc10a21,
     };
@@ -65,14 +66,15 @@ export class CabinetModel {
       const colors = new Float32Array(positions.count * 3);
       const uv = new Float32Array(positions.count * 2);
       for (let i = 0; i < positions.count; i++) {
-        color.toArray(colors, i * 3);
+        const patina = node.name === 'cabinet_gold' ? .85 + .15 * Math.sin(positions.getY(i) * 2.8 + positions.getX(i) * 1.3) ** 2 : 1;
+        colors[i * 3] = color.r * patina; colors[i * 3 + 1] = color.g * patina; colors[i * 3 + 2] = color.b * patina;
         const nx = Math.abs(normals.getX(i)), ny = Math.abs(normals.getY(i)), nz = Math.abs(normals.getZ(i));
         uv[i * 2] = (nx > nz ? positions.getZ(i) : positions.getX(i)) * 3;
         uv[i * 2 + 1] = (ny > nz && ny > nx ? positions.getZ(i) : positions.getY(i)) * 3;
       }
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-      const material = isReel ? ivory : node.name === 'cabinet_chrome' ? chrome
+      const material = isReel ? ivory : node.name === 'cabinet_lamp' ? lamp : node.name === 'cabinet_chrome' ? chrome
         : node.name.includes('button') ? ruby : ['cabinet_body', 'cabinet_lacquer'].includes(node.name) ? lacquer
             : ['cabinet_black', 'cabinet_back', 'cabinet_vent'].includes(node.name) ? black : gold;
       const key = node.name === 'cabinet_spin_button' ? 'spin-button' : String(this.materials.indexOf(material));
@@ -87,6 +89,7 @@ export class CabinetModel {
       geometry.computeBoundingSphere();
       this.geometries.push(geometry);
       const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true; mesh.receiveShadow = true;
       mesh.name = key === 'spin-button' ? 'cabinet-spin-button' : 'cabinet-finish-' + key;
       if (key === 'spin-button') this.button = mesh;
       this.group.add(mesh);

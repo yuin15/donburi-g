@@ -108,38 +108,51 @@ class Model:
 
 def build_bell(geo):
     m = Model(geo)
-    m.lathe([(.84, -.65), (.90, -.61), (.90, -.565), (.86, -.52), (.78, -.485),
-             (.68, -.40), (.58, -.24), (.49, .025), (.45, .29), (.38, .46), (.24, .55), (0, .58)], "bell_gold")
-    m.lathe([(.84, -.65), (.80, -.55), (.66, -.43), (.54, -.23), (.41, .27), (.30, .40), (0, .46)], "bell_inner", inside=True)
-    m.torus((0, -.565, 0), .873, .028, "bell_trim")
-    m.torus((0, .28, 0), .451, .017, "bell_trim")
-    m.sphere((0, .586, 0), (.15, .09, .15), "bell_trim", segments=24, rows=8)
-    m.torus((0, .735, 0), .095, .031, "bell_trim", vertical=True, segments=24)
+    # Taller shoulder and a restrained rolled lip: a bell, not a wide hat.
+    m.lathe([(.68, -.66), (.735, -.625), (.745, -.58), (.72, -.54), (.66, -.51),
+             (.59, -.40), (.52, -.24), (.46, .02), (.425, .29), (.40, .47),
+             (.34, .60), (.23, .68), (.10, .715), (0, .72)], "bell_gold", segments=56)
+    m.lathe([(.68, -.66), (.64, -.57), (.55, -.43), (.47, -.23), (.355, .29), (.27, .49), (0, .59)], "bell_inner", segments=56, inside=True)
+    m.torus((0, -.58, 0), .718, .034, "bell_trim", segments=56)
+    m.torus((0, -.47, 0), .626, .018, "bell_ridge", segments=56)
+    m.torus((0, .43, 0), .409, .024, "bell_trim", segments=48)
+    m.torus((0, .50, 0), .38, .011, "bell_ridge", segments=48)
+    m.sphere((0, .73, 0), (.105, .07, .105), "bell_trim", segments=24, rows=10)
+    m.torus((0, .86, 0), .105, .033, "bell_trim", vertical=True, segments=32)
     m.stem([(0, .3, 0), (0, .1, 0), (0, -.3, 0), (0, -.59, 0)], .033, "bell_inner", steps=4)
-    m.sphere((0, -.59, 0), (.17, .17, .17), "bell_trim", segments=24, rows=12)
+    m.sphere((0, -.70, .17), (.145, .16, .145), "bell_trim", segments=32, rows=16)
 
 
 def build_cherry(geo):
     m = Model(geo)
-    m.sphere((-.40, -.37, -.025), (.48, .46, .43), "cherry_fruit", cherry=True)
-    m.sphere((.39, -.46, .16), (.51, .49, .46), "cherry_fruit", cherry=True)
-    m.stem([(-.40, .045, -.025), (-.39, .54, -.02), (-.02, .89, 0), (.08, .91, 0)], .039, "cherry_stem")
-    m.stem([(.39, -.025, .16), (.45, .43, .12), (.19, .75, .015), (.08, .91, 0)], .039, "cherry_stem")
+    m.sphere((-.39, -.37, -.07), (.48, .53, .46), "cherry_fruit", segments=48, rows=28, cherry=True)
+    m.sphere((.35, -.45, .17), (.53, .55, .49), "cherry_fruit", segments=48, rows=28, cherry=True)
+    m.torus((-.39, .105, -.07), .066, .016, "cherry_gold", segments=24)
+    m.torus((.35, .045, .17), .069, .017, "cherry_gold", segments=24)
+    m.stem([(-.39, .105, -.07), (-.36, .59, -.035), (-.10, .82, .025), (.03, .90, 0)], .057, "cherry_stem", steps=24)
+    m.stem([(.35, .045, .17), (.34, .53, .15), (.18, .79, .035), (.03, .90, 0)], .055, "cherry_stem", steps=24)
     m.stem([(.06, .88, 0), (.09, 1.00, 0), (.15, 1.04, 0), (.20, 1.02, 0)], .033, "cherry_stem", steps=5)
     # The leaf has a folded ridge and a curved pointed silhouette, on both sides.
     def leaf(u, v):
-        width = .215 * math.sin(math.pi * u) ** .85
+        width = .28 * math.sin(math.pi * u) ** .82 * (1 + .018 * math.sin(u * math.pi * 18))
         across = v * 2 - 1
-        x = .12 + .76 * u - .07 * math.sin(math.pi * u)
-        y = .83 - .38 * u + width * across
+        x = .04 + .91 * u - .07 * math.sin(math.pi * u)
+        y = .81 - .31 * u + width * across
         z = .035 + .075 * math.sin(math.pi * u) - .14 * abs(across) * math.sin(math.pi * u)
         return (x, y, z), tuple(hou.Vector3((.15, .16 * (1 if across > 0 else -1), 1)).normalized())
-    m.grid(leaf, 16, 4, "cherry_leaf")
+    m.grid(leaf, 24, 6, "cherry_leaf")
     def back(u, v):
         p, n = leaf(u, v)
         return (p[0], p[1], p[2] - .006), tuple(-x for x in n)
-    m.grid(back, 16, 4, "cherry_leaf")
-    m.stem([(.12, .83, .055), (.33, .77, .14), (.58, .60, .13), (.85, .45, .055)], .012, "cherry_vein", steps=14)
+    m.grid(back, 24, 6, "cherry_leaf")
+    m.stem([(.04, .81, .055), (.30, .76, .14), (.66, .60, .13), (.94, .50, .055)], .013, "cherry_vein", steps=20)
+    for u in (.25, .43, .61, .77):
+        start, _ = leaf(u, .5)
+        for side in (.09, .91):
+            end, _ = leaf(min(.98, u + .16), side)
+            a = tuple(start[k] + (end[k] - start[k]) * .32 for k in range(3))
+            b = tuple(start[k] + (end[k] - start[k]) * .72 for k in range(3))
+            m.stem([(start[0], start[1], start[2] + .009), a, b, end], .006, "cherry_vein", steps=6)
 
 
 def main():

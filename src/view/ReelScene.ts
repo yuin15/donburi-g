@@ -26,7 +26,8 @@ const fragmentShader = `
     float cell = fract(position+.5);
     // The small window is wider than one square symbol: keep ivory margins,
     // rather than stretching the atlas cell to the full window width.
-    float x = (vUv.x-.5)*(mini>.5?cellAspect:1.3)+.5;
+    // Match the square artwork at the cylinder's center; curvature only foreshortens its ends.
+    float x = (vUv.x-.5)*cellAspect*(mini>.5?1.:1.7*1.53/asin(.85))+.5;
     vec4 ivory = texture2D(atlas,vec2(.002,.99));
     vec4 ink = texture2D(atlas,vec2((symbol+clamp(x,.003,.997))/3.,1.-cell));
     float inside = step(0.,x)*step(x,1.);
@@ -76,6 +77,7 @@ export class ReelScene {
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private cabinet: CabinetArt;
   private atlas: THREE.WebGLRenderTarget;
+  private cabinetLight = new THREE.DirectionalLight(0xffe9c4, 3.5);
   private loaded = 0;
   private lastRound: Record<Side, number> = { player: 0, rival: 0 };
   private upgradeKey = '|';
@@ -96,9 +98,13 @@ export class ReelScene {
     const background = this.load('/art/casino-room.webp');
     this.cabinet = new CabinetArt();
     this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xe5ebff, .35));
-    const key = new THREE.DirectionalLight(0xffe9c4, 3.5);
+    const key = this.cabinetLight;
     key.position.set(-300, 1200, 1000);
     key.target.position.set(520, 430, 0);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    Object.assign(key.shadow.camera, { left: -780, right: 780, top: 650, bottom: -650, near: 10, far: 2600 });
+    key.shadow.bias = -.0002; key.shadow.normalBias = .5; key.shadow.radius = 3;
     this.scene.add(key, key.target);
     const fill = new THREE.DirectionalLight(0xb8d7ff, .8);
     fill.position.set(1700, 650, 600);
@@ -110,6 +116,11 @@ export class ReelScene {
     this.portraitTexture.offset.set(0, .5);
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
     this.atlas = this.cabinet.createReelAtlas(this.renderer);
+    // The cabinet and lamps are static: render their contact shadows once.
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     const atlas = this.atlas.texture;
     [...REEL_RECTS, ...MINI_RECTS].forEach((rect, i) => {
       const strip = this.activeStrips[i < 3 ? 0 : 1];
@@ -355,6 +366,7 @@ export class ReelScene {
     }
     this.textures.forEach(t => t.dispose());
     this.atlas.dispose();
+    this.cabinetLight.shadow.dispose();
     this.cabinet.dispose();
     this.renderer.dispose();
     this.host.replaceChildren();

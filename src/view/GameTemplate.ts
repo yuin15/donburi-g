@@ -21,7 +21,7 @@ app.innerHTML = `
     <span class="duel-gap" id="scoreGap" role="status">EVEN</span>
   </div>
   <section class="machine" aria-label="Your slot machine">
-    <div id="machineTitle"><span>WIN</span><strong id="pay" aria-live="polite">0</strong></div>
+    <div id="machineTitle"><span id="winLabel">MATCH 3 · WIN BIG</span><strong id="pay" aria-live="polite">0</strong></div>
     <div class="event-cue" id="eventCue" role="status" hidden></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>

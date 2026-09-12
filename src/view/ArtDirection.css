@@ -33,14 +33,32 @@
 #machineTrim { display: none; }
 .shell[data-finale=true] #machineTrim { display: grid; }
 #line {
-  padding: .55cqw 1.1cqw; border-width: 1px; border-color: #d8c5a7;
-  border-radius: .6cqw .6cqw .6cqw .15cqw;
-  background: linear-gradient(140deg,#fff9ec,#e9dfcc);
-  box-shadow: 0 5px 18px #0005; font-size: 1.15cqw; font-weight: 650;
+  padding: .7cqw 1.25cqw; border: 2px solid #1d1b1b;
+  border-radius: 1.9cqw 1.7cqw 1.8cqw .5cqw;
+  background: linear-gradient(140deg,#fffaf1,#e9e1d2);
+  box-shadow: 0 0 0 2px #ceb990,0 7px 16px #0006; font-size: 1.35cqw; font-weight: 750;
+  transform: rotate(-3deg); text-align: center; text-wrap: balance;
 }
+#line::before { bottom: auto; top: 100%; left: 12%; border: .75cqw solid transparent; border-top-color: #c9b68f; transform: skewX(-25deg); }
 #rivalMood { color: #d7c5a8; font-size: .76cqw; }
+#rivalMood:not([data-conversation=listening]):not([data-conversation=replying]) { visibility: hidden; }
+#line[data-conversation=listening]::before { border-bottom-color: transparent; border-top-color: #80bd9a; }
+#line[data-long=true] {
+  left: 60.9% !important; top: 47.7% !important; width: 32.4% !important; height: 16.2% !important;
+  transform: none; border-radius: .8cqw; padding: .7cqw 1.1cqw; font-size: 1.02cqw; line-height: 1.4; overflow-wrap: anywhere;
+}
+#line[data-long=true]::before { top: auto; bottom: 100%; left: 8%; border-top-color: transparent; border-bottom-color: #eee5d5; }
 #miniLabel { color: #cab18b; font-size: .8cqw; letter-spacing: .13em; }
 #duelRules { gap: .45cqw; border: 0; background: linear-gradient(90deg,transparent,#080b11a8,transparent); }
 #duelRules strong { font: 650 1.04cqw/1.4 system-ui; letter-spacing: .15em; color: #ddc7a3; }
 #duelRules span { font-size: .64cqw; color: #998d79; }
 .duel-gap { border-color: #8a6b4444; background: linear-gradient(90deg,#0c0906a8,#0b090df2,#0c0906a8); box-shadow: 0 2px 8px #0006; font-size: .9cqw; }
+#machineTitle:not([data-win=true]) #pay { display: none; }
+#machineTitle:not([data-win=true]) { justify-content: center; }
+#paytable .symbol-icon { visibility: hidden; }
+#paytable small { visibility: hidden; }
+#spinHint { color: #b19a77; font-size: .58cqw; }
+.scores>div, .timer { border-radius: 1cqw .2cqw 1cqw .2cqw; }
+.score-meter { height: .23cqw; background: #08080bee; }
+.score-meter i { background: linear-gradient(90deg,#8b1424,#ef5d71); box-shadow: 0 0 9px #ef486c88; }
+.rival .score-meter i { background: linear-gradient(90deg,#124e9d,#60baff); }

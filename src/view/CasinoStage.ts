@@ -19,10 +19,12 @@ export class CasinoStage {
   private materials: THREE.Material[];
 
   constructor(environment: THREE.Texture) {
-    const gold = new THREE.MeshStandardMaterial({ color: 0xc3924c, metalness: .92, roughness: .22, envMap: environment, envMapIntensity: 1.4 });
-    const edge = new THREE.MeshStandardMaterial({ color: 0xf2d39b, metalness: .92, roughness: .18, envMap: environment, envMapIntensity: 1.4 });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xad7630, metalness: .88, roughness: .27, envMap: environment, envMapIntensity: .95 });
+    const edge = new THREE.MeshStandardMaterial({ color: 0xcfad72, metalness: .92, roughness: .22, envMap: environment, envMapIntensity: 1.1 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x090b11, metalness: .25, roughness: .38, envMap: environment, envMapIntensity: .3 });
-    this.materials = [gold, edge, dark];
+    const silver = new THREE.MeshStandardMaterial({ color: 0x7792a8, metalness: .85, roughness: .27, envMap: environment, envMapIntensity: .8 });
+    const lamp = new THREE.MeshStandardMaterial({ color: 0xffd68c, emissive: 0xffb745, emissiveIntensity: 2, metalness: .1, roughness: .3 });
+    this.materials = [gold, edge, dark, silver, lamp];
     const pieces = new Map<THREE.Material, THREE.BufferGeometry[]>();
     const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
       if (geometry.index) { const source = geometry; geometry = source.toNonIndexed(); source.dispose(); }
@@ -40,10 +42,10 @@ export class CasinoStage {
     const surround = (rect: Rect) => {
       const { x, y, w, h } = rect;
       add(new RoundedBoxGeometry(w + 26, h + 26, 14, 3, 12), dark, x + w / 2, y + h / 2, -8);
-      ring({ x: x - 12, y: y - 12, w: w + 24, h: h + 24 }, 5, 9, 12, gold, 2);
-      ring({ x: x - 3, y: y - 3, w: w + 6, h: h + 6 }, 2, 3, 4, edge, 8);
+      ring({ x: x - 12, y: y - 12, w: w + 24, h: h + 24 }, 4, 9, 12, silver, 2);
+      ring({ x: x - 3, y: y - 3, w: w + 6, h: h + 6 }, 1.2, 3, 4, silver, 8);
       for (const px of [x - 7, x + w + 7]) for (const py of [y - 7, y + h + 7]) {
-        add(new THREE.SphereGeometry(2.6, 10, 6), edge, px, py, 13);
+        add(new THREE.SphereGeometry(2.6, 10, 6), silver, px, py, 13);
       }
     };
     surround(PORTRAIT);
@@ -64,13 +66,30 @@ export class CasinoStage {
       arrow.moveTo(-side * 4, -7); arrow.lineTo(side * 5, 0); arrow.lineTo(-side * 4, 7); arrow.closePath();
       add(new THREE.ExtrudeGeometry(arrow, { depth: 2, bevelEnabled: true, bevelSize: .6, bevelThickness: .6, bevelSegments: 2 }), edge, x, 410, 49);
     }
+    for (const x of [208, 847]) {
+      add(new THREE.CylinderGeometry(6, 6, 134, 20), lamp, x, 403, 77);
+      for (const y of [330, 338, 468, 476]) add(new RoundedBoxGeometry(19, 9, 19, 3, 3), gold, x, y, 76);
+    }
     pieces.forEach((geometries, material) => {
       const geometry = mergeGeometries(geometries, false);
       geometries.forEach(piece => piece.dispose());
       if (!geometry) throw new Error('Stage frame geometry could not be combined.');
       this.geometries.push(geometry);
-      this.group.add(new THREE.Mesh(geometry, material));
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = material !== lamp; mesh.receiveShadow = material !== lamp;
+      this.group.add(mesh);
     });
+    const glowMaterial = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+      fragmentShader: 'varying vec2 vUv;void main(){vec2 p=abs(vUv-.5)*2.;float a=exp(-p.x*p.x*7.)*pow(max(0.,1.-p.y*p.y),1.4);gl_FragColor=vec4(1.,.47,.12,a*.34);}',
+    });
+    const glowGeometry = new THREE.PlaneGeometry(91, 225);
+    for (const x of [208, 847]) {
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      glow.position.set(x, STAGE_HEIGHT - 403, 89); this.group.add(glow);
+    }
+    this.materials.push(glowMaterial); this.geometries.push(glowGeometry);
     const shadowMaterial = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
       vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',

@@ -16,6 +16,7 @@ vi.mock('three', async (importOriginal) => {
     ...actual,
     WebGLRenderer: class {
       domElement = { style: {} };
+      shadowMap = { enabled: false, type: 0, autoUpdate: true, needsUpdate: false };
       info = { render: { calls: 9, triangles: 396, frame: 1 }, memory: { textures: 4, geometries: 9 } };
       setPixelRatio = vi.fn();
       setSize = graphics.size;

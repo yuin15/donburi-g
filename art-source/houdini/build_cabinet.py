@@ -226,27 +226,17 @@ class SidePanel:
 
 def build_seven(geo):
     m = Model(geo)
-    # Draw the glyph itself: a waved flag, bowed stem and flared serif.
-    current = (-.74, .98)
-    outline = [current]
-    curves = [((-.26, 1.02), (.22, .90), (.69, 1.03), 14),
-              ((.90, 1.11), (1.02, .90), (.87, .69), 10),
-              ((.47, .19), (.13, -.23), (.07, -.80), 18),
-              ((.05, -.94), (-.17, -1.01), (-.43, -.98), 10),
-              ((-.63, -.98), (-.68, -.91), (-.61, -.73), 10),
-              ((-.42, -.10), (-.17, .34), (.24, .62), 18),
-              ((-.13, .55), (-.41, .75), (-.64, .60), 14),
-              ((-.86, .49), (-1.04, .66), (-.96, .84), 12),
-              ((-.92, .97), (-.85, .99), (-.74, .98), 10)]
-    for a, b, end, steps in curves:
-        for i in range(1, steps + 1):
-            t = i / steps
-            outline.append(tuple(current[k] * (1 - t) ** 3 + a[k] * 3 * t * (1 - t) ** 2 + b[k] * 3 * t * t * (1 - t) + end[k] * t ** 3 for k in range(2)))
-        current = end
-    outline = ccw(outline[:-1])
-    rounded_solid(m, outline, -.13, .15, .036, 'seven_gold', steps=5)
-    solid(m, inset(outline, .054), .137, .184, .009, 'seven_border')
-    rounded_solid(m, inset(outline, .070), .175, .245, .024, 'seven_enamel', steps=5)
+    # Strong casino flag and flared foot, with crisp corners and layered edging.
+    outline = ccw([(-.90, 1.05), (-.60, .99), (.33, 1.03), (.78, 1.14),
+                   (1.02, .98), (.71, .36), (.34, -.42), (.24, -.74),
+                   (.43, -.83), (.36, -1.09), (-.77, -1.09), (-.69, -.79),
+                   (-.46, -.70), (-.20, -.12), (.20, .43), (-.56, .42),
+                   (-.75, .16), (-.96, .23)])
+    solid(m, outline, -.28, .10, .023, 'seven_border')
+    solid(m, inset(outline, .028), .08, .19, .035, 'seven_gold')
+    solid(m, inset(outline, .063), .17, .255, .017, 'seven_chrome')
+    solid(m, inset(outline, .089), .24, .29, .008, 'seven_border')
+    solid(m, inset(outline, .114), .28, .47, .05, 'seven_enamel')
 
 
 def build_cabinet(geo):
@@ -291,6 +281,30 @@ def build_cabinet(geo):
     moulding(m, rectangle(246, 238, 563, 328, 11), .40, .015, .018, 'cabinet_highlight')
     rounded_solid(m, rectangle(254, 175, 550, 47, 12), .26, .31, .018, 'cabinet_black', steps=3)
     moulding(m, rectangle(252, 173, 554, 51, 12), .33, .016, .017, 'cabinet_highlight')
+    # A raised casino crown, jewel brackets and marquee lamps are real meshes.
+    crown = ccw([((530 + x - 530) / 100, (870 - 164 - y) / 100) for x, y in
+                 ((-40, 13), (-47, -14), (-20, 0), (0, -25), (20, 0), (47, -14), (40, 13))])
+    solid(m, crown, .29, .65, .025, 'cabinet_shadow')
+    solid(m, inset(crown, .028), .63, .73, .025, 'cabinet_gold')
+    for x, y in ((483, 150), (530, 139), (577, 150)):
+        m.sphere(((x - 530) / 100, (870 - y) / 100, .73), (.05, .05, .04), 'cabinet_highlight', segments=16, rows=10)
+    for x in (498, 530, 562):
+        gem = ccw([((x + dx - 530) / 100, (870 - 168 - dy) / 100) for dx, dy in ((0, -5), (4, 0), (0, 5), (-4, 0))])
+        solid(m, gem, .73, .79, .025, 'cabinet_button')
+    for x, side in ((203, -1), (855, 1)):
+        for i in range(3):
+            wing = ccw([((px - 530) / 100, (870 - py) / 100) for px, py in
+                        ((x, 200 + i * 9), (x + side * 28, 171 + i * 14),
+                         (x + side * 33, 177 + i * 14), (x + side * 7, 232 + i * 5))])
+            solid(m, wing, .42, .68 - i * .02, .028, 'cabinet_gold')
+        for y in (220, 550):
+            setting = ccw([((x + dx - 530) / 100, (870 - y - dy) / 100) for dx, dy in
+                           ((-6, -15), (6, -15), (10, -11), (10, 11), (6, 15), (-6, 15), (-10, 11), (-10, -11))])
+            solid(m, setting, .62, .80, .025, 'cabinet_highlight')
+            solid(m, inset(setting, .025), .79, .93, .025, 'cabinet_button')
+    for x in (271, 321, 371, 421, 637, 687, 737, 787):
+        m.sphere(((x - 530) / 100, (870 - 167) / 100, .44), (.055, .055, .04), 'cabinet_gold', segments=16, rows=10)
+        m.sphere(((x - 530) / 100, (870 - 167) / 100, .477), (.026, .026, .028), 'cabinet_lamp', segments=12, rows=8)
     # Rounded pilasters with narrow flutes and rings at both ends.
     for x in (208, 847):
         rounded_solid(m, rectangle(x - 12, 254, 24, 319, 12), .29, .64, .09, 'cabinet_gold')
@@ -319,7 +333,7 @@ def build_cabinet(geo):
     rounded_solid(m, ellipse(487, 738, 144, 69, 64), .86, 1.08, .085, 'cabinet_gold')
     moulding(m, ellipse(487, 738, 132, 58, 64), 1.04, .026, .028, 'cabinet_highlight')
     rounded_solid(m, ellipse(487, 738, 125, 53, 64), 1.025, 1.14, .045, 'cabinet_black', steps=3)
-    rounded_solid(m, ellipse(487, 738, 120, 48, 64), 1.09, 1.255, .08, 'cabinet_spin_button', steps=6)
+    m.sphere((-.43, 1.32, 1.08), (1.20, .48, .205), 'cabinet_spin_button', segments=64, rows=24)
     rounded_solid(m, rectangle(115, 849, 806, 31, 14), -3.58, .81, .12, 'cabinet_gold')
     moulding(m, rectangle(123, 854, 790, 21, 10), .80, .018, .024, 'cabinet_highlight', segments=6)
     for x in (151, 794):
