@@ -24,3 +24,14 @@
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 @media(max-width:800px){.gate{justify-content:center;padding:20px;background:#03070ccb}.gate-card{padding:22px;border:1px solid #967747;background:#080b12e8}.gate-card h2{font-size:29px}.status-cluster>span{display:none}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+@media(max-width:800px){
+ body{display:block}.shell{width:100vw;aspect-ratio:1000/1950}
+ #brand{font-size:5cqw}#brand small{font-size:1.1cqw}.status-cluster{font-size:2.15cqw;gap:1cqw}.status-cluster button{padding:1cqw 1.3cqw}
+ .timer b{font-size:7cqw}.timer small,.timer span{font-size:2.4cqw}.scores>div{padding:1cqw 2cqw 1.5cqw}.scores strong{font-size:5.4cqw}.scores>div>span:first-child{font-size:3cqw}.score-meter{height:.6cqw;bottom:.6cqw}
+ #machineTitle{font-size:4cqw}.duel-gap{font-size:2.5cqw}#line{font-size:3.1cqw;line-height:1.4;border-radius:2cqw;padding:1cqw 2cqw}#rivalMood{font-size:2.1cqw;padding-left:1.5cqw}#heard{font-size:2cqw}
+ #miniLabel{font-size:2.4cqw}#miniLabel span{font-size:1.5cqw}#builds{font-size:2.3cqw;gap:1cqw}#connection{font-size:2.1cqw}#machineTrim{display:none}
+ #start{font-size:4.6cqw}#start:disabled{font-size:3.4cqw}#paytable>span{font-size:2.2cqw}#paytable .symbol-icon{width:4.5cqw;height:4.5cqw}#upgradeProgress{font-size:2.6cqw;padding:1cqw}#upgradeProgress small{font-size:2cqw}
+ .pay{font-size:7cqw}.pay[data-jackpot=true]{font-size:8.3cqw}.event-cue{font-size:7cqw}.event-cue[data-kind=lead]{font-size:5.5cqw}.event-cue[data-kind=warning]{font-size:3.2cqw}
+ .upgrade{left:3%;top:37%;width:94%;height:10.8%;gap:1cqw;padding:1.5cqw;grid-template-columns:.7fr 1fr 1fr}.upgrade b{font-size:3cqw}.upgrade span,.upgrade small{font-size:2.2cqw}.upgrade button{padding:1cqw}.upgrade button .symbol-icon{position:static;float:left;width:6.5cqw;height:6.5cqw;margin-right:1cqw}.upgrade button strong{font-size:3.1cqw;padding-top:1cqw}.upgrade button small{font-size:2.2cqw;clear:both}.upgrade kbd{display:none}
+ .result{left:21%;top:14.3%;width:60%;height:14%;gap:1.5cqw}.result>small{font-size:1.8cqw}.result>strong{font-size:8cqw}.result>span{font-size:4.5cqw}.result>p{font-size:2.4cqw}
+}

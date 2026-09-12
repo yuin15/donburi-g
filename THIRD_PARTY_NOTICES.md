@@ -15,3 +15,7 @@ Used as an architectural and protocol reference for:
 The upstream repository is MIT licensed. This project does not copy the upstream demo UI or Japanese-tutor prompts.
 
 LiveAvatar, LiveKit, Three.js, OpenAI APIs and other dependencies remain subject to their respective terms and licenses.
+
+## Project artwork
+
+The cabinet background, original fictional adult rival, slot symbols and gold coin were newly generated for Slot-chan. User-supplied concept images and their depicted person are not redistributed. Files, dimensions and generation prompts are documented in [visual-assets.md](./docs/visual-assets.md). The final WebP exports do not retain source image metadata. Sound effects are original Web Audio oscillator cues.

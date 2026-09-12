@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { SpinView, SymbolId } from '../../shared/protocol';
 import { CabinetArt } from './CabinetArt';
 import { planTravel, settledOffset, travelAt, type ReelTravel } from './ReelMotion';
-import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
+import { fitRect, MINI_RECTS, MOBILE_HEIGHT, MOBILE_MACHINE, MOBILE_RIVAL, MOBILE_WIDTH, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
 
 export type RivalExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
 const EXPRESSIONS: RivalExpression[] = ['neutral', 'confident', 'surprised', 'frustrated'];
@@ -13,13 +13,16 @@ const fragmentShader = `
   uniform float offset;
   uniform float winning;
   uniform float mini;
+  uniform float cellAspect;
   void main(){
     // UVs are a continuous display strip. Increasing offset moves ink DOWN.
     float row = mini > .5 ? (.5-vUv.y) : asin((.5-vUv.y)*1.7)/asin(.85)*1.53;
     float position = row-offset;
     float symbol = mod(floor(position+.5),3.);
     float cell = fract(position+.5);
-    float x = (vUv.x-.5)*(mini>.5?1.:1.3)+.5;
+    // The small window is wider than one square symbol: keep ivory margins,
+    // rather than stretching the atlas cell to the full window width.
+    float x = (vUv.x-.5)*(mini>.5?cellAspect:1.3)+.5;
     vec4 ivory = texture2D(atlas,vec2(.002,.99));
     vec4 ink = texture2D(atlas,vec2((symbol+clamp(x,.003,.997))/3.,1.-cell));
     float inside = step(0.,x)*step(x,1.);
@@ -56,7 +59,7 @@ export class ReelScene {
   private winUntil = 0;
   private disposed = false;
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
-  private cabinet = new CabinetArt();
+  private cabinet: CabinetArt;
   private loaded = 0;
   private lastRound = 0;
 
@@ -69,19 +72,22 @@ export class ReelScene {
     host.dataset.artReady = 'false';
     this.camera.position.z = 200;
     this.scene.background = new THREE.Color(0x08090d);
+    this.cabinet = new CabinetArt(this.load('/art/coin.webp'));
     this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xffe8be, 2.2));
     const light = new THREE.PointLight(0xffe8c2, 160000);
     light.position.set(330, 800, 160);
     this.scene.add(light);
-    this.addPlane(this.load('/art/casino-stage.webp'), { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
+    const background = this.load('/art/casino-stage.webp');
+    this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
     this.portraitTexture = this.load('/art/rival-expressions.webp');
     this.portraitTexture.repeat.set(.5, .5);
     this.portraitTexture.offset.set(0, .5);
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
+    this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
     const atlas = this.load('/art/symbols.webp');
     [...REEL_RECTS, ...MINI_RECTS].forEach((rect, i) => {
       const material = new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(['cherry', 'bell', 'seven'][i % 3] as SymbolId) }, winning: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 } },
+        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(['cherry', 'bell', 'seven'][i % 3] as SymbolId) }, winning: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h } },
         vertexShader, fragmentShader,
       });
       const geometry = new THREE.PlaneGeometry(rect.w, rect.h, 1, i >= 3 ? 1 : 32);
@@ -92,6 +98,7 @@ export class ReelScene {
       }
       geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, material);
+      mesh.userData.rect = rect;
       this.place(mesh, rect, 3);
       this.scene.add(mesh);
       this.reelMeshes.push(mesh);
@@ -107,7 +114,7 @@ export class ReelScene {
     const texture = new THREE.TextureLoader().load(url, () => {
       if (this.disposed) return;
       this.loaded += 1;
-      this.host.dataset.artReady = String(this.loaded === 3);
+      this.host.dataset.artReady = String(this.loaded === 4);
       this.requestRender();
     }, undefined, () => { this.host.dataset.artError = 'true'; });
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -117,13 +124,16 @@ export class ReelScene {
 
   private addPlane(texture: THREE.Texture, rect: Rect, z: number): void {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(rect.w, rect.h), new THREE.MeshBasicMaterial({ map: texture }));
+    plane.userData.rect = rect;
     this.place(plane, rect, z);
     this.planes.push(plane);
     this.scene.add(plane);
   }
 
-  private place(mesh: THREE.Mesh, rect: Rect, z: number): void {
-    mesh.position.set(rect.x + rect.w / 2, STAGE_HEIGHT - rect.y - rect.h / 2, z);
+  private place(mesh: THREE.Mesh, rect: Rect, z: number, height = STAGE_HEIGHT): void {
+    mesh.position.set(rect.x + rect.w / 2, height - rect.y - rect.h / 2, z);
+    const base = mesh.userData.rect as Rect;
+    mesh.scale.set(rect.w / base.w, rect.h / base.h, 1);
   }
 
   play(player: SpinView, rival: SpinView, complete: (celebrate: boolean) => void): void {
@@ -139,13 +149,13 @@ export class ReelScene {
   }
 
   /** Preview/reset path; matches use play() and its actual stop notification. */
-  show(symbols: [SymbolId, SymbolId, SymbolId], payout = 0, rival: [SymbolId, SymbolId, SymbolId] = ['cherry', 'bell', 'seven']): void {
+  show(symbols: [SymbolId, SymbolId, SymbolId], payout = 0, rival: [SymbolId, SymbolId, SymbolId] = ['cherry', 'bell', 'seven'], still = false): void {
     if (this.disposed) return;
     this.pending = null;
     this.lastRound = 0;
     [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol); });
     this.host.dataset.spinning = 'false';
-    this.flash(payout);
+    this.flash(payout, still);
     this.requestRender();
   }
 
@@ -158,10 +168,10 @@ export class ReelScene {
     this.requestRender();
   }
 
-  private flash(payout: number): void {
+  private flash(payout: number, still = false): void {
     const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
-    this.winUntil = payout > 0 ? performance.now() + duration : 0;
-    this.cabinet.flash(payout, performance.now(), duration);
+    this.winUntil = payout > 0 ? still ? Infinity : performance.now() + duration : 0;
+    this.cabinet.flash(payout, performance.now(), duration, still);
     this.host.dataset.win = String(payout > 0);
     this.host.dataset.jackpot = String(payout >= 1200);
     this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
@@ -187,7 +197,7 @@ export class ReelScene {
 
   stats(): { calls: number; triangles: number; textures: number; geometries: number; frames: number; loaded: boolean } {
     const { render, memory } = this.renderer.info;
-    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 3 };
+    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 4 };
   }
 
   dispose(): void {
@@ -210,9 +220,35 @@ export class ReelScene {
 
   private resize = (): void => {
     if (this.disposed) return;
+    const mobile = matchMedia('(max-width: 800px)').matches;
+    const height = mobile ? MOBILE_HEIGHT : STAGE_HEIGHT;
+    this.camera.right = mobile ? MOBILE_WIDTH : STAGE_WIDTH;
+    this.camera.top = height;
+    this.camera.updateProjectionMatrix();
+    this.place(this.planes[0], mobile ? MOBILE_MACHINE.target : { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0, height);
+    this.crop(this.planes[0], mobile ? MOBILE_MACHINE.source : { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT });
+    this.planes[2].visible = mobile;
+    if (mobile) {
+      this.place(this.planes[2], MOBILE_RIVAL.target, 0, height);
+      this.crop(this.planes[2], MOBILE_RIVAL.source);
+    }
+    this.place(this.planes[1], mobile ? fitRect(PORTRAIT, MOBILE_RIVAL) : PORTRAIT, 1, height);
+    this.reelMeshes.forEach((mesh, i) => {
+      const rect = i < 3 ? REEL_RECTS[i] : MINI_RECTS[i - 3];
+      this.place(mesh, mobile ? fitRect(rect, i < 3 ? MOBILE_MACHINE : MOBILE_RIVAL) : rect, 3, height);
+    });
+    const scale = mobile ? MOBILE_MACHINE.target.w / MOBILE_MACHINE.source.w : 1;
+    this.cabinet.group.scale.set(scale, scale, 1);
+    this.cabinet.group.position.set(mobile ? -MOBILE_MACHINE.source.x * scale : 0, height - STAGE_HEIGHT * scale, 0);
     this.renderer.setSize(this.host.clientWidth || 1280, this.host.clientHeight || 720, false);
     this.requestRender();
   };
+
+  private crop(mesh: THREE.Mesh, source: Rect): void {
+    const uv = mesh.geometry.attributes.uv;
+    for (let i = 0; i < 4; i += 1) uv.setXY(i, (source.x + (i % 2) * source.w) / STAGE_WIDTH, 1 - (source.y + (i < 2 ? 0 : 1) * source.h) / STAGE_HEIGHT);
+    uv.needsUpdate = true;
+  }
 
   private requestRender = (): void => {
     if (this.disposed || document.hidden || this.frame) return;

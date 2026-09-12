@@ -10,7 +10,7 @@ vi.mock('three', async (importOriginal) => {
     ...actual,
     WebGLRenderer: class {
       domElement = { style: {} };
-      info = { render: { calls: 9, triangles: 396, frame: 1 }, memory: { textures: 3, geometries: 9 } };
+      info = { render: { calls: 9, triangles: 396, frame: 1 }, memory: { textures: 4, geometries: 9 } };
       setPixelRatio = vi.fn();
       setSize = graphics.size;
       render = graphics.render;
@@ -75,12 +75,12 @@ afterEach(() => {
 });
 
 describe('stage rendering and cleanup', () => {
-  it('loads three shared atlases and paints idle only once', () => {
+  it('loads four shared textures and paints idle only once', () => {
     const { view, host } = setup();
     frame();
     expect(graphics.render).toHaveBeenCalledOnce();
     expect(host.dataset).toMatchObject({ artReady: 'true' });
-    expect(view.stats().textures).toBe(3);
+    expect(view.stats().textures).toBe(4);
     expect(frames.size).toBe(0);
     vi.advanceTimersByTime(5000);
     expect(graphics.render).toHaveBeenCalledOnce();
@@ -103,6 +103,24 @@ describe('stage rendering and cleanup', () => {
     frame(120);
     expect(completed).toHaveBeenCalledOnce();
     expect(frames.size).toBe(0);
+  });
+  it('keeps rival symbols square inside their wider windows, including mobile layout', () => {
+    setup();
+    frame();
+    for (const mobile of [false, true]) {
+      vi.stubGlobal('matchMedia', (query: string) => query.includes('max-width') ? { matches: mobile } : motion);
+      viewport.dispatchEvent(new Event('resize'));
+      frame();
+      const minis = scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial && n.material.uniforms.mini.value === 1);
+      expect(minis).toHaveLength(3);
+      for (const mesh of minis) {
+        mesh.geometry.computeBoundingBox();
+        const bounds = mesh.geometry.boundingBox!;
+        const cellWidth = (bounds.max.x - bounds.min.x) * mesh.scale.x / mesh.material.uniforms.cellAspect.value;
+        const cellHeight = (bounds.max.y - bounds.min.y) * mesh.scale.y;
+        expect(cellWidth).toBeCloseTo(cellHeight, 6);
+      }
+    }
   });
   it('replaces obsolete rounds and ignores duplicate/older updates', () => {
     const { view } = setup();
@@ -164,7 +182,7 @@ describe('stage rendering and cleanup', () => {
     view.show(['seven', 'seven', 'seven'], 1200);
     frame();
     const coins: Mesh[] = [];
-    scene().traverse(n => { if (n instanceof Mesh && n.geometry.type === 'CylinderGeometry') coins.push(n); });
+    scene().traverse(n => { if (n instanceof Mesh && n.name === 'win-coin') coins.push(n); });
     expect(coins).toHaveLength(24);
     expect(coins.every(c => c.visible)).toBe(true);
     frame(1200);

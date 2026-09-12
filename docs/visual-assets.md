@@ -9,6 +9,9 @@
 |`public/art/casino-stage.webp`|照明、筐体の彫刻・反射、操作台の焼き込み|本プロジェクト用に新規生成|
 |`public/art/rival-expressions.webp`|同一人物の通常・自信・驚き・悔しさ、2×2アトラス|本プロジェクト用に新規生成|
 |`public/art/symbols.webp`|チェリー・ベル・7、3×1アトラス|本プロジェクト用に新規生成|
+|`public/art/coin.webp`|大当たりの金貨、透過テクスチャを24枚まで共有|本プロジェクト用に新規生成|
+
+4点合計536,648 bytes。ステージ1672×941、人物1448×1086、絵柄1536×512、金貨256×256。Three.jsのmipmap込み概算テクスチャ量は約20.4MiB。
 
 ## 生成プロンプト
 
@@ -43,4 +46,10 @@ Use case: stylized-concept. Asset type: production slot-machine symbol texture a
 From left to right: a pair of rich glossy red cherries with arcing stems and one dark green leaf; a sculpted polished golden brass bell; a bold classic lucky red numeral 7, slanted, beveled enamel with a thin cream and dark bronze outline.
 Each symbol centered precisely within its own equal square cell, uniform 75% cell-size footprint, generous clean padding and no overlap. The entire background is one uniform warm ivory color #f3e6c9, no transparency, no panels, no cell lines, no floor shadow. Symbols have rich modeled volume, realistic lacquer and metal, clean edges, soft tiny ambient contact shading, warm light from upper-left and jewel highlights. Suitable for close-up rendering on curved ivory slot reels.
 The cherries and bell should have the same glossy premium casino illustration style as the red 7. Avoid emoji appearance, flat clip art, black outlines, gradients in the BACKGROUND, extra symbols, decorative frames, captions, letters, logos and watermarks. Exactly three icons in a horizontal strip, with no other numerals besides the one red 7.
+```
+### Coin
+
+```text
+Use case: product-mockup. Asset type: transparent game coin sprite.
+A single perfectly round, polished gold casino token, front-facing centered, ornate raised double rim, small raised 7 in the center, fine radial engraving and tiny repeating bevels. Thick sculpted edge, warm luminous gold highlights at upper-left, darker bronze shading at lower-right. Premium photorealistic 3D product rendering, matching a black lacquer and brass vintage slot machine. The token should occupy 86% of a square canvas. Full circle visible with generous transparent margin. Real alpha transparent background, no background, no ground plane, no cast shadow beyond the token, no lettering besides the one central numeral 7, no watermark, no extra objects. Bright and clearly legible when rendered at 35 pixels.
 ```

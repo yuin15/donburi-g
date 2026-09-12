@@ -15,7 +15,7 @@ import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
 import { GameAudio } from './view/GameAudio';
 import { RoundPresentation } from './view/RoundPresentation';
-import { OVERLAYS, PORTRAIT, STAGE_HEIGHT, STAGE_WIDTH } from './view/StageLayout';
+import { MOBILE_HEIGHT, MOBILE_WIDTH, overlayRects, STAGE_HEIGHT, STAGE_WIDTH } from './view/StageLayout';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('missing_app');
@@ -88,9 +88,16 @@ const q = <T extends HTMLElement>(selector: string): T => {
   return element;
 };
 
-for (const [id, rect] of Object.entries({ ...OVERLAYS, avatar: PORTRAIT })) {
-  Object.assign(q('#' + id).style, { position: 'absolute', left: `${rect.x / STAGE_WIDTH * 100}%`, top: `${rect.y / STAGE_HEIGHT * 100}%`, width: `${rect.w / STAGE_WIDTH * 100}%`, height: `${rect.h / STAGE_HEIGHT * 100}%` });
+function placeOverlay(): void {
+  const mobile = matchMedia('(max-width: 800px)').matches;
+  const width = mobile ? MOBILE_WIDTH : STAGE_WIDTH;
+  const height = mobile ? MOBILE_HEIGHT : STAGE_HEIGHT;
+  for (const [id, rect] of Object.entries(overlayRects(mobile))) {
+    Object.assign(q('#' + id).style, { position: 'absolute', left: `${rect.x / width * 100}%`, top: `${rect.y / height * 100}%`, width: `${rect.w / width * 100}%`, height: `${rect.h / height * 100}%` });
+  }
 }
+placeOverlay();
+addEventListener('resize', placeOverlay);
 const scene = new ReelScene(q('#stageArt'));
 const presentation = new RoundPresentation({
   play: (player, rival, stopped) => scene.play(player, rival, stopped),
@@ -583,7 +590,12 @@ startButton.onclick = async () => {
   starting = true;
   startButton.disabled = true;
   try {
-    if (mode === 'practice' && practiceState?.status !== 'playing') await countdownThen(startPractice);
+    if (mode === 'practice' && practiceState?.status !== 'playing') {
+      resetBattleUi();
+      renderSnapshot(getSnapshot(createMatch(1, 'preview')));
+      startButton.textContent = '準備中';
+      await countdownThen(startPractice);
+    }
     if (mode === 'live') await startLiveOrRematch();
   } catch {
     if (mode === 'live') prepareCpuMatch('音声・映像つき対戦を開始できませんでした。CPU対戦を開始できます。');
@@ -646,3 +658,51 @@ addEventListener('beforeunload', () => {
 
 renderSnapshot(getSnapshot(createMatch(1, 'preview')));
 avatarVideo.hidden = true;
+
+if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-review')) {
+  void import('./view/VisualReview').then(({ mountVisualReview }) => mountVisualReview({
+    scene,
+    reset: () => { prepareCpuMatch(); resetBattleUi(); },
+    spin: handleSpin,
+    snapshot: renderSnapshot,
+    preview: example => {
+      prepareCpuMatch();
+      resetBattleUi();
+      const snapshot: MatchSnapshot = { matchId: 'visual-fixture', status: 'playing', elapsed: 42, remaining: 18, round: 21, scores: { player: 1440, rival: 1200 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, eventSeq: 1 };
+      presentation.scores = { ...snapshot.scores };
+      renderSnapshot(snapshot);
+      startButton.textContent = '自動回転中';
+      startButton.disabled = true;
+      if (example === 'normal') scene.show(['bell', 'seven', 'cherry']);
+      if (example === 'small' || example === 'jackpot') {
+        const jackpot = example === 'jackpot';
+        const symbols: SpinView['symbols'] = jackpot ? ['seven', 'seven', 'seven'] : ['cherry', 'cherry', 'cherry'];
+        const p: SpinView = { side: 'player', round: 21, symbols, payout: jackpot ? 1200 : 120, total: jackpot ? 3600 : 1440 };
+        const r: SpinView = { side: 'rival', round: 21, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 3240 : 1200 };
+        previousLeader = jackpot ? 'rival' : 'player';
+        presentation.scores = { player: p.total, rival: r.total };
+        if (jackpot) { snapshot.remaining = 8; snapshot.elapsed = 52; }
+        renderSnapshot(snapshot);
+        scene.show(p.symbols, p.payout, r.symbols, true);
+        revealRound(p, r, true);
+        battleTimers.forEach(clearTimeout);
+        battleTimers.clear();
+        clearTimeout(cueTimer);
+      }
+      if (example === 'draw') {
+        snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;
+        snapshot.scores = { player: 1440, rival: 1440 }; snapshot.winner = 'draw';
+        presentation.scores = { ...snapshot.scores };
+        finishPresentation(snapshot);
+      }
+      if (example === 'upgrade') showUpgrade(1, 44);
+      if (example === 'final') {
+        snapshot.status = 'result'; snapshot.round = 30; snapshot.remaining = 0; snapshot.elapsed = 60;
+        snapshot.scores = { player: 3600, rival: 3240 }; snapshot.winner = 'player';
+        renderSnapshot(snapshot);
+        handleSpin({ side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 3600 }, { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 3240 });
+        presentation.end(snapshot);
+      }
+    },
+  }));
+}
