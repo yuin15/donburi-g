@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": false,
+    "rootDir": ".",
+    "outDir": ".tmp/server-runtime"
+  },
+  "include": ["api/**/*.ts", "server/**/*.ts", "shared/**/*.ts", "src/domain/game.ts"],
+  "exclude": ["**/*.test.ts"]
+}

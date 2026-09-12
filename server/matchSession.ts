@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import type { ClientMessage, ServerMessage } from '../shared/protocol';
+import type { ClientMessage, ServerMessage } from '../shared/protocol.js';
 import {
   abortMatch,
   advanceMatch,
@@ -11,11 +11,11 @@ import {
   submitUpgrade,
   type GameEvent,
   type MatchState,
-} from '../src/domain/game';
-import { GptLiveBridge } from './gptLive';
-import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar';
-import { MediaServerLeg } from './mediaServer';
-import { chooseRivalUpgrade } from './rivalBrain';
+} from '../src/domain/game.js';
+import { GptLiveBridge } from './gptLive.js';
+import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
+import { MediaServerLeg } from './mediaServer.js';
+import { chooseRivalUpgrade } from './rivalBrain.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('start') }),

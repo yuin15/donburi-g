@@ -1,4 +1,4 @@
-import { env } from './env';
+import { env } from './env.js';
 
 // Small invitation-only demo: these limits belong to one running process.
 // Vercel restarts/scaling reset or split them; they are not an account-wide

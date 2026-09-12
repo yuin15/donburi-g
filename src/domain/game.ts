@@ -1,4 +1,4 @@
-import type { MatchSnapshot, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
+import type { MatchSnapshot, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol.js';
 
 export type MatchStatus = MatchSnapshot['status'];
 

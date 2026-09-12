@@ -3,6 +3,7 @@
 ## Verified locally (2026-09-12)
 
 - TypeScript, ESLint, 47 unit/integration tests, and the production build pass.
+- `npm run check:server-runtime` compiles server code with NodeNext and starts the emitted HTTP/WebSocket APIs directly. It verifies disabled-live rejection without contacting providers; CI runs this check to catch ESM import failures hidden by Vitest.
 - Six lifecycle regressions were reproduced before the fix: disconnects during avatar/media/OpenAI startup, result cleanup, fatal voice errors, and repeated initialization.
 - A real loopback WebSocket test verifies that a disconnect during quota allocation returns the lease without starting providers.
 - Mock provider tests verify startup-error cleanup, bounded transport shutdown, the live kill switch, ticket expiry, and the final 60-second snapshot.
@@ -17,14 +18,14 @@
 ## Still required for the MVP
 
 - Verify browser microphone-denial and live disconnect recovery against the deployed service, and check Edge/mobile layout. Local provider mocks are not a real live-session test.
-- Configure the deployment's server-only environment, inspect its GitHub linkage, and verify the candidate deployment.
+- Verify deployed HTTP/WebSocket rejection after the Node ESM import fix. Server-only environment configuration is saved; Git-based automatic deployment remains unconnected.
 - Verify three complete real-provider matches, 90-second connection survival, interruptions, teardown, latency, and measured usage. Local mocked tests are not evidence for these items.
 - Complete first-time playtests and record the observations required by Issue #12.
 
 ## Deployment state
 
-- Vercel preview deployment `dpl_77ApJFP1fR2FhN8jo5asMmeD1ACc` reached READY and rendered the Slot-chan page. It contains the PR #18 version; subsequent balance changes need a fresh deployment.
-- PR #18 and #17 are merged; main commit `4897912eaa880dd86fc78bf46268586de93c2b60` passed post-merge CI. Git-based automatic deployment is not connected; the GitHub account-selection popup did not respond to browser automation. Deployments can still be created using the connected Vercel API.
+- Production deployment `dpl_BZyoJCLHSq3cQuuhXWSpdtYw9Pvg` reached READY and rendered the Slot-chan page at `https://slot-chan.vercel.app`, with PR #19 balance changes. API smoke checks found HTTP 500: runtime logs identify `ERR_MODULE_NOT_FOUND` for extensionless server imports. READY alone did not establish API health. The import fix needs deployment and another smoke check.
+- PR #17, #18, and #19 are merged; main commit `768841d335e30996fc85ae43d17db8356b313b21` passed post-merge CI. Git-based automatic deployment is not connected; the GitHub account-selection popup did not respond to browser automation. Deployments can still be created using the connected Vercel API.
 - OpenAI/LiveAvatar keys, signing key, and invite code are saved as Vercel Secrets for Production and Preview. Live mode is explicitly disabled, allowed origin is the public Slot-chan URL, and per-process demo limits are configured. Actual API use is awaiting confirmation of the bounded test budget.
 - A free Upstash database was created during setup; it is not connected to this game and is not required by the current code. No paid plan was selected. No Vercel Firewall rule has been added by these changes.
 
