@@ -52,3 +52,5 @@ Date.nowだけを進め、実タイマー/I/Oを動かしたままping/pongで�
 ## 公開反映
 
 #54/#55 はPR #56でマージ済み。公開コード `cb5db8988f8a672786069e71a1cfad7488eb2406`、[マージ後CI成功](https://github.com/yuin15/donburi-g/actions/runs/34675723578)、Vercel `dpl_B8dsGkr9F8CTv8hoJzVwJJ889FtE` READY。公開入口・HTTP 401 / WebSocket1008を再確認した。画面JS/CSSはPR #53の通し検証版と同一。実API検証との区別は維持する。
+
+#58はPR #59でマージ済み（`54348501c31cec2b05ec015438bb7de96b988e56`、[CI成功](https://github.com/yuin15/donburi-g/actions/runs/34676861998)）。PR #61のPC表示改善と併せて `dpl_FiK4BZ2BrttDeiZrqM8heKant336` READYで公開し、HTTP 401 / WebSocket1008を再確認。公開Live無効・実音声未検証の区別は維持する。

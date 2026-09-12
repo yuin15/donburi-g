@@ -1,0 +1,44 @@
+{
+  "choices": [
+    "選択済み: 安定型",
+    "選択済み: 大勝負"
+  ],
+  "result": {
+    "detailsOpen": false,
+    "gap": "2,400コイン差。次こそ、逆転を。",
+    "line": "「私の勝ち。再戦する？」",
+    "score": "あなたのコイン480VSライバルのコイン2,880",
+    "title": "敗北",
+    "resources": [
+      "https://slot-chan.vercel.app/assets/index--xLC7qNX.js",
+      "https://slot-chan.vercel.app/assets/index-D_x-kPYE.css",
+      "https://slot-chan.vercel.app/art/symbols.webp",
+      "https://slot-chan.vercel.app/art/coin.webp",
+      "https://slot-chan.vercel.app/art/casino-stage.webp",
+      "https://slot-chan.vercel.app/art/rival-expressions.webp",
+      "https://slot-chan.vercel.app/art/symbols.webp",
+      "https://slot-chan.vercel.app/art/coin.webp",
+      "https://slot-chan.vercel.app/art/coin.webp"
+    ],
+    "details": {
+      "bottom": 510.5654754638672,
+      "rows": [
+        "チェリー\t2回 · 240点\t2回 · 240点",
+        "ベル\t1回 · 240点\t1回 · 240点",
+        "7\t0回 · 0点\t2回 · 2,400点",
+        "最高の一回\t240点（10回転目）\t1,200点（23回転目）",
+        "改造の順番\t安定型 → 大勝負\t大勝負 → 大勝負"
+      ],
+      "startTop": 525.3099975585938
+    },
+    "keyboardClose": true
+  },
+  "replay": {
+    "detailsOpen": false,
+    "resultHidden": true,
+    "rows": 0,
+    "score": "0",
+    "time": "60"
+  },
+  "errors": []
+}
