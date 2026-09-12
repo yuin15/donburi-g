@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe('stage rendering and cleanup', () => {
-  it('loads four shared textures and paints idle only once', () => {
+  it('loads shared artwork and paints idle only once', () => {
     const { view, host } = setup();
     frame();
     expect(graphics.render).toHaveBeenCalledOnce();

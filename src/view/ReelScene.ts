@@ -89,7 +89,7 @@ export class ReelScene {
     host.dataset.artReady = 'false';
     this.camera.position.z = 200;
     this.scene.background = new THREE.Color(0x08090d);
-    this.cabinet = new CabinetArt(this.load('/art/coin.webp'));
+    this.cabinet = new CabinetArt();
     this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xffe8be, 2.2));
     const light = new THREE.PointLight(0xffe8c2, 160000);
     light.position.set(330, 800, 160);
@@ -132,7 +132,7 @@ export class ReelScene {
     const texture = new THREE.TextureLoader().load(url, () => {
       if (this.disposed) return;
       this.loaded += 1;
-      this.host.dataset.artReady = String(this.loaded === 4);
+      this.host.dataset.artReady = String(this.loaded === 3);
       this.requestRender();
     }, undefined, () => { this.host.dataset.artError = 'true'; });
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -325,7 +325,7 @@ export class ReelScene {
 
   stats(): { calls: number; triangles: number; textures: number; geometries: number; frames: number; loaded: boolean } {
     const { render, memory } = this.renderer.info;
-    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 4 };
+    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 3 };
   }
 
   dispose(): void {
