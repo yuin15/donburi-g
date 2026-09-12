@@ -3,7 +3,7 @@ import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import { RoundPresentation } from './RoundPresentation';
 
 const spin = (round: number, total = 120): SpinView => ({ round, total, side: 'player', payout: 120, symbols: ['cherry', 'cherry', 'cherry'] });
-const end = (round = 30): MatchSnapshot => ({ matchId: 'test', status: 'result', elapsed: 60, remaining: 0, round, scores: { player: 3600, rival: 3480 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, winner: 'player', eventSeq: 70 });
+const end = (round = 30): MatchSnapshot => ({ matchId: 'test', status: 'result', elapsed: 60, remaining: 0, round, scores: { player: 3600, rival: 3480 }, stats: { player: { wins: { cherry: 30, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: 120 } }, rival: { wins: { cherry: 29, bell: 0, seven: 0 }, bestSpin: { round: 2, payout: 120 } } }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, winner: 'player', eventSeq: 70 });
 
 function setup() {
   const stopped: Array<(celebrate?: boolean) => void> = [];

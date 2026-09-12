@@ -1,4 +1,5 @@
-import type { MatchSnapshot, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol.js';
+import type { MatchSnapshot, MatchStats, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol.js';
+import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 
 export type MatchStatus = MatchSnapshot['status'];
 
@@ -17,6 +18,7 @@ export interface MatchState {
   remaining: number;
   round: number;
   scores: Record<Side, number>;
+  stats: MatchStats;
   pools: Record<Side, SymbolId[]>;
   activePools: Record<Side, SymbolId[]>;
   upgrades: Record<Side, UpgradeId[]>;
@@ -90,7 +92,9 @@ function spinSide(state: MatchState, side: Side): SpinView {
   const symbols = [0, 1, 2].map(() => pool[Math.floor(nextRandom(state, side) * pool.length)]) as [SymbolId, SymbolId, SymbolId];
   const payout = symbols[0] === symbols[1] && symbols[1] === symbols[2] ? PAYOUT[symbols[0]] : 0;
   state.scores[side] += payout;
-  return { round: state.round, side, symbols, payout, total: state.scores[side] };
+  const result = { round: state.round, side, symbols, payout, total: state.scores[side] };
+  recordSpin(state.stats, result);
+  return result;
 }
 
 function applyUpgrade(state: MatchState, side: Side, id: UpgradeId): void {
@@ -109,6 +113,7 @@ export function createMatch(seed = 0x51f15e, matchId = makeId()): MatchState {
     remaining: MATCH_SECONDS,
     round: 0,
     scores: { player: 0, rival: 0 },
+    stats: createMatchStats(),
     pools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
     activePools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
     upgrades: { player: [], rival: [] },
@@ -219,6 +224,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     remaining: state.remaining,
     round: state.round,
     scores: { ...state.scores },
+    stats: cloneMatchStats(state.stats),
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
     winner: state.winner,
     eventSeq: state.eventSeq,

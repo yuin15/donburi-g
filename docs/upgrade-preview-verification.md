@@ -24,4 +24,10 @@
 
 型検査・lint・117テスト・生成Node ESMの起動と拒否応答・本番ビルドが成功。#47 / #48 の追加ケースを含む。主JS 133.38KB gzip、CSS 3.89KB gzip。500KB超のチャンク警告は残る。実音声APIは使用していない。
 
-公開確認はデプロイ後に追記する。
+## 公開確認
+
+- PR #49 / `8400913af3e2443acd935bb10c98eb512caeac15`、[マージ後CI成功](https://github.com/yuin15/donburi-g/actions/runs/34674584385)。Vercel `dpl_9oxSCtJWtJmA3sZnBaer55WNj1ii` READY。
+- https://slot-chan.vercel.app のChromeでも同じ順番のプレビュー・未選択・大勝負選択を確認。[公開DOM記録](evidence/upgrade-preview/public-flow.json)。60秒で1,680対480の勝利。再戦は0対0・未改造、Enter取消まで成功。
+- CPU対戦の外部/API通信0、JavaScriptエラー0。認証なしHTTP 401 / WebSocket拒否1008を確認。後者は認証後の実Live対戦の成立証明ではない。
+
+![公開版の自然抽選結果](evidence/upgrade-preview/public-result-1920.webp)

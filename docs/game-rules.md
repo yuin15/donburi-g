@@ -9,6 +9,7 @@
 - Symbols: cherry, bell, seven.
 - Three identical symbols pay: cherry 120, bell 240, seven 1200.
 - No wager is deducted. Final cumulative coin total determines the winner; equal totals are a draw.
+- The result shows each side's confirmed symbol win counts and payouts, upgrade order, and highest-paying spin. Equal highest payouts retain the first occurrence. Statistics are recorded in the domain and included in snapshots, so delayed rendering cannot discard them.
 
 ## Upgrade boundaries
 

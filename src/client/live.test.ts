@@ -86,7 +86,7 @@ describe('browser live connection lifecycle', () => {
     const connection = instance.connect('test'); const ws = await socket();
     ws.open(); ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' }); ws.message({ type: 'voice_status', status: 'ready' });
     await connection;
-    const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 1200, rival: 0 }, upgrades: { player: [], rival: [] }, eventSeq: 40, winner: 'player' };
+    const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 1200, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 40, winner: 'player' };
     const lastSpin = { player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 1200 }, rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } };
     ws.sequence += 1; // The last spin was lost before it reached the listener.
     ws.message({ type: 'match_ended', snapshot });
@@ -141,7 +141,7 @@ describe('browser live connection lifecycle', () => {
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'voice_close' }));
     instance.send({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot' });
     expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot', matchId: 'test-match' }));
-    const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 0, rival: 0 }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
+    const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 0, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
     ws.message({ type: 'match_ended', snapshot });
     expect(received).toContainEqual({ type: 'match_ended', snapshot });
     await instance.disconnect();

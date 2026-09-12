@@ -5,6 +5,11 @@ const id = z.string().min(1).max(100);
 const upgrade = z.enum(['steady', 'jackpot']);
 const index = z.union([z.literal(0), z.literal(1)]);
 const score = z.number().int().min(0).max(36000);
+const winCount = z.number().int().min(0).max(30);
+const sideStats = z.object({
+  wins: z.object({ cherry: winCount, bell: winCount, seven: winCount }),
+  bestSpin: z.object({ round: z.number().int().min(1).max(30), payout: z.union([z.literal(120), z.literal(240), z.literal(1200)]) }).nullable(),
+});
 const spin = z.object({
   side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(30),
   symbols: z.tuple([z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven'])]),
@@ -15,9 +20,21 @@ const snapshot = z.object({
   matchId: id, status: z.enum(['ready', 'countdown', 'playing', 'result', 'aborted']),
   elapsed: z.number().min(0).max(60), remaining: z.number().min(0).max(60), round: z.number().int().min(0).max(30),
   scores: z.object({ player: score, rival: score }),
+  stats: z.object({ player: sideStats, rival: sideStats }),
   upgrades: z.object({ player: z.array(upgrade).max(2), rival: z.array(upgrade).max(2) }),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
-}).refine(v => v.status !== 'result' || (v.round === 30 && v.elapsed === 60 && v.remaining === 0 && v.winner !== undefined));
+}).refine(v => v.status !== 'result' || (v.round === 30 && v.elapsed === 60 && v.remaining === 0 && v.winner !== undefined))
+  .refine(v => (['player', 'rival'] as const).every(side => {
+    const { wins, bestSpin } = v.stats[side];
+    const count = wins.cherry + wins.bell + wins.seven;
+    const total = wins.cherry * 120 + wins.bell * 240 + wins.seven * 1200;
+    if (total !== v.scores[side] || count > v.round) return false;
+    if (count === 0) return bestSpin === null;
+    const highestPayout = wins.seven > 0 ? 1200 : wins.bell > 0 ? 240 : 120;
+    const highestCount = wins.seven > 0 ? wins.seven : wins.bell > 0 ? wins.bell : wins.cherry;
+    // The first highest-paying hit must leave enough later rounds for its remaining ties.
+    return bestSpin !== null && bestSpin.payout === highestPayout && bestSpin.round + highestCount - 1 <= v.round;
+  }));
 
 const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello'), live: z.literal(true), sessionId: id }),
