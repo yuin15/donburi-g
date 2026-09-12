@@ -5,6 +5,13 @@ export function mountGameTemplate(app: HTMLElement): void {
 app.innerHTML = `
 <section class="shell" inert>
   <div id="stageArt" aria-hidden="true"></div>
+  <div class="countdown" id="countdown" tabindex="-1" role="group" aria-label="対戦開始のカウントダウン" aria-describedby="countdownHelp" hidden>
+    <div class="countdown-card">
+      <span class="countdown-caption">60 SECOND DUEL</span>
+      <strong id="countdownValue">3</strong>
+      <p id="countdownHelp"><kbd>SPACE</kbd> / クリックで回す<small>両者のリールが、押すたび回転。</small></p>
+    </div>
+  </div>
   <header class="topbar">
     <h1 id="brand">Slot-chan <small>60 SECOND DUEL</small></h1>
     <div class="timer" id="timer"><small>残り</small><b id="time">60</b><span>秒</span></div>
@@ -73,7 +80,6 @@ app.innerHTML = `
     <small id="gateMessage" role="status">通常のCPU対戦では外部AIサービスに接続しません。</small>
   </div>
 </div>
-<div class="countdown" id="countdown" hidden>3</div>
 `;
 
 }

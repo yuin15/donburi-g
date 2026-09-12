@@ -76,6 +76,11 @@ export class GameView implements GamePresentation {
     addEventListener('keydown', event => {
       const state = this.current;
       if (!state || state.gate.visible) return;
+      // Early spin input stays on the countdown instead of activating another control.
+      if (event.code === 'Space' && state.countdown !== null && event.target === this.q('#countdown')) {
+        event.preventDefault();
+        return;
+      }
       if (event.code === 'Space' && state.snapshot.status === 'playing') {
         const control = event.target instanceof Element ? event.target.closest('input,textarea,select,summary,button') : null;
         if (control && control !== this.q('#start')) return;
@@ -160,8 +165,9 @@ export class GameView implements GamePresentation {
     this.renderResult(state.result);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
-      this.text('#countdown', String(state.countdown));
-      if (previous?.countdown === null) this.q('#leave').focus();
+      this.text('#countdownValue', String(state.countdown));
+      this.q('#countdown').dataset.phase = state.countdown === 'GO!' ? 'go' : 'ready';
+      if (previous?.countdown === null) this.q('#countdown').focus({ preventScroll: true });
     }
   }
 

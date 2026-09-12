@@ -1,0 +1,65 @@
+{
+  "earlySpace": [
+    {
+      "countdown": "3",
+      "focus": "countdown",
+      "gateHidden": true,
+      "hidden": false,
+      "player": "0",
+      "rival": "0"
+    },
+    {
+      "countdown": "3",
+      "focus": "countdown",
+      "gateHidden": true,
+      "hidden": false,
+      "player": "0",
+      "rival": "0"
+    },
+    {
+      "countdown": "3",
+      "focus": "countdown",
+      "gateHidden": true,
+      "hidden": false,
+      "player": "0",
+      "rival": "0"
+    },
+    {
+      "countdown": "3",
+      "focus": "countdown",
+      "gateHidden": true,
+      "hidden": false,
+      "player": "0",
+      "rival": "0"
+    }
+  ],
+  "ready": {
+    "button": "回す",
+    "focus": "start",
+    "lastPlayer": "チェリー・ベル・7",
+    "lastRival": "チェリー・ベル・7",
+    "player": "0",
+    "rival": "0"
+  },
+  "spin": {
+    "button": "次も回す",
+    "spin": "spinning"
+  },
+  "stopped": {
+    "button": "回す",
+    "lastPlayer": "チェリー　チェリー　チェリー",
+    "lastRival": "チェリー　チェリー　チェリー",
+    "spin": "ready"
+  },
+  "mouseCancel": {
+    "focus": "practice",
+    "gateHidden": false
+  },
+  "keyboardCancel": {
+    "focusAfterTab": [
+      "effects",
+      "leave"
+    ],
+    "gateHiddenAfterEnter": false
+  }
+}
