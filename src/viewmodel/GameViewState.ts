@@ -29,6 +29,7 @@ export interface GameViewState {
   readonly rivalMood: string;
   readonly line: string;
   readonly heard: string;
+  readonly microphone: { readonly visible: boolean; readonly active: boolean; readonly muted: boolean; readonly level: number };
   readonly voiceMuted: boolean;
   readonly effectsMuted: boolean;
 }
@@ -67,6 +68,7 @@ export interface GameCommands {
   requestSpin(): void;
   leave(): void;
   toggleVoiceMuted(): void;
+  toggleMicMuted(): void;
   toggleEffectsMuted(): void;
   visibilityChanged(): void;
   dispose(): void;

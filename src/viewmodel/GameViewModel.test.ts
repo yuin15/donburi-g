@@ -43,6 +43,7 @@ class Session implements LiveSession {
   spins = 0;
   disconnect = vi.fn(async () => undefined);
   setMuted = vi.fn();
+  setMicMuted = vi.fn();
   constructor(readonly handlers: LiveSessionHandlers) {}
   connect = vi.fn(async () => {
     this.handlers.message({ type: 'voice_status', status: 'ready' });
@@ -222,7 +223,18 @@ describe('game view model', () => {
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {
     const h = setup();
     const session = await beginLive(h);
+    session.handlers.microphone({ active: true, level: 4 });
+    expect(h.vm.state.microphone).toEqual({ visible: true, active: true, muted: false, level: 4 });
+    h.vm.toggleMicMuted();
+    expect(session.setMicMuted).toHaveBeenLastCalledWith(true);
+    expect(session.setMuted).toHaveBeenCalledTimes(1);
+    expect(h.vm.state.microphone).toEqual({ visible: true, active: true, muted: true, level: 0 });
+    session.handlers.microphone({ active: true, level: 4 });
+    expect(h.vm.state.microphone.level).toBe(0);
+    h.vm.toggleMicMuted();
+    expect(session.setMicMuted).toHaveBeenLastCalledWith(false);
     session.emit({ type: 'voice_status', status: 'error', message: 'voice unavailable' });
+    expect(h.vm.state.microphone).toEqual({ visible: false, active: false, muted: false, level: 0 });
     expect(h.vm.state).toMatchObject({ mode: 'live', modeBadge: { tone: 'practice' }, connection: { voiceReady: false } });
     h.vm.requestSpin();
     session.emit({ type: 'spin', ...pair(1) });
@@ -304,7 +316,7 @@ describe('game view model', () => {
     const connecting = h.vm.connectLive('old-secret');
     h.vm.leave();
     await beginCpu(h);
-    const late = new Session({ message: () => undefined, disconnect: () => undefined });
+    const late = new Session({ message: () => undefined, disconnect: () => undefined, microphone: () => undefined });
     pendingFactory.resolve(late);
     await connecting;
     expect(late.connect).not.toHaveBeenCalled();
@@ -325,6 +337,7 @@ describe('game view model', () => {
     await beginCpu(second);
     const current = second.vm.state;
     old.emit({ type: 'voice_status', status: 'ready' });
+    old.handlers.microphone({ active: true, level: 5 });
     connection.reject(new Error('old connection failed'));
     await attempt;
     expect(second.vm.state).toEqual(current);

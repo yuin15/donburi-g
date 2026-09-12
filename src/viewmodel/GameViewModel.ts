@@ -31,6 +31,9 @@ export class GameViewModel implements GameCommands {
   private voiceReady = false;
   private gameConnected = false;
   private voiceMuted = false;
+  private micMuted = false;
+  private micActive = false;
+  private micLevel = 0;
   private effectsMuted = false;
   private countdown: GameViewState['countdown'] = null;
   private starting = false;
@@ -154,6 +157,14 @@ export class GameViewModel implements GameCommands {
     this.deps.presentation.focus('gate');
   }
 
+  toggleMicMuted(): void {
+    if (this.disposed || !this.voiceReady || !this.micActive || this.snapshot.status === 'result') return;
+    this.micMuted = !this.micMuted;
+    this.micLevel = 0;
+    this.liveSession?.setMicMuted(this.micMuted);
+    this.emit();
+  }
+
   toggleVoiceMuted(): void {
     if (this.disposed) return;
     this.voiceMuted = !this.voiceMuted;
@@ -246,6 +257,8 @@ export class GameViewModel implements GameCommands {
     this.practiceState = null;
     this.liveSnapshot = null;
     this.voiceReady = false;
+    this.micActive = false;
+    this.micLevel = 0;
     this.gameConnected = false;
     this.connecting = false;
     this.starting = false;
@@ -471,10 +484,17 @@ export class GameViewModel implements GameCommands {
       session = await this.deps.liveFactory({
         message: message => { if (this.isCurrent(current) && session && this.liveSession === session) this.onLiveMessage(message); },
         disconnect: () => { if (this.isCurrent(current) && session && this.liveSession === session) this.onLiveDisconnect(); },
+        microphone: state => {
+          if (!this.isCurrent(current) || !session || this.liveSession !== session) return;
+          this.micActive = state.active;
+          this.micLevel = state.active && !this.micMuted ? state.level : 0;
+          this.emit();
+        },
       });
       if (!this.isCurrent(current)) { await session.disconnect(); return null; }
       this.liveSession = session;
       session.setMuted(this.voiceMuted);
+      session.setMicMuted(this.micMuted);
       await session.connect(code, this.videoEnabled ? 'avatar' : 'audio');
       if (!this.isCurrent(current) || this.liveSession !== session) return null;
       this.connecting = false;
@@ -488,6 +508,8 @@ export class GameViewModel implements GameCommands {
 
   private onLiveDisconnect(): void {
     this.voiceReady = false;
+    this.micActive = false;
+    this.micLevel = 0;
     if (this.liveSnapshot?.status === 'result') {
       this.connectionText = 'Voice closed · Ready for a rematch';
       this.liveSession = null;
@@ -520,6 +542,7 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'voice_status') {
       this.connectionText = message.status === 'ready' ? 'VOICE READY' : message.status === 'connecting' ? 'Connecting voice…' : message.status === 'closed' ? 'Voice closed' : message.message ?? 'Voice unavailable';
       this.voiceReady = message.status === 'ready';
+      if (message.status === 'closed' || message.status === 'error') { this.micActive = false; this.micLevel = 0; }
       if (this.voiceReady) this.gameConnected = true;
       if (!this.voiceReady && this.gameConnected) {
         this.heard = this.assistantText = '';
@@ -596,6 +619,7 @@ export class GameViewModel implements GameCommands {
       result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
+      microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },
       line: this.line, heard: this.heard, voiceMuted: this.voiceMuted, effectsMuted: this.effectsMuted,
     };
   }

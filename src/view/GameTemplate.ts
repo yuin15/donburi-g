@@ -33,6 +33,14 @@ app.innerHTML = `
     <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS</span><strong id="rivalPay" hidden></strong></div>
     <strong class="sr-only" id="rivalReels">Cherry, Bell, Seven</strong>
     <div id="duelRules"><strong>MOST COINS WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>
+    <div id="voicePanel" aria-label="Microphone controls" hidden>
+      <button id="mic" aria-label="Mute your microphone" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/><path class="mic-slash" d="M3 3l18 18"/></svg>
+        <span id="micLabel">MIC ON</span>
+      </button>
+      <span class="mic-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+      <div class="mic-copy"><strong id="micState">MIC LIVE</strong><small id="micHint">Talk while you play.</small></div>
+    </div>
     <div class="connection" id="connection"></div>
   </aside>
   <footer>
