@@ -40,8 +40,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `e89e6f05a8eed7f1dc3945a23998bf21ea699c76`（PR #93の実装コミット）。#91の音声上限後の試合継続に、マイクの入力メーター・ミュート操作・字幕の背景を追加。
-- Vercel READY: `dpl_6dF66TugnaCrRU4ZWnm74qvMn2yL`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開コード: `d6f5d91aaace74da63c64940096f77296723459c`（PR #100）。既存のゲーム・任意音声機能に、Houdini製の立体コインを追加。[制作・画面・公開確認](houdini-coin.md)。
+- Vercel READY: `dpl_EtJRdGajztxpDEjsbtZYA5ECBZkm`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #100のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34705628961 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34705785354 （success）。公開JS `index-B8Kmeiv_.js` は確認した本番ビルドとSHA-256が一致。制作・公開確認に音声や映像APIは使用していない。
 - #93の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34696057058 （success）。ローカル実ChromeでMIC OFF/MIC ON、Space回転、2回/0点対30回/360点の60秒対戦、結果でのマイク停止を確認。GPT利用81秒＋結果4秒は確定済み。公開JS `index-tY--qv4X.js` / CSS `index-xwHXw9ko.css`を照合。公開サイトのマイク許可と人による聴感は未確認。
 - #91の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34694460576 （success）。ローカルと公開実APIで80秒待機後に開始し、音声上限後も4回の手動回転を受理、8回対30回・60秒の結果まで確定。公開では1,320対240点、1,399イベントの欠落0、正常終了1000。GPT利用はローカル113秒、公開111秒が確定済み。
 - #89の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34692986660 （success）。実文脈生成処理を使う合成局面で首位への返答を確認。音声を人が聞いた遅延の検証とは分ける。未認証の音声アクセスはHTTP 401を維持。

@@ -21,8 +21,19 @@
 - ローカルChrome、1280×720で、通常の回転、小当たり、7揃い、両者の当たりを確認しました。8秒の演出録画中のフレーム間隔は中央値16.7ms、95パーセンタイル16.8ms。最大24描画呼び出し・37,954三角形でした。これはこのPCでの1回の測定です。
 - 待機5秒の追加描画は0フレーム。`prefers-reduced-motion: reduce`ではコインときらめきが消え、得点と当たり表示を残します。
 - 通常CPU対戦を60秒進め、無操作のプレイヤー0回・0点に対し、ライバル30回・480点で結果が出ることを確認しました。
+- 再戦でSpace入力と次の1回の予約を確認し、プレイヤー2回・120点、ライバル30回・120点の引き分けまで進みました。
 - 型検査、lint、既存234テスト、Node ESMサーバー起動確認、本番ビルドが成功しました。主JSは211.23KB gzip、CSSは6.05KB gzipです。
 - 音声・映像APIはこの変更の確認に使用していません。実マイクの会話評価は引き続きIssue #8です。
+
+## 公開
+
+[PR #100](https://github.com/yuin15/donburi-g/pull/100)をマージし、Issue #99をクローズしました。[PRのCI](https://github.com/yuin15/donburi-g/actions/runs/34705628961)・[マージ後のCI](https://github.com/yuin15/donburi-g/actions/runs/34705785354)はともに成功しています。
+
+公開実装は `d6f5d91aaace74da63c64940096f77296723459c`、Vercelは `dpl_EtJRdGajztxpDEjsbtZYA5ECBZkm`（READY）。[公開デモ](https://slot-chan.vercel.app/)が返す `index-B8Kmeiv_.js` は、ローカルで確認した本番ビルドとSHA-256が一致しています。
+
+公開Chromeでも再戦・Space操作から60秒の結果まで確認しました。プレイヤー4回・120点、ライバル30回・600点で決着しています。
+
+![公開版の60秒対戦の結果](evidence/houdini-coin/published-result-1280.webp)
 
 ## 制作条件
 
