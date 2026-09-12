@@ -2,8 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Mesh, Scene, ShaderMaterial, Texture, type BufferGeometry, type Material } from 'three';
 import type { SpinView, SymbolId } from '../../shared/protocol';
 import { SYMBOLS } from './ReelMotion';
+import { createSymbolAtlas } from './SymbolAtlas';
 
 const graphics = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), size: vi.fn() }));
+// These tests exercise scene scheduling; the GPU bake is checked in Chrome.
+vi.mock('./SymbolAtlas', async () => {
+  const { WebGLRenderTarget } = await import('three');
+  return { createSymbolAtlas: vi.fn(() => new WebGLRenderTarget(3, 1)) };
+});
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
   return {
@@ -332,7 +338,8 @@ describe('stage rendering and cleanup', () => {
       const material = n.material as Material;
       resources.add(material);
       if ('map' in material && material.map instanceof Texture) resources.add(material.map);
-      if (material instanceof ShaderMaterial && material.uniforms.atlas) resources.add(material.uniforms.atlas.value);
+      // RenderTarget owns its GPU texture and framebuffer; dispose that owner.
+      if (material instanceof ShaderMaterial && material.uniforms.atlas) resources.add(vi.mocked(createSymbolAtlas).mock.results[0].value);
     });
     const disposals = [...resources].map(r => vi.spyOn(r, 'dispose'));
     const done = vi.fn();

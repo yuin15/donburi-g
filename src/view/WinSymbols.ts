@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Side } from '../../shared/protocol';
 import { STAGE_HEIGHT } from './StageLayout';
 import { createSymbolModels, type SymbolModels, type WinSymbol } from './SymbolModels';
+import { createSymbolAtlas } from './SymbolAtlas';
 
 /** Small 3D rewards between the WIN label and amount, clear of the payline. */
 export class WinSymbols {
@@ -32,7 +33,7 @@ export class WinSymbols {
         this.group.add(group);
         return group;
       };
-      const models = { bell: copy('bell'), cherry: copy('cherry') };
+      const models = { bell: copy('bell'), cherry: copy('cherry'), seven: copy('seven') };
       return { models, materials: [...materials.values()] };
     };
     const player = copies('player'), rival = copies('rival');
@@ -40,10 +41,15 @@ export class WinSymbols {
     this.materials = { player: player.materials, rival: rival.materials };
   }
 
+  createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
+    return createSymbolAtlas(renderer, this.source);
+  }
+
   update(side: Side, kind: WinSymbol | null, progress: number, opacity: number, reducedMotion: boolean): void {
     const models = this.models[side];
     models.bell.visible = kind === 'bell';
     models.cherry.visible = kind === 'cherry';
+    models.seven.visible = kind === 'seven';
     if (!kind) return;
     const model = models[kind];
     const player = side === 'player';

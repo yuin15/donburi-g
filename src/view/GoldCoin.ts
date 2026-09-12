@@ -37,7 +37,7 @@ export function createGoldCoinMaterial(environment: THREE.Texture): THREE.MeshSt
 
 /** Small studio light map: soft white panels, a cool rim and a dark lower fill. */
 export function createGoldCoinEnvironment(): THREE.DataTexture {
-  const width = 128, height = 64;
+  const width = 256, height = 128;
   const pixels = new Float32Array(width * height * 4);
   const panel = (u: number, v: number, x: number, y: number, w: number, h: number) => {
     const dx = Math.min(Math.abs(u - x), 1 - Math.abs(u - x));
@@ -50,10 +50,11 @@ export function createGoldCoinEnvironment(): THREE.DataTexture {
       const key = panel(u, v, .12, .48, .06, .31) * 3.2;
       const rim = panel(u, v, .62, .45, .027, .36) * 2.5;
       const top = panel(u, v, .83, .81, .19, .045) * 1.8;
+      const window = panel(u, v, .77, .57, .075, .11) * .7;
       const i = (y * width + x) * 4;
-      pixels[i] = fill + key + rim * .7 + top;
-      pixels[i + 1] = fill + key * .94 + rim * .87 + top * .82;
-      pixels[i + 2] = fill + key * .84 + rim + top * .55;
+      pixels[i] = fill + key + rim * .7 + top + window;
+      pixels[i + 1] = fill + key * .94 + rim * .87 + top * .82 + window * .96;
+      pixels[i + 2] = fill + key * .84 + rim + top * .55 + window * .90;
       pixels[i + 3] = 1;
     }
   }

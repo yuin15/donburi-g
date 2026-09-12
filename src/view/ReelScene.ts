@@ -74,6 +74,7 @@ export class ReelScene {
   private disposed = false;
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private cabinet: CabinetArt;
+  private atlas: THREE.WebGLRenderTarget;
   private loaded = 0;
   private lastRound: Record<Side, number> = { player: 0, rival: 0 };
   private upgradeKey = '|';
@@ -89,18 +90,23 @@ export class ReelScene {
     host.dataset.artReady = 'false';
     this.camera.position.z = 200;
     this.scene.background = new THREE.Color(0x08090d);
+    const background = this.load('/art/casino-stage.webp');
     this.cabinet = new CabinetArt();
     this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xffe8be, 2.2));
     const light = new THREE.PointLight(0xffe8c2, 160000);
     light.position.set(330, 800, 160);
     this.scene.add(light);
-    const background = this.load('/art/casino-stage.webp');
+    const key = new THREE.DirectionalLight(0xffeed3, 1.4);
+    key.position.set(-250, 1100, 950);
+    key.target.position.set(520, 430, 0);
+    this.scene.add(key, key.target);
     this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
     this.portraitTexture = this.load('/art/rival-expressions.webp');
     this.portraitTexture.repeat.set(.5, .5);
     this.portraitTexture.offset.set(0, .5);
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
-    const atlas = this.load('/art/symbols.webp');
+    this.atlas = this.cabinet.createReelAtlas(this.renderer);
+    const atlas = this.atlas.texture;
     [...REEL_RECTS, ...MINI_RECTS].forEach((rect, i) => {
       const strip = this.activeStrips[i < 3 ? 0 : 1];
       const cells = new Float32Array(MAX_REEL_STRIP_LENGTH);
@@ -132,7 +138,7 @@ export class ReelScene {
     const texture = new THREE.TextureLoader().load(url, () => {
       if (this.disposed) return;
       this.loaded += 1;
-      this.host.dataset.artReady = String(this.loaded === 3);
+      this.host.dataset.artReady = String(this.loaded === 2);
       this.requestRender();
     }, undefined, () => { this.host.dataset.artError = 'true'; });
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -194,6 +200,7 @@ export class ReelScene {
     if (this.disposed || spin.round <= this.lastRound[side]) return;
     this.lastRound[side] = spin.round;
     if (side === 'player') {
+      this.cabinet.press(performance.now());
       if (this.winUntil === Infinity) this.cabinet.stop('player');
       this.clearPlayerWin();
     } else this.clearRivalWin();
@@ -326,7 +333,7 @@ export class ReelScene {
 
   stats(): { calls: number; triangles: number; textures: number; geometries: number; frames: number; loaded: boolean } {
     const { render, memory } = this.renderer.info;
-    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 3 };
+    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 2 };
   }
 
   dispose(): void {
@@ -343,6 +350,7 @@ export class ReelScene {
       (mesh.material as THREE.Material).dispose();
     }
     this.textures.forEach(t => t.dispose());
+    this.atlas.dispose();
     this.cabinet.dispose();
     this.renderer.dispose();
     this.host.replaceChildren();
