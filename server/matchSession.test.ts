@@ -301,6 +301,7 @@ describe('live match cleanup', () => {
     await initialized;
     expect(provider.context).toHaveBeenCalledTimes(1);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=ready,勝者=未確定'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('首位=同点'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
     expect(provider.context.mock.calls[0][0]).not.toContain('絵柄[');
     await vi.advanceTimersByTimeAsync(5000);
@@ -341,6 +342,7 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(16);
     await vi.advanceTimersByTimeAsync(1000);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー1680点、あなた0点'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('首位=プレイヤー'));
     expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
     // Ready + start + one changed context per elapsed second, not every 100ms tick.
     expect(provider.context).toHaveBeenCalledTimes(17);
