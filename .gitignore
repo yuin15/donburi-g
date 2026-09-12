@@ -6,6 +6,7 @@ coverage/
 *.tsbuildinfo
 .cache/
 .tmp/
+.art-build/
 
 # Environment variables / local secrets
 .env
