@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Side } from '../../shared/protocol';
-import { STAGE_HEIGHT } from './StageLayout';
+import { STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false });
@@ -20,6 +20,10 @@ export class CabinetArt {
   private sparkles: Record<Side, THREE.InstancedMesh<THREE.PlaneGeometry, THREE.ShaderMaterial>>;
   private particle = new THREE.Object3D();
   private lampColor = new THREE.Color();
+  private finalSeconds = 0;
+  private timerGeometry = new THREE.PlaneGeometry(14, 4);
+  private timerLights: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private finalGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private resultStarted = 0;
   private resultUntil = 0;
 
@@ -38,7 +42,36 @@ export class CabinetArt {
     this.glows = { player: this.makeGlow('player'), rival: this.makeGlow('rival') };
     this.bulbs = { player: this.makeBulbs('player'), rival: this.makeBulbs('rival') };
     this.sparkles = { player: this.makeSparkles('player'), rival: this.makeSparkles('rival') };
-    this.group.add(this.glows.player, this.glows.rival, this.bulbs.player, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...this.coins);
+    this.timerLights = this.makeTimerLights();
+    this.finalGlow = this.makeFinalGlow();
+    this.group.add(this.timerLights, this.finalGlow, this.glows.player, this.glows.rival, this.bulbs.player, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...this.coins);
+  }
+
+  setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
+
+  private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+    const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
+    const matrix = new THREE.Matrix4();
+    for (let i = 0; i < 10; i++) lights.setMatrixAt(i, matrix.makeTranslation(754 + i * 17.7, STAGE_HEIGHT - 156, 32));
+    lights.instanceMatrix.needsUpdate = true;
+    lights.name = 'final-seconds-lights';
+    lights.visible = false;
+    return lights;
+  }
+
+  private makeFinalGlow(): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
+    const material = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { strength: { value: 0 } },
+      vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+      fragmentShader: `varying vec2 vUv; uniform float strength;
+        void main(){vec2 p=abs(vUv-.5)*2.; float edge=pow(clamp((max(p.x,p.y)-.8)/.2,0.,1.),2.);
+          gl_FragColor=vec4(1.,.19,.045,edge*strength);}`,
+    });
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(STAGE_WIDTH, STAGE_HEIGHT), material);
+    glow.position.set(STAGE_WIDTH / 2, STAGE_HEIGHT / 2, 35);
+    glow.visible = false;
+    return glow;
   }
 
   private makeGlow(side: Side): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
@@ -123,7 +156,18 @@ export class CabinetArt {
   update(now: number, reducedMotion: boolean): boolean {
     if (reducedMotion) this.resultUntil = 0;
     const result = now < this.resultUntil;
-    let animating = result;
+    const finale = this.finalSeconds > 0;
+    this.timerLights.visible = this.finalGlow.visible = finale;
+    if (finale) {
+      const pulse = reducedMotion ? 0 : Math.sin(now / 160) * .025;
+      this.finalGlow.material.uniforms.strength.value = .12 + (10 - this.finalSeconds) * .01 + pulse;
+      for (let i = 0; i < 10; i++) {
+        this.lampColor.set(i < this.finalSeconds ? 0xffb359 : 0x27120d);
+        this.timerLights.setColorAt(i, this.lampColor);
+      }
+      if (this.timerLights.instanceColor) this.timerLights.instanceColor.needsUpdate = true;
+    }
+    let animating = result || finale && !reducedMotion;
     for (const side of sides) {
       const burst = this.bursts[side];
       const time = burst.still ? burst.started + (burst.until - burst.started) * .36 : now;
@@ -210,6 +254,10 @@ export class CabinetArt {
     this.coinGeometry.dispose();
     this.bulbGeometry.dispose();
     this.sparkleGeometry.dispose();
+    this.timerGeometry.dispose();
+    this.timerLights.material.dispose();
+    this.finalGlow.geometry.dispose();
+    this.finalGlow.material.dispose();
     for (const side of sides) {
       this.coinMaterials[side].dispose();
       this.glows[side].geometry.dispose();

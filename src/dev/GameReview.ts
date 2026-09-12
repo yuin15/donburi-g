@@ -122,6 +122,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     view.stopScene();
     render({
       snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
+      sessionRecord: { best: Math.max(2400, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > 2400 },
       expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
       rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
       line: resultLine(snapshot), heard: '',
@@ -149,6 +150,23 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     showSnapshot(snapshot);
     view.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
     if (example === 'normal') view.scene.show(['bell', 'seven', 'cherry']);
+    if (example === 'final-seconds') {
+      snapshot.remaining = 8; snapshot.elapsed = 52;
+      snapshot.scores = { player: 2640, rival: 2760 };
+      snapshot.stats = fixtureStats(snapshot.scores);
+      view.scene.show(['cherry', 'bell', 'seven']);
+      render({ snapshot, scores: snapshot.scores, sessionRecord: { best: 3600, streak: 2, newBest: false },
+        machineNotice: 'FINAL SPINS · KEEP GOING', line: 'Eight seconds. Make it count!',
+        rivalMood: 'One spin could change it.' });
+    }
+    if (example === 'session-best') {
+      snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;
+      snapshot.rounds = { player: 42, rival: 30 }; snapshot.round = 42;
+      snapshot.scores = { player: 3600, rival: 3120 }; snapshot.winner = 'player';
+      snapshot.stats = fixtureStats(snapshot.scores);
+      view.scene.show(['seven', 'seven', 'seven']);
+      showResult(snapshot);
+    }
     if (['small', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
       const jackpot = example === 'jackpot' || example === 'both-jackpot';
       const player: SpinView = { side: 'player', round: 20, symbols: jackpot ? ['seven', 'seven', 'seven'] : ['bell', 'bell', 'bell'], payout: jackpot ? 1200 : 240, total: jackpot ? 2640 : 1440 };

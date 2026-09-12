@@ -55,6 +55,10 @@ export class GameAudio {
     });
   }
 
+  countdownTick(seconds: number, voiceActive: boolean): void {
+    this.note(620 + (6 - seconds) * 90, 0, .06, voiceActive ? .3 : .6, 'triangle');
+  }
+
   /** The renderer calls this as each visible column locks into place. */
   reelStop(side: 'player' | 'rival', column: number): void {
     const volume = side === 'player' ? 1 : .36;

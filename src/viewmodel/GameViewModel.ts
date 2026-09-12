@@ -39,6 +39,7 @@ export class GameViewModel implements GameCommands {
   private starting = false;
   private awaitingStart = false;
   private result: MatchSnapshot | null = null;
+  private sessionRecord = { best: 0, streak: 0, newBest: false };
   private lastSpin: GameViewState['lastSpin'] = null;
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
@@ -281,6 +282,7 @@ export class GameViewModel implements GameCommands {
     this.snapshot = getSnapshot(createMatch(1, 'preview'));
     this.liveReelUpgrades = { player: [], rival: [] };
     this.result = null;
+    this.sessionRecord.newBest = false;
     this.lastSpin = null;
     this.payout = null;
     this.cue = null;
@@ -444,6 +446,11 @@ export class GameViewModel implements GameCommands {
 
   private finishPresentation(snapshot: MatchSnapshot): void {
     this.consumeSnapshot(snapshot);
+    if (this.result?.matchId !== snapshot.matchId) {
+      this.sessionRecord.newBest = snapshot.scores.player > this.sessionRecord.best;
+      this.sessionRecord.best = Math.max(this.sessionRecord.best, snapshot.scores.player);
+      this.sessionRecord.streak = snapshot.winner === 'player' ? this.sessionRecord.streak + 1 : 0;
+    }
     this.result = snapshot;
     this.clearPayout('player');
     this.clearPayout('rival');
@@ -615,7 +622,8 @@ export class GameViewModel implements GameCommands {
       connection: { text: this.connectionText, voiceReady: this.voiceReady, showVideo: this.voiceReady && this.videoEnabled, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
       modeBadge: { text: this.mode === 'idle' ? 'CPU DUEL' : this.voiceReady ? 'LIVE AI' : 'CPU DUEL', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
-      machineNotice: DEFAULT_NOTICE,
+      machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
+      sessionRecord: { ...this.sessionRecord },
       result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
