@@ -1,6 +1,6 @@
 # 7と筐体の見た目の仕上げ
 
-2026-09-13、Issue #108 / PR #107。初版の角張った7と箱形の筐体を、曲面・材質・リールの絵柄まで見直した。**PRでレビューする状態。公開デモには未反映。**
+2026-09-13、Issue #108 / PR #107。初版の角張った7と箱形の筐体を、曲面・材質・リールの絵柄まで見直した。**PR #107をマージし、[公開デモ](https://slot-chan.vercel.app/)へ反映済み。**
 
 ![曲線の7と、丸い金枠・ワイン色の側板を持つ筐体](evidence/houdini-finish/collection.webp)
 
@@ -55,3 +55,17 @@ Houdini Apprentice 22.0.429で生成し、保存したネイティブシーン�
 - [実装CI](https://github.com/yuin15/donburi-g/actions/runs/34716219488)は成功。音声・映像APIはこの制作と確認では使っていない。
 
 証拠画像はCPUと固定局面だけを収録し、APIキー、環境ファイル、招待コード、メールアドレス、実際の会話を含めない。素材はApprenticeで制作したゲームソンの非商用デモ向け。[制作元と利用条件](../art-source/houdini/README.md)。
+
+## 公開反映
+
+ユーザーから公開とマージの指示を受け、PR #107を`main`へマージした。マージコミットは`b91cf95c3d073f7b2057b5ef1d3c7aae1bfd623c`。[マージ後CI](https://github.com/yuin15/donburi-g/actions/runs/34716975443)も成功。
+
+Vercelの本番デプロイ`dpl_AKUTGMNp1hUAGGMSNfBtDzMmrYkb`がREADYとなり、`slot-chan.vercel.app`へ割り当てられた。ビルドは約19秒。公開JSは`index-A1LCvRUt.js`、CSSは`index-Cc9CF3BY.css`。公開JSのSHA-256は確認済みローカルビルドと一致した。
+
+公開Chromeで1920×1080の3D筐体、丸い金枠、7・ベル・チェリーのリールを実画面で確認した。クリック・Space予約で手動3回/240点、相手の独立回転30回/1,560点で60秒を完走。1280×720の結果画面、REMATCHで0点・0回・1:00への初期化、再戦のSpace予約による2回転、EXITでの入口復帰を確認した。
+
+![公開版の通常CPU対戦](evidence/houdini-finish/published-1920.webp)
+
+![公開版の60秒終了後。3回対30回の結果](evidence/houdini-finish/published-result-1280.webp)
+
+当該デプロイのerror/fatalログを照会し、該当記録はなかった。外部の監視や通知は追加していない。公開確認に音声・映像APIは使用していない。

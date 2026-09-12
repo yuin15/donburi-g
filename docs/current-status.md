@@ -16,7 +16,7 @@
 - #78で改造をいったん撤去。20/40秒の選択・予告・既定適用・構成変更・AI判断は発生せず、同じ基本リールで最後まで遊ぶ。#9のAI改造は対象外として閉じた。
 - 中央1ライン、配当120/240/1200。左右の回転・加点・発光・得点反映を分け、60秒終了時は両者の最終停止を待つ。
 - 結果に左右それぞれの回転数、絵柄別配当、最高の一回を表示。再戦で初期化し、詳細を開いても再戦ボタンを隠さない。
-- 金色の筐体・4表情の架空ライバル・下向きリールを維持。Three.js描画は1つ。背景・表情・絵柄の共有WebPは3点で、アイコン用コイン画像は別途残す。小リールの絵柄は正方形を保つ。
+- 金色の3D筐体・4表情の架空ライバル・下向きリールを使用。Three.js描画は1つ。背景・表情の共有WebPは2点、回転する絵柄はHoudiniモデルから起動時に生成して両者で共有する。小さな配当・コインのアイコン画像は別途残す。小リールの絵柄は正方形を保つ。
 - PCの1280×720以上が対象。通常CPU対戦にAPI・マイク・DBは不要。任意Liveの失敗で同じ試合は止まらない。
 - #81で画面内タイトルを非表示にし、英語UIと大型の左右得点を採用。BIG WIN・電球・コインは当たった側だけを強調し、逆転判定は両者の停止を待つ。[画面検証](english-win-presentation.md)。
 - #90で音声の120秒制限と試合の終了を分離。音声終了後も同じ60秒対戦を完走し、開始待ちは90秒で終了する。
@@ -27,7 +27,8 @@
 - #99でHoudini Apprentice製の立体コインを追加。面取りした両面の7、二重の縁、刻みのある側面を持ち、24枚で同じ形状・反射マップを共有する。[制作元と実画面](houdini-coin.md)。
 - #102でベル・チェリーのHoudiniモデルをWIN表示へ追加。PR #104で、次の回転を予約しても獲得表示と同じ通常650msの間はマークを残すよう調整。形状を両者で共有し、3つのOBJ合計を約1.42MBから約0.57MBへ削減。[モデルと実画面](houdini-symbols.md)。
 - #8 / PR #105で、割り込みを音声のみ・映像付きの両方からViewModelへ届け、古い字幕の混在を修正。聞き取りと返事の状態を画面に表示した。[画面と確認範囲](conversation-feedback.md)。
-- 主JSは284.68KB gzip、CSSは6.22KB gzip。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
+- #106 / #108 / PR #107で7と筐体のHoudiniモデルを公開。曲線の7、丸い金枠、曲面の側板と操作盤、金属・塗装の材質を仕上げ、回転リールの絵柄とWINモデルを揃えた。[モデルと公開画面](houdini-finish.md)。
+- 主JSは792.90KB gzip、CSSは6.22KB gzip。曲面のOBJを主JSへ含めるため転送量が増えている。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
 
 ## 確認した範囲
 
@@ -43,13 +44,14 @@
 
 ## 公開記録
 
-### PRでレビューする追加モデル
+### 7と筐体の公開
 
-Issue #106 / #108、[PR #107](https://github.com/yuin15/donburi-g/pull/107)で、Houdini製の7と筐体を追加し、曲面・金枠・濃い赤の塗装を仕上げた。回転リールの絵柄も同じモデルから起動時に描画する方式へ変更。編集元、OBJ、正面・斜め・側面・背面のプレビュー、実際のCPU対戦の画面を用意した。今回の依頼はPRまでで、以下の公開版は更新していない。[仕上げ後のモデルと確認記録](houdini-finish.md)、[初版の記録](houdini-cabinet.md)。
+Issue #106 / #108、[PR #107](https://github.com/yuin15/donburi-g/pull/107)をマージし、仕上げたHoudini製の7・筐体・リール絵柄を公開済み。公開Chromeで通常対戦の見栄え、60秒完走、結果、再戦、Space予約、退出を確認した。[仕上げ後のモデルと公開記録](houdini-finish.md)、[初版の記録](houdini-cabinet.md)。
 
 ### 公開済みの記録
 
 - URL: https://slot-chan.vercel.app
+- 最新の公開実装: `b91cf95c3d073f7b2057b5ef1d3c7aae1bfd623c`（PR #107のマージ）。Vercel READY: `dpl_AKUTGMNp1hUAGGMSNfBtDzMmrYkb`。公開JS `index-A1LCvRUt.js` / CSS `index-Cc9CF3BY.css`、JSは確認済み本番ビルドとSHA-256が一致。公開Chromeで手動3回/240点対自動30回/1,560点の60秒対戦、結果・再戦を確認。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34716975443 （success）。音声・映像APIはこの反映確認では使っていない。[公開画面](houdini-finish.md#公開反映)。
 - 公開した実装: `5dcdd5e510dca6945e1a23423c6b51b823700fc7`（PR #105の実装コミット）。Houdiniの3モデルと連打中の立体演出を維持し、会話の割り込みと字幕を仕上げた。[今回の変更](conversation-feedback.md)。
 - Vercel READY: `dpl_HF5AGihuBt7Uns7bzELRAmDapD9H`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
 - #105の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34709592578 （success）。公開JS `index-B1FQWJZ3.js` / CSS `index-Cc9CF3BY.css` を照合し、JSは本番ビルドとSHA-256が一致。公開Chromeで6回/0点対30回/960点の60秒完走、結果・再戦の初期化を確認。今回の修正確認に音声・映像APIは使っていない。[公開画面](conversation-feedback.md#公開確認)。
