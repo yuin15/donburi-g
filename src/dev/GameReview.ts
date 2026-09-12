@@ -170,6 +170,15 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       snapshot.stats = fixtureStats(snapshot.scores); snapshot.winner = example === 'draw' ? 'draw' : 'rival';
       showResult(snapshot);
     }
+    if (example.startsWith('mic-')) {
+      showSnapshot(snapshot);
+      render({
+        mode: 'live', modeBadge: { text: 'DEV · MIC PREVIEW', tone: 'live' },
+        connection: { text: 'DEV fixture · No microphone or API connected', voiceReady: true, showVideo: false, showVoiceControls: true },
+        microphone: { visible: true, active: true, muted: example === 'mic-muted', level: example === 'mic-live' ? 4 : 0 },
+        line: "I'm right here. Keep spinning!", heard: example === 'mic-live' ? 'YOU: Can you catch up?' : '',
+      });
+    }
     if (example.startsWith('live-') || example === 'rematch-ready') {
       // Fixed caption states check layout only. Live ordering belongs to VM tests.
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 }; snapshot.winner = 'player';

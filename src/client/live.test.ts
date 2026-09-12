@@ -41,6 +41,8 @@ class Socket {
   message(data: Record<string, unknown>) { this.onmessage?.({ data: JSON.stringify({ ...data, sessionId: 'test-match', streamSeq: ++this.sequence, serverTime: Date.now() }) }); }
 }
 const stopTrack = vi.fn();
+const micTrack = { stop: stopTrack, addEventListener: vi.fn(), enabled: true };
+let processor: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn>; onaudioprocess: ((event: AudioProcessingEvent) => void) | null };
 const getUserMedia = vi.fn();
 const resume = vi.fn();
 const closeAudio = vi.fn();
@@ -59,7 +61,8 @@ beforeEach(() => {
   pcm.close.mockResolvedValue(undefined);
   media.connect.mockResolvedValue(undefined);
   media.disconnect.mockResolvedValue(undefined);
-  getUserMedia.mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
+  micTrack.enabled = true;
+  getUserMedia.mockResolvedValue({ getTracks: () => [micTrack] });
   resume.mockResolvedValue(undefined);
   closeAudio.mockResolvedValue(undefined);
   request.mockImplementation(async () => Response.json({ ticket: 'test-ticket' }));
@@ -69,10 +72,11 @@ beforeEach(() => {
   vi.stubGlobal('WebSocket', Socket);
   vi.stubGlobal('fetch', request);
   vi.stubGlobal('AudioContext', class {
+    sampleRate = 24000;
     resume = resume;
     close = closeAudio;
     createMediaStreamSource = () => ({ connect: vi.fn(), disconnect: vi.fn() });
-    createScriptProcessor = () => ({ connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null });
+    createScriptProcessor = () => (processor = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null });
     createGain = () => ({ connect: vi.fn(), disconnect: vi.fn(), gain: { value: 0 } });
   });
 });
@@ -99,6 +103,45 @@ function resultSnapshot() {
 }
 
 describe('browser live connection lifecycle', () => {
+  it('shows input activity, sends silence while the mic is muted, and ends capture at the result', async () => {
+    const instance = client(), feedback: Array<{ active: boolean; level: number }> = [];
+    instance.addEventListener('microphone', event => feedback.push((event as CustomEvent).detail));
+    const connection = instance.connect('test', 'audio'), ws = await socket();
+    ws.open(); ws.message({ type: 'voice_status', status: 'ready' }); await connection;
+    const input = () => {
+      for (let i = 0; i < 3; i++) processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => new Float32Array(1024).fill(0.1) } } as unknown as AudioProcessingEvent);
+    };
+    const sentAudio = () => Buffer.from(JSON.parse(ws.send.mock.calls.at(-1)![0]).audio, 'base64');
+    input();
+    expect(feedback.at(-1)).toMatchObject({ active: true, level: 4 });
+    expect(sentAudio().some(byte => byte !== 0)).toBe(true);
+    instance.setMicMuted(true); input();
+    expect(micTrack.enabled).toBe(false);
+    expect(sentAudio().every(byte => byte === 0)).toBe(true);
+    expect(feedback.at(-1)).toEqual({ active: true, level: 0 });
+    expect(pcm.setMuted).not.toHaveBeenCalled();
+    instance.setMicMuted(false); input();
+    expect(micTrack.enabled).toBe(true);
+    expect(sentAudio().some(byte => byte !== 0)).toBe(true);
+    expect(feedback.at(-1)).toMatchObject({ active: true, level: 4 });
+    ws.message({ type: 'match_ended', snapshot: resultSnapshot() });
+    expect(feedback.at(-1)).toEqual({ active: false, level: 0 });
+    expect(processor.onaudioprocess).toBeNull();
+    expect(stopTrack).toHaveBeenCalledOnce();
+  });
+
+  it('ends optional voice when the microphone is unplugged while leaving the game socket available', async () => {
+    const instance = client(), received: unknown[] = [];
+    instance.addEventListener('message', event => received.push((event as CustomEvent).detail));
+    const connection = instance.connect('test', 'audio'), ws = await socket();
+    ws.open(); ws.message({ type: 'voice_status', status: 'ready' }); await connection;
+    micTrack.addEventListener.mock.calls.find(([event]) => event === 'ended')![1]();
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(received).toContainEqual({ type: 'voice_status', status: 'error', message: 'Microphone disconnected · Your duel continues.' });
+    expect(ws.close).not.toHaveBeenCalled();
+    expect(instance.sendSpin()).toBeDefined();
+  });
+
   it('sends a unique spin command only after connection readiness and forwards its acknowledgement', async () => {
     const instance = client(); const received: unknown[] = [];
     instance.addEventListener('message', event => received.push((event as CustomEvent).detail));

@@ -62,6 +62,10 @@ export class GameView implements GamePresentation {
       void commands.connectLive(code, this.q<HTMLInputElement>('#avatarVideo').checked).then(() => { if (!this.current?.gate.visible) input.value = ''; });
     }, options);
     this.q('#leave').addEventListener('click', () => commands.leave(), options);
+    this.q('#mic').addEventListener('click', event => {
+      commands.toggleMicMuted();
+      if (event.detail > 0 && this.current?.snapshot.status === 'playing') this.q('#start').focus({ preventScroll: true });
+    }, options);
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
     this.q('#effects').addEventListener('click', () => { unlock(); commands.toggleEffectsMuted(); }, options);
     addEventListener('keydown', event => {
@@ -101,6 +105,18 @@ export class GameView implements GamePresentation {
     this.text('#sound', state.voiceMuted ? 'VOICE OFF' : 'VOICE ON');
     this.q('#sound').setAttribute('aria-label', state.voiceMuted ? 'Unmute AI voice' : 'Mute AI voice');
     this.q('#sound').setAttribute('aria-pressed', String(state.voiceMuted));
+    const mic = state.microphone;
+    this.q('#voicePanel').hidden = !mic.visible;
+    this.q('#duelRules').hidden = mic.visible;
+    this.q('#voicePanel').dataset.muted = String(mic.muted || !mic.active);
+    const micButton = this.q<HTMLButtonElement>('#mic');
+    micButton.disabled = !mic.active;
+    micButton.setAttribute('aria-pressed', String(mic.muted));
+    micButton.setAttribute('aria-label', mic.muted ? 'Unmute your microphone' : 'Mute your microphone');
+    this.text('#micLabel', mic.active && !mic.muted ? 'MIC ON' : 'MIC OFF');
+    this.text('#micState', !mic.active ? 'MIC OFF' : mic.muted ? 'MIC MUTED' : mic.level ? 'INPUT DETECTED' : 'MIC LIVE');
+    this.text('#micHint', !mic.active ? 'Your microphone is off.' : mic.muted ? state.voiceMuted ? 'Mic and rival voice are muted.' : 'You can still hear your rival.' : state.voiceMuted ? 'Your mic is on. Rival voice is muted.' : 'Talk while you play.');
+    this.q('.mic-meter').querySelectorAll('i').forEach((bar, index) => bar.classList.toggle('active', index < mic.level));
     this.text('#effects', state.effectsMuted ? 'SOUND OFF' : 'SOUND ON');
     this.q('#effects').setAttribute('aria-label', state.effectsMuted ? 'Unmute sound effects' : 'Mute sound effects');
     this.q('#effects').setAttribute('aria-pressed', String(state.effectsMuted));
@@ -152,7 +168,7 @@ export class GameView implements GamePresentation {
     this.text('#spinHint', state.startControl.hint);
     this.text('#queueStatus', state.startControl.spinState === 'queued' ? 'NEXT SPIN QUEUED ✓' : state.result ? 'START A NEW ROUND' : 'CLICK TO SPIN');
     this.q('#roundStatus').dataset.queued = String(state.startControl.spinState === 'queued');
-    this.q('#connection').hidden = state.mode !== 'live';
+    this.q('#connection').hidden = state.mode !== 'live' || state.microphone.visible;
     this.renderResult(state.result);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
