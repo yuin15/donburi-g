@@ -34,3 +34,7 @@ GPT-Liveの音声deltaには生成IDや完了イベントがなく、終了時�
 通常接続と途中の音声終了の2ケースで、hello→ready→start→改造2回→30回転の結果→最新snapshot再取得→closeを確認した。両者の得点・statsが実際に届いた30回転分と一致し、全出力がwireスキーマに適合、連番・試合IDが一貫している。音声を終了しても同じゲーム接続が続き、最終終了で利用枠・各媒体を一度だけ解放する。
 
 Date.nowだけを進め、実タイマー/I/Oを動かしたままping/pongで送信処理の境界を確認する。親への統合後は2ケース128ms、全165テスト・型検査・lint・Node ESM起動/拒否応答・本番ビルドが成功した。Vercel上の認証済み画面や実音声の通し試験は #7/#3 に残る。
+
+## 公開反映
+
+#54/#55 はPR #56でマージ済み。公開コード `cb5db8988f8a672786069e71a1cfad7488eb2406`、[マージ後CI成功](https://github.com/yuin15/donburi-g/actions/runs/34675723578)、Vercel `dpl_B8dsGkr9F8CTv8hoJzVwJJ889FtE` READY。公開入口・HTTP 401 / WebSocket1008を再確認した。画面JS/CSSはPR #53の通し検証版と同一。実API検証との区別は維持する。
