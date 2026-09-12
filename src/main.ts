@@ -14,58 +14,63 @@ import { LiveClient } from './client/live';
 import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
 import { GameAudio } from './view/GameAudio';
+import { RoundPresentation } from './view/RoundPresentation';
+import { OVERLAYS, PORTRAIT, STAGE_HEIGHT, STAGE_WIDTH } from './view/StageLayout';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('missing_app');
 
 app.innerHTML = `
 <section class="shell" inert>
+  <div id="stageArt" aria-hidden="true"></div>
   <header class="topbar">
-    <h1>Slot-chan</h1>
-    <div class="timer"><small>残り</small><b id="time">60</b><span>秒</span></div>
-    <div class="status-cluster"><span id="modeBadge">未接続</span><button id="sound" aria-label="AI音声をミュート" aria-pressed="false" hidden>AI音声 ON</button><button id="effects" aria-label="効果音をミュート" aria-pressed="false">効果音 ON</button><button id="leave">退出</button></div>
+    <h1 id="brand">Slot-chan <small>60 SECOND DUEL</small></h1>
+    <div class="timer" id="timer"><small>残り</small><b id="time">60</b><span>秒</span></div>
+    <div class="status-cluster" id="status"><span id="modeBadge">未接続</span><button id="sound" aria-label="AI音声をミュート" aria-pressed="false" hidden>AI音声 ON</button><button id="effects" aria-label="効果音をミュート" aria-pressed="false">効果音 ON</button><button id="leave">退出</button></div>
   </header>
   <div class="scores">
-    <div class="you"><span><i class="score-crest" aria-hidden="true">♛</i>あなた</span><strong id="ps">0</strong><span class="score-meter" aria-hidden="true"><i id="playerMeter"></i></span></div>
+    <div class="you" id="playerScore"><span>♛ あなた</span><strong id="ps">0</strong><span class="score-meter" aria-hidden="true"><i id="playerMeter"></i></span></div>
+    <div class="rival" id="rivalScore"><span>♜ ライバル</span><strong id="rs">0</strong><span class="score-meter" aria-hidden="true"><i id="rivalMeter"></i></span></div>
     <span class="duel-gap" id="scoreGap" role="status">互角の勝負</span>
-    <div class="rival"><span><i class="score-crest" aria-hidden="true">♜</i>ライバル</span><strong id="rs">0</strong><span class="score-meter" aria-hidden="true"><i id="rivalMeter"></i></span></div>
   </div>
-  <div class="arena">
-    <section class="machine" aria-label="あなたのスロット">
-      <div class="machine-title"><span>◆</span> Slot-chan <span>◆</span></div>
-      <div class="event-cue" id="eventCue" role="status" hidden></div>
-      <div class="reel-window"><div id="reels"></div></div>
-      <div class="pay" id="pay" aria-live="polite"></div>
-      <div class="last-spin" id="lastSpin">🍒　🔔　7</div>
-      <div class="machine-trim"><span>中央の1ラインで判定</span><span id="upgradeProgress">改造チャンス 20秒・40秒</span></div>
-    </section>
-    <aside class="avatar">
-      <div class="portrait"><div class="mock-face" id="mockFace"><small>YOUR CHALLENGER</small><div class="rival-crest" aria-hidden="true"><span>7</span></div><strong>CPU RIVAL</strong><span id="rivalMood">正々堂々、60秒。</span></div><video id="avatar" autoplay playsinline></video></div>
-      <div class="speech"><p id="line">「60秒。私に勝てる？」</p><small id="heard"></small></div>
-      <div class="mini"><span>ライバルのリール</span><strong id="rivalReels">🍒　🔔　7</strong></div>
-      <div class="builds"><div><span>あなたの改造</span><strong id="playerBuild">未改造</strong></div><div><span>相手の改造</span><strong id="rivalBuild">未改造</strong></div></div>
-      <div class="connection" id="connection">接続していません</div>
-    </aside>
-  </div>
+  <section class="machine" aria-label="あなたのスロット">
+    <div id="machineTitle">SLOT-CHAN</div>
+    <div class="event-cue" id="eventCue" role="status" hidden></div>
+    <div class="pay" id="pay" aria-live="polite"></div>
+    <div class="sr-only" id="lastSpin">チェリー・ベル・7</div>
+    <div id="machineTrim">中央の1ラインで判定 · 60秒の獲得コインで勝負</div>
+  </section>
+  <aside class="avatar">
+    <span class="sr-only" id="mockFace">CPUライバル</span>
+    <video id="avatar" autoplay playsinline></video>
+    <span id="rivalMood">正々堂々、60秒。</span>
+    <p id="line">「60秒。私に勝てる？」</p>
+    <small id="heard"></small>
+    <div id="miniLabel">ライバルのリール <span>CPU</span></div>
+    <strong class="sr-only" id="rivalReels">チェリー・ベル・7</strong>
+    <div class="builds" id="builds"><div><span>あなたの改造</span><strong id="playerBuild">未改造</strong></div><div><span>相手の改造</span><strong id="rivalBuild">未改造</strong></div></div>
+    <div class="connection" id="connection">接続していません</div>
+  </aside>
   <div class="upgrade" id="upgrade" hidden>
-    <div><b>リール改造を選べ！</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
-    <button data-up="steady" aria-pressed="false"><strong>🍒 安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><kbd>1</kbd></button>
-    <button data-up="jackpot" aria-pressed="false"><strong>7 大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><kbd>2</kbd></button>
+    <div><b>リール改造</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
+    <button data-up="steady" aria-pressed="false"><span class="symbol-icon cherry" aria-hidden="true"></span><strong>安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><kbd>1</kbd></button>
+    <button data-up="jackpot" aria-pressed="false"><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><kbd>2</kbd></button>
   </div>
   <footer>
-    <div class="result" id="result" hidden><strong id="resultTitle"></strong><span id="resultScore"></span></div>
-    <button id="start" disabled>60秒で勝ちきれ！</button>
-    <p>自動で回る。20秒・40秒でリールを改造。多く稼いだ方が勝ち。</p>
-    <p>3つそろうと 🍒 ${PAYOUT.cherry} ／ 🔔 ${PAYOUT.bell} ／ 7 ${PAYOUT.seven.toLocaleString()} 点</p>
+    <div class="result" id="result" role="status" hidden><small>DUEL FINISHED</small><strong id="resultTitle"></strong><span id="resultScore"></span><p>改造を変えて、もう一度。</p></div>
+    <button id="start" disabled>勝負する</button>
+    <div id="paytable" aria-label="3つそろうとチェリー120、ベル240、7は1200点"><span><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><i class="symbol-icon seven"></i>1,200</span></div>
+    <div id="upgradeProgress">⚙ リール改造<small>20秒・40秒で選択</small></div>
   </footer>
 </section>
 <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
   <div class="gate-card">
-    <div class="eyebrow">Slot-chan</div>
-    <h2 id="gateTitle">リールを改造して<br><em>60秒で勝ちきれ。</em></h2>
-    <p>自動で回るスロットを20秒・40秒に改造。相手より多く稼げば勝ち！ CPUも同じルールで勝負します。</p>
-    <button id="practice" class="primary">CPUライバルと対戦</button>
-    <small>無料・マイク不要。音声や映像がなくても遊べます。</small>
+    <div class="eyebrow">SLOT-CHAN · 60 SECOND DUEL</div>
+    <h2 id="gateTitle">回して、改造して。<br><em>ライバルを超えろ。</em></h2>
+    <p>60秒のスロット対戦。<br>20秒・40秒でリールを改造し、<br>ライバルより多くのコインを手に入れよう。</p>
+    <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>回転は自動。選ぶのは、勝ち方。</span></div>
+    <button id="practice" class="primary">CPUライバルと対戦 <span>→</span></button>
+    <small>無料・マイク不要。すぐに遊べます。</small>
     <details class="voice-options"><summary>音声・映像もつける（任意）</summary>
       <p>マイク音声を外部AIサービスへ送信します。招待コードが必要です。終了後に接続を閉じ、会話本文は保存しません。</p>
       <label>招待コード<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
@@ -83,7 +88,17 @@ const q = <T extends HTMLElement>(selector: string): T => {
   return element;
 };
 
-const scene = new ReelScene(q('#reels'));
+for (const [id, rect] of Object.entries({ ...OVERLAYS, avatar: PORTRAIT })) {
+  Object.assign(q('#' + id).style, { position: 'absolute', left: `${rect.x / STAGE_WIDTH * 100}%`, top: `${rect.y / STAGE_HEIGHT * 100}%`, width: `${rect.w / STAGE_WIDTH * 100}%`, height: `${rect.h / STAGE_HEIGHT * 100}%` });
+}
+const scene = new ReelScene(q('#stageArt'));
+const presentation = new RoundPresentation({
+  play: (player, rival, stopped) => scene.play(player, rival, stopped),
+  settled: revealRound,
+  ended: finishPresentation,
+});
+let latestSnapshot: MatchSnapshot | null = null;
+let reactionUntil = 0;
 const effects = new GameAudio();
 const avatarVideo = q<HTMLVideoElement>('#avatar');
 const startButton = q<HTMLButtonElement>('#start');
@@ -142,6 +157,7 @@ function cancelBattle(): void {
   battleTimers.clear();
   effects.stop();
   scene.stop();
+  presentation.reset();
   clearTimeout(cueTimer);
   q('#eventCue').hidden = true;
   clearTimeout(assistantResetTimer);
@@ -166,38 +182,36 @@ function returnToGate(message: string): void {
   startButton.disabled = true;
   q<HTMLButtonElement>('#liveConnect').disabled = false;
   q('#gateMessage').textContent = message;
+  avatarVideo.hidden = true;
   q('#mockFace').hidden = false;
 }
 
 function glyphs(spin: SpinView): string {
-  const glyph = { cherry: '🍒', bell: '🔔', seven: '7' } as const;
+  const glyph = { cherry: 'チェリー', bell: 'ベル', seven: '7' } as const;
   return spin.symbols.map((symbol) => glyph[symbol]).join('　');
 }
 
 function renderSnapshot(snapshot: MatchSnapshot): void {
+  latestSnapshot = snapshot;
+  const scores = presentation.scores;
   q('#time').textContent = String(Math.max(0, Math.ceil(snapshot.remaining))).padStart(2, '0');
-  q('#ps').textContent = snapshot.scores.player.toLocaleString();
-  q('#rs').textContent = snapshot.scores.rival.toLocaleString();
-  const total = snapshot.scores.player + snapshot.scores.rival;
-  const gap = snapshot.scores.player - snapshot.scores.rival;
-  q('#playerMeter').style.width = `${total ? snapshot.scores.player / total * 100 : 50}%`;
-  q('#rivalMeter').style.width = `${total ? snapshot.scores.rival / total * 100 : 50}%`;
+  q('#ps').textContent = scores.player.toLocaleString();
+  q('#rs').textContent = scores.rival.toLocaleString();
+  const total = scores.player + scores.rival;
+  const gap = scores.player - scores.rival;
+  q('#playerMeter').style.width = `${total ? scores.player / total * 100 : 50}%`;
+  q('#rivalMeter').style.width = `${total ? scores.rival / total * 100 : 50}%`;
   const gapText = gap === 0 ? '互角の勝負' : `${Math.abs(gap).toLocaleString()}点 ${gap > 0 ? 'リード' : 'ビハインド'}`;
   if (q('#scoreGap').textContent !== gapText) q('#scoreGap').textContent = gapText;
   q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
-  q('#mockFace').dataset.mood = gap > 0 ? 'behind' : gap < 0 ? 'ahead' : 'even';
+  if (performance.now() >= reactionUntil) scene.setExpression(gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral');
   q('#rivalMood').textContent = snapshot.status === 'result' ? (gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。') : gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。';
-  const buildLabel = (upgrades: UpgradeId[]) => upgrades.length ? upgrades.map(id => id === 'steady' ? '🍒 安定型' : '7 大勝負').join(' / ') : '未改造';
+  const buildLabel = (upgrades: UpgradeId[]) => upgrades.length ? upgrades.map(id => id === 'steady' ? '安定型' : '大勝負').join(' / ') : '未改造';
   q('#playerBuild').textContent = buildLabel(snapshot.upgrades.player);
   q('#rivalBuild').textContent = buildLabel(snapshot.upgrades.rival);
   q('#upgradeProgress').textContent = snapshot.status === 'playing' ? activeOffer ? '改造を選ぼう！' : snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - snapshot.elapsed)}秒` : snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - snapshot.elapsed)}秒` : '改造完了・ラストスパート' : snapshot.status === 'result' ? '対戦終了' : '改造チャンス 20秒・40秒';
   q('#time').parentElement!.classList.toggle('urgent', snapshot.status === 'playing' && snapshot.remaining <= 10);
   if (snapshot.status === 'playing') {
-    const leader = snapshot.scores.player === snapshot.scores.rival ? null : snapshot.scores.player > snapshot.scores.rival ? 'player' : 'rival';
-    if (leader && previousLeader && leader !== previousLeader) {
-      announce(leader === 'player' ? '逆転！ あなたがリード' : 'ライバルが逆転！', 'lead');
-    }
-    if (leader) previousLeader = leader;
     if (!warnedTime && snapshot.remaining <= 10) {
       warnedTime = true;
       announce('残り10秒！ 最後まで勝負', 'warning');
@@ -213,6 +227,7 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
 function announce(text: string, sound: 'lead' | 'warning' | 'jackpot'): void {
   clearTimeout(cueTimer);
   q('#eventCue').textContent = text;
+  q('#eventCue').dataset.kind = sound;
   q('#eventCue').hidden = false;
   effects.play(sound);
   cueTimer = window.setTimeout(() => { q('#eventCue').hidden = true; }, 1800);
@@ -229,6 +244,7 @@ function showUpgrade(index: 0 | 1, closesAt: number): void {
     button.setAttribute('aria-pressed', 'false');
   });
   upgradePanel.hidden = false;
+  q('.shell').dataset.upgrading = 'true';
   upgradePanel.querySelector<HTMLButtonElement>('button')?.focus();
 }
 
@@ -236,6 +252,7 @@ function hideUpgrade(): void {
   const restoreFocus = upgradePanel.contains(document.activeElement);
   activeOffer = null;
   upgradePanel.hidden = true;
+  q('.shell').dataset.upgrading = 'false';
   if (restoreFocus) {
     if (beforeUpgradeFocus?.isConnected && !beforeUpgradeFocus.matches(':disabled') && !beforeUpgradeFocus.closest('[inert], [hidden]')) beforeUpgradeFocus.focus();
     else focusBattleControl();
@@ -244,15 +261,21 @@ function hideUpgrade(): void {
 }
 
 function showResult(snapshot: MatchSnapshot): void {
+  const scores = snapshot.scores;
   effects.play('result');
   resultPanel.hidden = false;
   q('#resultTitle').textContent = snapshot.winner === 'player' ? '勝利！' : snapshot.winner === 'rival' ? '敗北' : '引き分け';
-  q('#resultScore').textContent = `${snapshot.scores.player.toLocaleString()}  vs  ${snapshot.scores.rival.toLocaleString()}`;
+  q('#resultScore').textContent = `${scores.player.toLocaleString()}  vs  ${scores.rival.toLocaleString()}`;
   startButton.disabled = false;
-  startButton.textContent = 'もう一度勝負';
+  startButton.textContent = '再戦する';
+  startButton.focus();
 }
 
 function resetBattleUi(): void {
+  presentation.reset();
+  scene.stop();
+  reactionUntil = 0;
+  scene.setExpression('neutral');
   effects.stop();
   warnedTime = false;
   previousLeader = null;
@@ -264,8 +287,8 @@ function resetBattleUi(): void {
   resultPanel.hidden = true;
   hideUpgrade();
   q('#pay').textContent = '';
-  q('#lastSpin').textContent = '🍒　🔔　7';
-  q('#rivalReels').textContent = '🍒　🔔　7';
+  q('#lastSpin').textContent = 'チェリー・ベル・7';
+  q('#rivalReels').textContent = 'チェリー・ベル・7';
   scene.show(['cherry', 'bell', 'seven']);
   q('#line').textContent = '「60秒。私に勝てる？」';
   q('#heard').textContent = '';
@@ -273,22 +296,63 @@ function resetBattleUi(): void {
 }
 
 function handleSpin(player: SpinView, rival: SpinView): void {
-  scene.spin();
-  effects.play('spin');
-  later(() => {
-    scene.show(player.symbols, player.payout);
-    if (player.payout >= PAYOUT.seven) announce(`7揃い！ +${player.payout.toLocaleString()}`, 'jackpot');
-    else if (player.payout > 0) effects.play('win');
-  }, 320);
+  if (presentation.spin(player, rival)) {
+    q('#pay').textContent = '';
+    clearTimeout(cueTimer);
+    q('#eventCue').hidden = true;
+    effects.play('spin');
+  }
+}
+
+function revealRound(player: SpinView, rival: SpinView, celebrate: boolean): void {
   q('#lastSpin').textContent = glyphs(player);
   q('#rivalReels').textContent = glyphs(rival);
+  const leader = player.total > rival.total ? 'player' : player.total < rival.total ? 'rival' : null;
+  const comeback = leader && previousLeader && leader !== previousLeader;
+  if (leader) previousLeader = leader;
+  if (latestSnapshot) renderSnapshot(latestSnapshot);
+  const stale = !celebrate || document.hidden || (latestSnapshot?.round ?? player.round) > player.round;
+  if (stale) return;
   q('#pay').textContent = player.payout ? `+${player.payout.toLocaleString()}` : '';
-  if (player.payout) later(() => (q('#pay').textContent = ''), 900);
+  q('#pay').dataset.jackpot = String(player.payout >= PAYOUT.seven);
+  if (player.payout) later(() => { q('#pay').textContent = ''; }, player.payout >= PAYOUT.seven ? 1200 : 650);
+  reactionUntil = performance.now() + 1600;
+  if (player.payout >= PAYOUT.seven) {
+    scene.setExpression('surprised');
+    q('#line').textContent = '「ちょっと待って、今のは聞いてない！」';
+    announce(comeback && leader === 'player' ? '逆転！' : '7揃い！', 'jackpot');
+  } else if (comeback) {
+    scene.setExpression(leader === 'player' ? 'surprised' : 'confident');
+    q('#line').textContent = leader === 'player' ? '「えっ、そこで逆転する！？」' : '「ほら、まだまだ勝負はこれから。」';
+    announce(leader === 'player' ? '逆転！' : 'ライバルが逆転！', 'lead');
+  } else if (player.payout) {
+    scene.setExpression('surprised');
+    q('#line').textContent = '「えっ、そこで当てる！？」';
+    effects.play('win');
+  } else if (rival.payout) {
+    scene.setExpression('confident');
+    q('#line').textContent = '「いい感じ。このまま行くよ。」';
+  } else {
+    scene.setExpression('neutral');
+  }
+}
+
+function finishPresentation(snapshot: MatchSnapshot): void {
+  renderSnapshot(snapshot);
+  showResult(snapshot);
+  hideUpgrade();
+  scene.stop();
+  q('#pay').textContent = '';
+  clearTimeout(cueTimer);
+  q('#eventCue').hidden = true;
+  scene.setExpression(snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral');
+  reactionUntil = performance.now() + 3600000;
+  q('#line').textContent = snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
 }
 
 function handlePracticeEvent(event: GameEvent): void {
   if (event.type === 'spin') handleSpin(event.player, event.rival);
-  if (event.type === 'upgrade_open') {
+  if (event.type === 'upgrade_open' && (practiceState?.elapsed ?? 60) < event.closesAt) {
     showUpgrade(event.offerIndex, event.closesAt);
     later(() => {
       if (!practiceState || practiceState.status !== 'playing') return;
@@ -300,14 +364,9 @@ function handlePracticeEvent(event: GameEvent): void {
     hideUpgrade();
     q('#line').textContent = event.rival === 'jackpot' ? '「ここから大勝負で行く。」' : '「崩さず取りに行く。」';
   }
-  if (event.type === 'leader_change') {
-    if (event.leader === 'player') q('#line').textContent = '「ちょっと、そこで逆転する？」';
-    if (event.leader === 'rival') q('#line').textContent = '「まだ勝ったとは言わないけど、いい感じ。」';
-  }
   if (event.type === 'match_end') {
     stopPracticeTimer();
-    showResult(event.snapshot);
-    q('#line').textContent = event.snapshot.winner === 'player' ? '「……負けた。もう一回。」' : event.snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
+    presentation.end(event.snapshot);
   }
 }
 
@@ -319,12 +378,13 @@ function startPractice(): void {
   practiceStartedAt = performance.now();
   renderSnapshot(getSnapshot(practiceState));
   startButton.disabled = true;
-  startButton.textContent = '対戦中…';
+  startButton.textContent = '自動回転中';
   practiceTimer = window.setInterval(() => {
     if (!practiceState) return;
     const elapsed = (performance.now() - practiceStartedAt) / 1000;
     const events = advanceMatch(practiceState, elapsed);
-    events.forEach(handlePracticeEvent);
+    const newestSpin = events.filter(event => event.type === 'spin').at(-1);
+    events.filter(event => event.type !== 'spin' || event === newestSpin).forEach(handlePracticeEvent);
     renderSnapshot(getSnapshot(practiceState));
   }, 100);
 }
@@ -338,6 +398,7 @@ function onLiveMessage(message: ServerMessage): void {
   if (message.type === 'voice_status') {
     q('#connection').textContent = message.status === 'ready' ? 'マイク接続中 / AI会話 READY' : message.status === 'connecting' ? 'AIキャラクター接続中…' : message.status === 'closed' ? '会話接続終了' : message.message ?? '会話エラー';
     voiceReady = message.status === 'ready';
+    avatarVideo.hidden = !voiceReady;
     if (voiceReady) gameConnected = true;
     if (!voiceReady && gameConnected) {
       modeBadge.textContent = 'CPU対戦';
@@ -350,7 +411,7 @@ function onLiveMessage(message: ServerMessage): void {
     }
     if (gameConnected && !starting && (!liveSnapshot || liveSnapshot.status === 'ready')) {
       startButton.disabled = false;
-      startButton.textContent = '60秒で勝ちきれ！';
+      startButton.textContent = '勝負する';
     }
     return;
   }
@@ -392,7 +453,7 @@ function onLiveMessage(message: ServerMessage): void {
   if (message.type === 'match_ended') {
     liveSnapshot = message.snapshot;
     renderSnapshot(message.snapshot);
-    showResult(message.snapshot);
+    presentation.end(message.snapshot);
     return;
   }
   if (message.type === 'error') {
@@ -436,6 +497,7 @@ async function connectLive(code: string): Promise<void> {
   modeBadge.textContent = voiceReady ? 'LIVE AI' : 'CPU対戦';
   modeBadge.className = voiceReady ? 'live' : 'practice';
   q('#mockFace').hidden = voiceReady;
+  avatarVideo.hidden = !voiceReady;
 }
 
 async function countdownThen(action: () => void): Promise<void> {
@@ -467,7 +529,7 @@ async function startLiveOrRematch(): Promise<void> {
   starting = true;
   resetBattleUi();
   startButton.disabled = true;
-  startButton.textContent = '対戦中…';
+  startButton.textContent = '自動回転中';
   await countdownThen(() => liveClient?.send({ type: 'start' }));
 }
 
@@ -492,7 +554,7 @@ q<HTMLButtonElement>('#liveConnect').onclick = async () => {
   }
 };
 
-function prepareCpuMatch(message = 'CPUライバル / マイク不要・外部API利用なし'): void {
+function prepareCpuMatch(message = 'CPU対戦 · 自動回転 · 改造チャンスは2回'): void {
   cancelBattle();
   resetBattleUi();
   renderSnapshot(getSnapshot(createMatch(1, 'preview')));
@@ -502,11 +564,12 @@ function prepareCpuMatch(message = 'CPUライバル / マイク不要・外部AP
   modeBadge.textContent = 'CPU対戦';
   modeBadge.className = 'practice';
   q('#sound').hidden = true;
+  avatarVideo.hidden = true;
   q('#connection').textContent = message;
   q('#line').textContent = '「60秒。私に勝てる？」';
   q('#mockFace').hidden = false;
   startButton.disabled = false;
-  startButton.textContent = '60秒で勝ちきれ！';
+  startButton.textContent = '勝負する';
 }
 
 q<HTMLButtonElement>('#practice').onclick = () => {
@@ -542,7 +605,7 @@ upgradePanel.addEventListener('click', (event) => {
     item.disabled = true;
     item.setAttribute('aria-pressed', String(item === button));
   });
-  q('#upgradeChoice').textContent = `選択済み: ${upgradeId === 'steady' ? '🍒 安定型' : '7 大勝負'}`;
+  q('#upgradeChoice').textContent = `選択済み: ${upgradeId === 'steady' ? '安定型' : '大勝負'}`;
   q('#upgradeChoice').focus();
 });
 
@@ -582,3 +645,4 @@ addEventListener('beforeunload', () => {
 });
 
 renderSnapshot(getSnapshot(createMatch(1, 'preview')));
+avatarVideo.hidden = true;
