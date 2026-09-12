@@ -12,6 +12,8 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 4. The CPU chooses its own legal upgrades. In optional voice/video mode, the rival can also respond to speech and game events.
 5. Highest confirmed coin total at 60 seconds wins.
 
+Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. The scoreboard shows the point difference, while the rival panel shows both upgrade histories. The cabinet shows when the next upgrade becomes available. Results stay below the cabinet so the final symbols remain visible.
+
 The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
 
 ## Modes

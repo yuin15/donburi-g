@@ -7,3 +7,60 @@
 @media(min-width:901px){.shell{grid-template-rows:70px 60px minmax(0,1fr) 128px}.scores>div{padding:6px 22px}.scores strong{font-size:28px;line-height:1.2}footer p{margin-top:6px;line-height:1.35}}
 /* The game is primary; voice/video setup is an optional disclosure. */
 .gate-card #practice.primary{border:1px solid #dba64b;background:linear-gradient(#b92727,#7b1015);color:#fff;font-weight:800}.voice-options{margin-top:20px;border-top:1px solid #57432d;padding-top:14px}.voice-options summary{cursor:pointer;color:#d7c9b7;font-size:14px}.voice-options p{font-size:13px}.voice-options button{background:#181411;border:1px solid #6e5942;color:#fff}.gate{overflow-y:auto}.gate-card{margin:auto}
+
+/* Cabinet treatment inspired by the concept layout; all decoration is local CSS. */
+body{background:radial-gradient(ellipse at 16% 8%,#63421755,transparent 40%),radial-gradient(ellipse at 80% 30%,#172a4960,transparent 48%),repeating-linear-gradient(90deg,transparent 0 109px,#dbb96a08 110px 112px,transparent 113px 220px),#08090d}
+.scores{position:relative;grid-template-columns:1fr minmax(150px,.42fr) 1fr;gap:14px;margin:0}
+.scores>div{position:relative;overflow:hidden;border:1px solid #9c824f;border-radius:12px 12px 5px 5px;padding:6px 18px 10px;background:linear-gradient(110deg,#28131a,#0b0c11 80%)}
+.scores .rival{background:linear-gradient(250deg,#112b4b,#0b0c11 80%)}
+.you,.rival{border-bottom:1px solid #9c824f!important}
+.scores>div>span:first-child{display:flex;align-items:center;gap:10px;font-size:14px}
+.score-crest{font-size:32px;font-style:normal;color:#f1ce80;text-shadow:0 2px 5px #000}
+.score-meter{position:absolute;bottom:0;left:0;right:0;height:4px;background:#0007}
+.score-meter i{display:block;width:50%;height:100%;background:linear-gradient(90deg,#8f172f,#fc5e80);transition:width .35s}
+.rival .score-meter i{background:linear-gradient(90deg,#114693,#59baff)}
+.duel-gap{display:grid;place-items:center;align-content:center;color:#ccb78b;font-size:14px;font-weight:700;text-align:center;line-height:1.4}
+.duel-gap::before{content:'VS';font:italic 22px Georgia;color:#8b764e;letter-spacing:.2em}
+.duel-gap[data-leader=player]{color:#ffadb4}.duel-gap[data-leader=rival]{color:#a8d4ff}
+.arena{grid-template-columns:minmax(0,1.5fr) minmax(330px,.85fr);gap:20px}
+.machine{display:grid;grid-template-rows:34px minmax(0,1fr) 30px;gap:10px;padding:16px 24px 10px;border:3px solid #b98d48;border-radius:28px 28px 18px 18px;background:linear-gradient(100deg,#3d2514,#ae813c 2%,#251810 4%,#2a1513 48%,#4d3021 96%,#d1a55a 98%,#392315);box-shadow:inset 0 0 0 4px #27180d,inset 0 0 0 6px #cba55d66,inset 0 16px 16px #efca7222,0 12px 30px #0009}
+.machine-title{position:static;transform:none;font:bold 25px Georgia;text-align:center;align-self:center;letter-spacing:.06em;color:#f2d594;text-shadow:0 2px 1px #000,0 0 18px #a67923}
+.machine-title span{font:12px Georgia;color:#ad854a;vertical-align:middle;padding:0 14px}
+.reel-window{position:relative;min-height:0;border:5px solid #6c4720;border-radius:13px;background:#0b0906;box-shadow:0 0 0 2px #d8b975,inset 0 0 0 3px #1b1009;overflow:hidden}
+.machine #reels{min-height:0;height:100%;border:0;border-radius:8px;background:linear-gradient(90deg,#100c06,#47351c 50%,#100c06)}
+.reel-window::after{content:'';pointer-events:none;position:absolute;z-index:2;inset:0;background:linear-gradient(#080500b0,transparent 27%,transparent 73%,#080500b0);box-shadow:inset 0 0 24px #000}
+.payline{position:absolute;z-index:3;top:35%;height:30%;left:0;right:0;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #ffe49c8c;border-bottom:1px solid #ffe49c8c;background:#ffd45809;box-shadow:0 0 18px #ffcf6012;pointer-events:none;color:#ffe095;font-size:23px}
+.machine:has(#reels[data-win=true]) .payline{background:#ffdf7530;box-shadow:0 0 22px #ffc74788;border-color:#fff1b3}
+.machine:has(#reels[data-jackpot=true]){box-shadow:inset 0 0 0 4px #ffd572,0 0 45px #e5a12480}
+.machine-trim{display:flex;justify-content:space-between;gap:8px;align-items:center;color:#ddc59b;font-size:11px;letter-spacing:.02em}
+.machine-trim span:last-child{color:#ffdc8c}
+.last-spin{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0;border:0}
+.pay{right:32px;top:57px;z-index:5;font-size:30px;line-height:1;padding:5px 12px;border-radius:6px;background:#41100ae6;color:#ffe695;text-shadow:0 0 12px #c56812}
+.pay:empty{display:none}
+.event-cue{top:54px;z-index:6;font-size:17px;padding:8px 14px}
+.avatar{border:2px solid #5e718b;border-radius:18px;padding:11px;background:linear-gradient(135deg,#152338,#090e18 60%);box-shadow:inset 0 0 0 3px #0a101b,0 12px 35px #0008}
+.portrait{background:radial-gradient(ellipse at 50% 55%,#26476c55,transparent 65%),repeating-linear-gradient(115deg,#afc3dc06 0 1px,transparent 1px 32px),#090e19;border:1px solid #899bb022}
+.mock-face{position:relative;gap:8px;align-content:center;justify-items:center;font:14px system-ui;color:#b3c8e3;padding:12px}
+.mock-face>small{font-size:9px;letter-spacing:.28em;color:#8898b0}
+.mock-face>strong{font:18px Georgia;letter-spacing:.16em;color:#e6d1a0}
+.mock-face>span{font-size:12px;letter-spacing:.06em}
+.rival-crest{width:96px;height:106px;display:grid;place-items:center;background:linear-gradient(145deg,#e3c481,#775529 47%,#e7c47d 49%,#9d7134);clip-path:polygon(50% 0,94% 20%,85% 75%,50% 100%,15% 75%,6% 20%);filter:drop-shadow(0 5px 8px #000)}
+.rival-crest span{display:grid;place-items:center;width:88px;height:98px;background:linear-gradient(130deg,#17304f,#080d18);clip-path:inherit;font:bold italic 70px Georgia;color:#d9bd7f;text-shadow:0 3px 1px #000}
+.mock-face[data-mood=behind] .rival-crest span{background:linear-gradient(130deg,#461822,#130c18)}
+.mock-face[data-mood=ahead] .rival-crest span{background:linear-gradient(130deg,#134a65,#080d18)}
+.avatar .speech p{position:relative;border-radius:16px 16px 16px 4px;border:2px solid #dbcba9;background:#faf3e6;font-weight:700;line-height:1.45;margin:10px 0 4px;padding:10px 13px;font-size:16px;min-height:45px}
+.avatar .speech small:empty{display:none}
+.avatar .mini{padding:7px 8px;border-radius:7px;background:#060b12;font-size:11px;flex-wrap:wrap}.mini strong{font-size:20px}
+.builds{display:grid;gap:5px;padding:8px 2px 2px;font-size:10px;color:#96a9c1}.builds>div{display:flex;justify-content:space-between;gap:7px}.builds strong{color:#e6d8b9;font-weight:500;text-align:right}
+.connection{font-size:10px;color:#95a1b4;line-height:1.4;padding-top:6px}
+footer{display:flex;flex-wrap:wrap;align-content:center;align-items:center;justify-content:center;gap:5px 22px;padding:5px 0}
+.result{position:static;transform:none;display:flex;gap:12px;align-items:center;padding:4px 0;border:0;border-radius:0;box-shadow:none;background:transparent;max-width:100%}
+.result strong{font:bold 30px Georgia;white-space:nowrap}.result span{font-size:18px}
+#start{font-size:21px;padding:10px 38px;border:2px solid #d6b269;box-shadow:inset 0 0 0 3px #66110f,inset 0 5px 10px #ffae7840,0 4px 12px #000;background:linear-gradient(#e4433a,#8d141c)}
+#start:disabled{opacity:1;filter:none;background:linear-gradient(#392e24,#17120e);color:#c7ad83;border-color:#806638;box-shadow:inset 0 0 0 3px #17120e}
+footer p{flex-basis:100%;margin:0!important;font-size:11px;color:#ad9e87;line-height:1.45}
+.countdown{pointer-events:none}
+button:focus-visible,summary:focus-visible{outline:3px solid #fff0b7;outline-offset:3px}
+@media(min-width:901px){.shell{grid-template-rows:66px 64px minmax(0,1fr) 108px;gap:10px}.scores{margin:0}.scores>div{padding:6px 16px 9px}.avatar .speech p{font-size:16px;min-height:44px}.avatar .speech small{min-height:0}}
+@media(min-width:1500px){.machine{padding:20px 30px 12px;grid-template-rows:40px minmax(0,1fr) 34px}.machine-title{font-size:30px}.mock-face{gap:15px}.rival-crest{width:144px;height:159px}.rival-crest span{width:132px;height:147px;font-size:100px}.mock-face>strong{font-size:23px}.mock-face>span{font-size:14px}.avatar .speech p{font-size:20px}}
+@media(max-width:900px){.scores{grid-template-columns:1fr 1fr;gap:8px;padding-bottom:26px}.duel-gap{position:absolute;bottom:0;left:0;right:0;font-size:12px}.duel-gap::before{display:none}.arena{grid-template-columns:1fr}.machine{height:420px;padding:12px 16px 6px;gap:8px;grid-template-rows:28px minmax(0,1fr) 30px}.machine-title{font-size:23px}.avatar{min-height:400px}.portrait{min-height:210px}.machine-trim{font-size:10px}.scores strong{font-size:26px}.result{justify-content:center}.result strong{font-size:27px}footer{padding:14px 0}}
