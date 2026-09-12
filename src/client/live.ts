@@ -28,6 +28,7 @@ function downsamplePcm16(input: Float32Array, inputRate: number, outputRate = 24
 }
 
 class MicrophonePump {
+  private stopped = false;
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
@@ -36,16 +37,23 @@ class MicrophonePump {
 
   async prepare(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('microphone_unavailable');
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       video: false,
     });
+    if (this.stopped) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('connection_cancelled');
+    }
+    this.stream = stream;
   }
 
   async start(send: (audio: string) => void): Promise<void> {
     if (!this.stream) throw new Error('microphone_not_prepared');
-    this.context = new AudioContext();
-    await this.context.resume();
+    const context = new AudioContext();
+    this.context = context;
+    await context.resume();
+    if (this.stopped || !this.stream) throw new Error('connection_cancelled');
     this.source = this.context.createMediaStreamSource(this.stream);
     this.processor = this.context.createScriptProcessor(4096, 1, 1);
     this.sink = this.context.createGain();
@@ -61,17 +69,19 @@ class MicrophonePump {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     if (this.processor) this.processor.onaudioprocess = null;
     this.processor?.disconnect();
     this.source?.disconnect();
     this.sink?.disconnect();
     this.stream?.getTracks().forEach((track) => track.stop());
-    await this.context?.close().catch(() => undefined);
+    const context = this.context;
     this.stream = null;
     this.context = null;
     this.source = null;
     this.processor = null;
     this.sink = null;
+    await context?.close().catch(() => undefined);
   }
 }
 
@@ -80,74 +90,100 @@ export class LiveClient extends EventTarget {
   private room: Room | null = null;
   private mic = new MicrophonePump();
   private audioElement = document.createElement('audio');
-  private connected = false;
-  private intentionallyClosed = false;
+  private abort = new AbortController();
+  private closed = false;
+  private connecting: Promise<void> | null = null;
+  private rejectConnect: ((error: Error) => void) | null = null;
+  private cleanup: Promise<void> | null = null;
 
   constructor(private readonly videoElement: HTMLVideoElement) {
     super();
     this.audioElement.autoplay = true;
   }
 
-  async connect(inviteCode: string): Promise<void> {
-    if (this.connected || this.ws) return;
-    this.intentionallyClosed = false;
-    await this.mic.prepare();
-    let ticket = '';
-    try {
-      const response = await fetch('/api/access', {
-        method: 'POST',
-        headers: { 'X-Invite-Code': inviteCode },
-      });
-      if (!response.ok) throw new Error('access_denied');
-      const body = (await response.json()) as { ticket?: string };
-      ticket = body.ticket ?? '';
-      if (!ticket) throw new Error('missing_ticket');
-    } catch (error) {
-      await this.mic.stop();
-      throw error;
-    }
-
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`);
-    this.ws = ws;
-
-    ws.onmessage = (event) => {
-      let message: ServerMessage;
-      try {
-        message = JSON.parse(String(event.data)) as ServerMessage;
-      } catch {
-        return;
-      }
-      if (message.type === 'avatar') void this.attachAvatar(message.livekitUrl, message.livekitToken);
-      this.dispatchEvent(new CustomEvent<ServerMessage>('message', { detail: message }));
-    };
-    ws.onclose = () => {
-      this.connected = false;
-      if (!this.intentionallyClosed) this.dispatchEvent(new Event('disconnect'));
-      void this.mic.stop();
-      void this.detachAvatar();
-    };
-
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('socket_timeout')), 12_000);
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        this.connected = true;
-        void this.mic.start((audio) => this.send({ type: 'mic', audio }));
-        resolve();
-      };
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error('socket_error'));
-      };
-    }).catch(async (error) => {
+  connect(inviteCode: string): Promise<void> {
+    this.connecting ??= this.prepareConnection(inviteCode).catch(async (error: unknown) => {
       await this.disconnect();
       throw error;
+    });
+    return this.connecting;
+  }
+
+  private async prepareConnection(inviteCode: string): Promise<void> {
+    if (this.closed) throw new Error('connection_cancelled');
+    await this.mic.prepare();
+    if (this.closed) throw new Error('connection_cancelled');
+    const response = await fetch('/api/access', {
+      method: 'POST',
+      headers: { 'X-Invite-Code': inviteCode },
+      signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(10_000)]),
+    });
+    if (!response.ok) throw new Error('access_denied');
+    const body = (await response.json()) as { ticket?: string };
+    if (!body.ticket) throw new Error('missing_ticket');
+    if (this.closed) throw new Error('connection_cancelled');
+
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${location.host}/api/ws?ticket=${encodeURIComponent(body.ticket)}`);
+    this.ws = ws;
+    await new Promise<void>((resolve, reject) => {
+      let microphoneReady = false;
+      let avatarReady = false;
+      let voiceReady = false;
+      const timeout = setTimeout(() => fail(new Error('connection_timeout')), 30_000);
+      const fail = (error: Error) => {
+        clearTimeout(timeout);
+        this.rejectConnect = null;
+        reject(error);
+        if (!this.closed) {
+          this.dispatchEvent(new Event('disconnect'));
+          void this.disconnect();
+        }
+      };
+      this.rejectConnect = (error) => { clearTimeout(timeout); reject(error); };
+      const ready = () => {
+        if (this.closed || !microphoneReady || !avatarReady || !voiceReady) return;
+        clearTimeout(timeout);
+        this.rejectConnect = null;
+        this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
+          detail: { type: 'voice_status', status: 'ready' },
+        }));
+        resolve();
+      };
+      ws.onopen = () => {
+        if (this.closed) return;
+        void this.mic.start((audio) => this.send({ type: 'mic', audio })).then(() => {
+          microphoneReady = true;
+          ready();
+        }).catch(() => fail(new Error('microphone_start_failed')));
+      };
+      ws.onmessage = (event) => {
+        if (this.closed) return;
+        let message: ServerMessage;
+        try { message = JSON.parse(String(event.data)) as ServerMessage; } catch { return; }
+        if (message.type === 'avatar') {
+          void this.attachAvatar(message.livekitUrl, message.livekitToken).then(() => {
+            avatarReady = true;
+            ready();
+          }).catch(() => fail(new Error('avatar_connect_failed')));
+        }
+        if (message.type === 'voice_status' && message.status === 'ready') {
+          voiceReady = true;
+          ready();
+          return;
+        }
+        this.dispatchEvent(new CustomEvent<ServerMessage>('message', { detail: message }));
+        if (message.type === 'error' && !message.recoverable) fail(new Error('session_failed'));
+      };
+      ws.onclose = () => {
+        if (!this.closed) fail(new Error('socket_closed'));
+      };
+      ws.onerror = () => fail(new Error('socket_error'));
     });
   }
 
   send(message: ClientMessage): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    if (this.closed || this.ws?.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify(message));
   }
 
@@ -155,34 +191,46 @@ export class LiveClient extends EventTarget {
     this.audioElement.muted = muted;
   }
 
-  async disconnect(): Promise<void> {
-    this.intentionallyClosed = true;
+  disconnect(): Promise<void> {
+    if (this.cleanup) return this.cleanup;
     if (this.ws?.readyState === WebSocket.OPEN) this.send({ type: 'close' });
+    this.closed = true;
+    this.abort.abort();
+    this.rejectConnect?.(new Error('connection_cancelled'));
+    this.rejectConnect = null;
     this.ws?.close();
     this.ws = null;
-    this.connected = false;
-    await this.mic.stop();
-    await this.detachAvatar();
+    this.cleanup = Promise.allSettled([this.mic.stop(), this.detachAvatar()]).then(() => undefined);
+    return this.cleanup;
   }
 
   private async attachAvatar(url: string, token: string): Promise<void> {
     await this.detachAvatar();
+    if (this.closed) throw new Error('connection_cancelled');
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;
     room.on(RoomEvent.TrackSubscribed, (track) => {
+      if (this.closed || this.room !== room) return;
       if (track.kind === 'video') track.attach(this.videoElement);
       if (track.kind === 'audio') track.attach(this.audioElement);
     });
-    room.on(RoomEvent.Disconnected, () => this.dispatchEvent(new Event('avatar-disconnect')));
+    room.on(RoomEvent.Disconnected, () => {
+      if (this.closed || this.room !== room) return;
+      this.dispatchEvent(new Event('disconnect'));
+      void this.disconnect();
+    });
     await room.connect(url, token);
+    if (this.closed || this.room !== room) {
+      await room.disconnect();
+      throw new Error('connection_cancelled');
+    }
   }
 
   private async detachAvatar(): Promise<void> {
-    if (this.room) {
-      this.room.disconnect();
-      this.room = null;
-    }
+    const room = this.room;
+    this.room = null;
     this.videoElement.srcObject = null;
     this.audioElement.srcObject = null;
+    await room?.disconnect();
   }
 }

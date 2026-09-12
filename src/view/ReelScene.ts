@@ -17,6 +17,9 @@ export class ReelScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    Object.assign(this.renderer.domElement.style, {
+      position: 'absolute', inset: '0', width: '100%', height: '100%', display: 'block',
+    });
     host.append(this.renderer.domElement);
     this.camera.position.set(0, 0, 7);
     this.scene.add(new THREE.AmbientLight(0xffd9a3, 2));
@@ -104,6 +107,8 @@ export class ReelScene {
     const height = this.host.clientHeight || 420;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
+    // Keep all three reels visible on narrow viewports and at high pixel ratios.
+    this.camera.position.z = 1 + Math.max(2.7 / this.camera.aspect, 1.4) / Math.tan(THREE.MathUtils.degToRad(19));
     this.camera.updateProjectionMatrix();
   };
 

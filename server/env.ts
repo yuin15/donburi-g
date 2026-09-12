@@ -1,8 +1,8 @@
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
-  const value = Number.parseInt(raw, 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
 export const env = {
@@ -21,10 +21,8 @@ export const env = {
   rivalModel: process.env.RIVAL_REASONING_MODEL ?? 'gpt-5.6-luna',
   gptLiveModel: process.env.GPT_LIVE_MODEL ?? 'gpt-live-1',
   gptLiveVoice: process.env.GPT_LIVE_VOICE ?? 'marin',
-  quotaUrl: process.env.RATE_LIMIT_STORE_URL ?? '',
-  quotaToken: process.env.RATE_LIMIT_STORE_TOKEN ?? '',
-  maxDailySessions: intEnv('MAX_DAILY_SESSIONS', 100),
-  maxConcurrentSessions: intEnv('MAX_CONCURRENT_SESSIONS', 5),
+  maxDailySessions: intEnv('MAX_DAILY_SESSIONS', 10),
+  maxConcurrentSessions: intEnv('MAX_CONCURRENT_SESSIONS', 1),
 };
 
 export function assertLiveConfiguration(): void {
@@ -34,7 +32,5 @@ export function assertLiveConfiguration(): void {
   if (!env.liveAvatarKey) missing.push('LIVEAVATAR_API_KEY');
   if (!env.signingKey) missing.push('SESSION_SIGNING_KEY');
   if (!env.inviteCode) missing.push('MVP_INVITE_CODE');
-  if (!env.quotaUrl) missing.push('RATE_LIMIT_STORE_URL');
-  if (!env.quotaToken) missing.push('RATE_LIMIT_STORE_TOKEN');
   if (missing.length) throw new Error(`missing_live_configuration:${missing.join(',')}`);
 }

@@ -1,5 +1,5 @@
 {
-  "name": "reel-forge",
+  "name": "slot-chan",
   "private": true,
   "version": "0.2.0",
   "type": "module",
@@ -22,7 +22,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
-    "@redis/client": "^5.12.1",
     "@types/express": "^5.0.3",
     "@types/node": "^24.3.1",
     "@types/three": "^0.180.0",

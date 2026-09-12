@@ -14,6 +14,12 @@ beforeEach(() => { vi.useFakeTimers(); env.liveEnabled = true; });
 afterEach(() => { vi.useRealTimers(); });
 
 describe('live access control', () => {
+  it('accepts demo configuration without a database account', () => {
+    const previous = { openaiKey: env.openaiKey, liveAvatarKey: env.liveAvatarKey };
+    Object.assign(env, { openaiKey: 'test-provider-key', liveAvatarKey: 'test-avatar-key' });
+    try { expect(assertLiveConfiguration).not.toThrow(); }
+    finally { Object.assign(env, previous); }
+  });
   it('rejects new and already-issued tickets when live mode is disabled', () => {
     const ticket = issueTicket('test-invite', 'https://game.example');
     env.liveEnabled = false;

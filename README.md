@@ -1,4 +1,4 @@
-# Reel Forge
+# Slot-chan
 
 **しゃべるAIライバルに60秒で勝ちきれ。**
 
@@ -21,7 +21,7 @@ The game rules are authoritative on the server in live mode. The browser never d
 Runs fully in the browser and does not call paid APIs. Useful for UI/gameplay iteration.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -35,7 +35,6 @@ Required for live mode:
 - `LIVEAVATAR_API_KEY`
 - `SESSION_SIGNING_KEY` (24+ random characters)
 - `MVP_INVITE_CODE`
-- `RATE_LIMIT_STORE_URL` / `RATE_LIMIT_STORE_TOKEN` (shared Redis-compatible REST store such as Upstash)
 - `LIVE_MODE_ENABLED=true`
 
 Optional:
@@ -45,8 +44,10 @@ Optional:
 - `RIVAL_REASONING_MODEL` — default `gpt-5.6-luna`
 - `GPT_LIVE_MODEL` — default `gpt-live-1`
 - `GPT_LIVE_VOICE` — default `marin`
-- `MAX_DAILY_SESSIONS` — default `100`
-- `MAX_CONCURRENT_SESSIONS` — default `5`
+- `MAX_DAILY_SESSIONS` — default `10`, per running process
+- `MAX_CONCURRENT_SESSIONS` — default `1`, per running process
+
+This is a small invitation-only demo hosted on Vercel. No Redis/Upstash account or database is required. Connection limits are in memory: they reset on process restart and are independent across Vercel instances, so they are not a global spending cap. Provider sessions still stop after at most 120 seconds; normal completion and browser exit release their resources. Keep the invitation private and enable live mode only for the demo. Vercel Firewall rate limiting can be configured separately if wider sharing is needed.
 
 Live path:
 
