@@ -1,4 +1,5 @@
 import './style.css';
+import './view/DuelPanels.css';
 import type { MatchSnapshot, ServerMessage, SpinView, UpgradeId } from '../shared/protocol';
 import {
   advanceMatch,
@@ -55,16 +56,18 @@ app.innerHTML = `
     <div class="connection" id="connection">接続していません</div>
   </aside>
   <div class="upgrade" id="upgrade" hidden>
-    <div><b id="upgradeTitle">リール改造</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
-    <button data-up="steady" aria-pressed="false"><span class="symbol-icon cherry" aria-hidden="true"></span><strong>安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><span class="upgrade-odds" id="steadyOdds"></span><small class="upgrade-target">チェリー3つで120点</small><kbd>1</kbd></button>
-    <button data-up="jackpot" aria-pressed="false"><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><span class="upgrade-odds" id="jackpotOdds"></span><small class="upgrade-target">7が3つで1,200点</small><kbd>2</kbd></button>
+    <div class="upgrade-heading"><span id="upgradeNo"></span><b id="upgradeTitle">リール改造</b><strong id="upgradeRemain"></strong><span class="upgrade-clock" aria-hidden="true"><i id="upgradeClockFill"></i></span><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
+    <button data-up="steady" aria-pressed="false"><kbd>1</kbd><span class="symbol-icon cherry" aria-hidden="true"></span><strong>安定型</strong><small class="upgrade-pitch">小さく、何度も。</small><span class="upgrade-odds" id="steadyOdds"></span><small class="upgrade-target">チェリー3つで120点</small><small class="upgrade-selected">✓ この作戦でいく</small></button>
+    <button data-up="jackpot" aria-pressed="false"><kbd>2</kbd><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small class="upgrade-pitch">一撃、1,200点。</small><span class="upgrade-odds" id="jackpotOdds"></span><small class="upgrade-target">7が3つで1,200点</small><small class="upgrade-selected">✓ この作戦でいく</small></button>
   </div>
   <footer>
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
-      <small>DUEL FINISHED · 30 SPINS</small>
-      <div class="result-heading" role="status" aria-atomic="true"><h2 id="resultTitle"></h2><span id="resultScore"></span></div>
-      <table aria-label="対戦の配当と改造の内訳"><thead><tr><th scope="col">獲得コインの内訳</th><th scope="col">あなた</th><th scope="col">ライバル</th></tr></thead><tbody id="resultStats"></tbody></table>
-      <p>改造を変えて、もう一度。</p>
+      <small>60 SECONDS · 30 SPINS</small>
+      <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>
+      <div class="result-score" id="resultScore"><div><small>あなたのコイン</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>ライバルのコイン</small><strong id="resultRival"></strong></div></div>
+      <p id="resultGap"></p>
+      <details id="resultDetails"><summary>コインと改造の内訳 <span aria-hidden="true">＋</span></summary><table aria-label="対戦の配当と改造の内訳"><thead><tr><th scope="col">獲得コインの内訳</th><th scope="col">あなた</th><th scope="col">ライバル</th></tr></thead><tbody id="resultStats"></tbody></table></details>
+      <p class="result-again" id="resultAgain">改造を変えて、もう一度。</p>
     </section>
     <button id="start" disabled>勝負する</button>
     <div id="paytable" aria-label="3つそろうとチェリー120、ベル240、7は1200点"><span><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><i class="symbol-icon seven"></i>1,200</span></div>
@@ -232,9 +235,10 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
     if (upcoming >= 0) {
       if (previewOffer !== upcoming) showUpgradePreview(upcoming as 0 | 1);
       q('#upgradeRemain').textContent = `選択まで ${Math.ceil(UPGRADE_OPEN_SECONDS[upcoming] - snapshot.elapsed)}秒`;
+      q('#upgradeClockFill').style.transform = `scaleX(${Math.max(0, Math.min(1, (UPGRADE_OPEN_SECONDS[upcoming] - snapshot.elapsed) / 5))})`;
     } else if (previewOffer !== null) hideUpgrade();
   }
-  q('#upgradeProgress').textContent = snapshot.status === 'playing' ? activeOffer ? '改造を選ぼう！' : snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - snapshot.elapsed)}秒` : snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - snapshot.elapsed)}秒` : '改造完了・ラストスパート' : snapshot.status === 'result' ? '対戦終了' : '改造チャンス 20秒・40秒';
+  q('#upgradeProgress').textContent = snapshot.status === 'playing' ? activeOffer ? '改造を選ぼう！' : snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - snapshot.elapsed)}秒` : snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - snapshot.elapsed)}秒` : '改造完了・ラストスパート' : snapshot.status === 'result' ? '次は、どの作戦でいく？' : '改造チャンス 20秒・40秒';
   q('#time').parentElement!.classList.toggle('urgent', snapshot.status === 'playing' && snapshot.remaining <= 10);
   if (snapshot.status === 'playing') {
     if (!warnedTime && snapshot.remaining <= 10) {
@@ -245,6 +249,7 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
   if (activeOffer) {
     const left = Math.max(0, activeOffer.closesAt - snapshot.elapsed);
     q('#upgradeRemain').textContent = `残り ${left.toFixed(1)}秒`;
+    q('#upgradeClockFill').style.transform = `scaleX(${Math.min(1, left / 4)})`;
     if (left <= 0) hideUpgrade();
   }
 }
@@ -267,8 +272,12 @@ function fillUpgradeChoices(): void {
     for (const [label, from, to] of [['当たり率', before.hitChance, after.hitChance], ['7揃い', before.sevenChance, after.sevenChance]] as const) {
       const row = document.createElement('span');
       const change = document.createElement('strong');
+      row.dataset.featured = String(id === 'steady' ? label === '当たり率' : label === '7揃い');
       row.append(`${label} `);
-      change.textContent = `${percent(from)} → ${percent(to)}`;
+      const before = document.createElement('span');
+      before.className = 'odds-before';
+      before.textContent = `${percent(from)} → `;
+      change.append(before, percent(to));
       row.append(change);
       odds.append(row);
     }
@@ -279,7 +288,7 @@ function showUpgradePreview(index: 0 | 1): void {
   previewOffer = index;
   upgradePanel.dataset.phase = 'preview';
   q('#upgradeTitle').textContent = '改造プレビュー';
-  q('#upgradeNo').textContent = `${index + 1}/2 · 中央3つ揃いの確率`;
+  q('#upgradeNo').textContent = `UPGRADE ${index + 1} / 2`;
   q('#upgradeChoice').textContent = '見比べよう。受付後に選べます';
   fillUpgradeChoices();
   upgradePanel.querySelectorAll('button').forEach(button => {
@@ -298,8 +307,10 @@ function showUpgrade(index: 0 | 1, closesAt: number): void {
   activeOffer = { index, closesAt };
   upgradePanel.dataset.phase = 'open';
   q('#upgradeTitle').textContent = 'リール改造';
-  q('#upgradeNo').textContent = `${index + 1}/2 · 中央3つ揃いの確率`;
-  q('#upgradeChoice').textContent = 'どちらか1つを選んで確定';
+  q('#upgradeNo').textContent = `UPGRADE ${index + 1} / 2`;
+  q('#upgradeChoice').textContent = 'クリック / キー 1・2 で選択';
+  q('#upgradeRemain').textContent = `残り ${Math.max(0, closesAt - (latestSnapshot?.elapsed ?? closesAt - 4)).toFixed(1)}秒`;
+  q('#upgradeClockFill').style.transform = `scaleX(${Math.max(0, Math.min(1, (closesAt - (latestSnapshot?.elapsed ?? closesAt - 4)) / 4))})`;
   fillUpgradeChoices();
   upgradePanel.querySelectorAll('button').forEach((button) => {
     button.disabled = false;
@@ -335,8 +346,15 @@ function showResult(snapshot: MatchSnapshot): void {
   const scores = snapshot.scores;
   effects.play('result');
   resultPanel.hidden = false;
+  resultPanel.dataset.outcome = snapshot.winner ?? 'draw';
+  q<HTMLDetailsElement>('#resultDetails').open = false;
+  q('#resultEnglish').textContent = snapshot.winner === 'player' ? 'VICTORY' : snapshot.winner === 'rival' ? 'NEXT TIME' : 'DRAW';
   q('#resultTitle').textContent = snapshot.winner === 'player' ? '勝利！' : snapshot.winner === 'rival' ? '敗北' : '引き分け';
-  q('#resultScore').textContent = `${scores.player.toLocaleString()}  vs  ${scores.rival.toLocaleString()}`;
+  q('#resultPlayer').textContent = scores.player.toLocaleString();
+  q('#resultRival').textContent = scores.rival.toLocaleString();
+  const margin = Math.abs(scores.player - scores.rival).toLocaleString();
+  q('#resultGap').textContent = snapshot.winner === 'player' ? `${margin}コイン差で、ライバルを超えた。` : snapshot.winner === 'rival' ? `${margin}コイン差。次こそ、逆転を。` : '同じコイン数。決着は、次の60秒。';
+  q('#resultAgain').textContent = snapshot.winner === 'player' ? 'もう一勝、狙いにいこう。' : '改造を変えて、もう一度。';
   const rows = q<HTMLTableSectionElement>('#resultStats');
   rows.replaceChildren();
   const addRow = (label: string, player: string, rival: string, symbol?: string) => {
@@ -441,6 +459,7 @@ function finishPresentation(snapshot: MatchSnapshot): void {
   showResult(snapshot);
   hideUpgrade();
   scene.stop();
+  scene.celebrateResult(snapshot.winner ?? 'draw');
   q('#pay').textContent = '';
   clearTimeout(cueTimer);
   q('#eventCue').hidden = true;
@@ -819,10 +838,11 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
         battleTimers.clear();
         clearTimeout(cueTimer);
       }
-      if (example === 'draw') {
+      if (example === 'draw' || example === 'defeat') {
         snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30;
-        snapshot.scores = { player: 1440, rival: 1440 }; snapshot.winner = 'draw';
+        snapshot.scores = { player: 1440, rival: example === 'draw' ? 1440 : 2640 }; snapshot.winner = example === 'draw' ? 'draw' : 'rival';
         snapshot.stats.rival.wins.cherry = 2;
+        snapshot.stats.rival.wins.seven = example === 'draw' ? 1 : 2;
         presentation.scores = { ...snapshot.scores };
         finishPresentation(snapshot);
       }
