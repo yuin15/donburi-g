@@ -1,73 +1,104 @@
 # Slot-chan
 
-**Spin fast. Beat your rival in 60 seconds.**
+**60秒。回して、競って、しゃべるライバルと勝負する。**
 
-Game jam project by team **donburi**. The core game uses Vite, TypeScript and Three.js. GPT voice and LiveAvatar video are optional additions.
+チーム **donburi** のゲームソン向けスロット対戦デモです。クリック・Spaceで連打し、独立して回転するライバルと獲得コインを競います。GPT-Liveの音声とLiveAvatarの映像は、任意で追加できます。
 
-**PC only — landscape browser viewport 1280×720 or larger, mouse and keyboard.** Smaller windows keep the desktop composition with scrolling; smartphone layouts and touch optimization are outside the scope. Play at [slot-chan.vercel.app](https://slot-chan.vercel.app). See [current status and remaining checks](./docs/current-status.md).
+**[公開デモで遊ぶ](https://slot-chan.vercel.app/) · [現在地と残課題](docs/current-status.md) · [MVVM構成](docs/architecture.md)**
 
-## Play loop
+対象は **PC・横画面1280×720以上・マウスとキーボード**。ゲーム画面は英語です。
 
-1. Click **PLAY NOW**. No key, invitation, microphone, or external AI service is needed.
-2. Click **SPIN** or press **Space** to spin your reels. Press during a spin to queue the next one; repeated presses keep at most one reservation. Player spins are accepted at least 1.1 seconds apart.
-3. The rival automatically spins every 2 seconds, even when you do nothing. Your input never triggers or delays its spins.
-4. Highest confirmed coin total at 60 seconds wins. Both final animations settle before the result appears.
+![CPU対戦の画面例：大きな得点、下向きリール、残り10秒の演出](docs/evidence/finale/final-eight-1280.webp)
 
-Only the highlighted **middle line** pays. Both sides keep the same base reel composition for the entire match; upgrades and timed choices are currently removed. Reels move downward and stop independently. The result compares each side's actual spin count, symbol payouts and first highest-paying spin.
+*画面は演出確認用のDEVプレビューです。*
 
-The rival completes 30 spins; the player can complete 0–55 depending on input. CPU dialogue reacts to the side that just stopped without repeating the other side's previous payout. See [independent duel verification](./docs/independent-duel.md).
+## 遊び方
 
-The English game screen puts **YOU / RIVAL** scores first and keeps the title out of the visible play area. Wins use gold lights, separate payout amounts and coins traveling toward the winning side’s score. **BIG WIN** is reserved for three sevens; lead changes wait for both pending spins to settle. See [win presentation and screen checks](./docs/english-win-presentation.md).
+1. **PLAY NOW** で開始。CPU対戦にはAPIキー・招待コード・マイク・DBは不要です。
+2. **SPIN** をクリック、または **Space** で回転。回転中にもう一度押すと、次の1回を予約できます。
+3. ライバルは操作に関係なく **2秒ごと** に自動回転します。
+4. **60秒の獲得コインが多い方が勝利**。最後のリールが止まってから結果を表示し、**REMATCH** で再戦できます。
 
-The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
+配当は中央の1ラインだけが対象です。
 
-## Modes
+| 揃った絵柄 | 獲得コイン |
+| --- | ---: |
+| チェリー × 3 | 120 |
+| ベル × 3 | 240 |
+| 7 × 3 | 1,200 |
 
-### Normal CPU match (no external APIs)
+プレイヤーは1.1秒以上の間隔で最大55回、ライバルは30回転。両者とも同じ基本リールを使い、改造や途中の選択操作はありません。詳しくは[ゲーム規則](docs/game-rules.md)。
 
-Runs fully in the browser without API calls. It is the normal game, including independent rival spins, results and rematch. Short synthesized effects distinguish spins, wins, jackpots, lead changes and the last ten seconds; **SOUND ON/OFF** controls them separately from optional AI speech.
+## すぐに開発を始める
+
+**Node.js 22以上**を用意します。
 
 ```bash
+git clone https://github.com/yuin15/donburi-g.git
+cd donburi-g
 npm ci
 npm run dev
 ```
 
-### Optional voice and video
+ターミナルに表示されたURLを開けば、CPU対戦・結果・再戦まで確認できます。通常のVite開発サーバーはCPU対戦の確認用です。ライブ機能には、以下のサーバー側APIと環境設定も必要です。
 
-Open **ADD AI VOICE · OPTIONAL** to talk to the rival. Voice plays directly in the browser by default; LiveAvatar is not contacted. Select **Add live video** only for the optional avatar stream, which uses LiveAvatar credits. If permission or initial connection fails, a CPU match is prepared instead. Once connected, a voice/video failure closes the media and microphone, cancels pending AI reasoning, and keeps the same match running with the independent CPU rival. The core game's completion does not depend on real-provider voice/video validation.
+## 任意のAI音声・映像
 
-Live mode requires server-side environment variables. Copy `.env.example` to a local ignored environment file and fill it locally, or configure the variables in Vercel. **Never commit real values.**
+| モード | 使用するサービス | 追加の準備 |
+| --- | --- | --- |
+| CPU対戦（標準） | なし | なし |
+| AI音声 | OpenAI GPT-Live | 招待コード、マイク許可、サーバー側の音声設定 |
+| AI音声＋映像 | GPT-Live / LiveAvatar / LiveKit | 音声設定に加え、LiveAvatarの設定 |
 
-Required for live mode:
+**ADD AI VOICE · OPTIONAL** を開き、招待コードを入力して **CONNECT AI VOICE**。接続後に **PLAY** を押します。映像を付ける場合だけ **Add live video** にチェックを入れます。音声だけならLiveAvatarには接続しません。
 
-- `OPENAI_API_KEY`
-- `SESSION_SIGNING_KEY` (24+ random characters)
-- `MVP_INVITE_CODE`
-- `LIVE_MODE_ENABLED=true`
+**MIC** はマイク入力、**VOICE** はライバルの声、**SOUND** はゲーム効果音を操作します。マイク音声はOpenAIへ送信され、音声・映像APIの利用枠を消費します。初期接続に失敗した場合はCPU対戦へ進めます。接続後に任意の音声・映像が終了しても同じ試合を続行します。試合用WebSocket自体が切れた場合は、その旨を表示して対戦を終了します。
 
-Optional:
+### サーバー側の設定
 
-- `LIVEAVATAR_API_KEY` — required only when live video is selected
-- `LIVEAVATAR_AVATAR_ID` — for live video; otherwise the first active public avatar is used
-- `ALLOWED_ORIGINS` — comma-separated allowed browser origins
-- `GPT_LIVE_MODEL` — default `gpt-live-1`
-- `GPT_LIVE_VOICE` — default `marin`
-- `MAX_DAILY_SESSIONS` — default `10`, per running process
-- `MAX_CONCURRENT_SESSIONS` — default `1`, per running process
+[`.env.example`](.env.example) を参考に、Git対象外の環境ファイル、またはVercelのEnvironment Variablesへ設定してください。
 
-This is a small invitation-only demo hosted on Vercel. No Redis/Upstash account or database is required. Connection limits are in memory: they reset on process restart and are independent across Vercel instances, so they are not a global spending cap. Voice teardown starts by 120 seconds; a game already in progress continues to its full 60-second result. An unused lobby closes at 90 seconds, so a late game still finishes before 150 seconds. Provider finalization is checked separately; normal completion and browser exit also release resources. Keep the invitation private and enable live mode only for the demo. Vercel Firewall rate limiting can be configured separately if wider sharing is needed.
+| 環境変数 | 用途 |
+| --- | --- |
+| `OPENAI_API_KEY` | GPT-Liveの呼び出し |
+| `SESSION_SIGNING_KEY` | セッション署名鍵。24文字以上のランダム値 |
+| `MVP_INVITE_CODE` | ライブ機能の招待コード |
+| `LIVE_MODE_ENABLED=true` | ライブ機能の有効化 |
+| `ALLOWED_ORIGINS` | 利用するサイトのOrigin |
+| `LIVEAVATAR_API_KEY` | 映像を選ぶ場合に必要 |
+| `LIVEAVATAR_AVATAR_ID` | 任意の映像アバター指定。未指定時は利用可能な公開アバターを使用 |
 
-Voice path:
+API入口は [`api/access.ts`](api/access.ts) / [`api/ws.ts`](api/ws.ts)、デプロイ設定は [`vercel.json`](vercel.json) です。モデル・声・接続数の既定値は [`.env.example`](.env.example)、運用手順は [operations.md](docs/operations.md) を参照してください。
 
-`browser mic → /api/ws → GPT-Live → /api/ws → browser PCM playback`
+共有DBやRedis/Upstashは必須ではありません。招待制デモ向けにプロセス内の接続制限を使っています。これは全インスタンス共通の課金上限ではありません。音声は接続から120秒以内に終了処理を始めますが、進行中の60秒対戦は続きます。
 
-Optional video path:
+## 変更する場所
 
-`GPT-Live → LiveAvatar media server → LiveKit → browser`
+TypeScript / Vite / Three.jsで実装し、**MVVM**でゲーム規則・進行・描画を分けています。
 
-The game WebSocket carries authoritative match updates independently of optional voice/video health. Losing that game transport itself aborts the match with a visible explanation; the app never silently substitutes a new match or seed. Optional media failure preserves the existing timer, scores, spins, and result.
+| 場所 | 主な役割 |
+| --- | --- |
+| [`src/domain/`](src/domain/) | Model。抽選、配当、回転間隔、試合の集計 |
+| [`src/viewmodel/`](src/viewmodel/) | ViewModel。進行、入力予約、表示状態、CPU/Liveの切り替え |
+| [`src/view/`](src/view/) | View。DOM、配置、Three.jsのリール・当たり演出、効果音 |
+| [`src/client/`](src/client/) | 通信、マイク、音声再生、任意の映像接続 |
+| [`server/`](server/) / [`api/`](api/) | ライブ対戦、外部API、接続の開始と終了 |
 
-## Commands
+筐体・リール・光・コインは1つのThree.js描画にまとめ、文字と操作はHTML/CSSで扱います。基本の画像素材は4枚の共有WebP、効果音はWeb Audioで合成しています。静止中・非表示中は連続描画を止め、LiveAvatar用SDKは映像を選んだときだけ読み込みます。
+
+詳しい責務と変更例は [architecture.md](docs/architecture.md)、作業方針は [AGENTS.md](AGENTS.md) を参照してください。
+
+## 引き継ぎ時点の状態
+
+2026-09-12時点で、無料CPU対戦と任意のライブ機能を公開しています。下向きリール、大型得点、BIG WIN、独立したライバル回転、残り10秒のライト・音、結果・再戦・自己ベスト・連勝表示を実装済みです。自己ベストと連勝はページを再読み込みするとリセットされます。
+
+実APIの実況・LiveAvatar映像・結果反応を収録した **約1分23秒の引き継ぎ動画** を別途配布しています。収録時はプレイヤーのマイクをミュートしており、人が話しかける会話・割り込みの評価とは分けています。動画・実際の会話内容はこのリポジトリに含めません。
+
+- **残課題：** [Issue #8 — ライバル会話](https://github.com/yuin15/donburi-g/issues/8)。返事の遅延・割り込みを改善していますが、修正版の人による体感評価は未完了です。実Edge・初見プレイの評価も残っています。
+- **今後の優先順位：** 実画面を見て、見栄え・当たりの爽快感・60秒対戦の面白さを改善します。スマートフォン対応、追加の試合同期検証、商用向け基盤は現在の対象外です。
+- **資料の読み方：** 古い改造・同時回転の検証資料は当時の履歴です。現在の仕様は[ゲーム規則](docs/game-rules.md)、実施済みと未確認の区別は[現在地](docs/current-status.md)を参照してください。
+
+## 確認コマンド
 
 ```bash
 npm run typecheck
@@ -77,30 +108,10 @@ npm run check:server-runtime
 npm run build
 ```
 
-## Vercel
+GitHub Actionsでも上記を実行します。変更に必要な確認と既存CIを通し、見た目や操作の改善は実画面で確認してください。
 
-The repository includes `vercel.json`. WebSocket live mode uses the Node.js `ws` server exported from `api/ws.ts` and is intended for Vercel Fluid compute WebSocket support. Configure all secrets as server-side Vercel environment variables before enabling live mode.
+## 秘密情報と素材
 
-## Security
+**APIキー、トークン、署名鍵、招待コード、環境ファイル、個人のメールアドレス、実際の会話・マイク音声をコミットしないでください。** 引き継ぎ時の秘密値はコードと別の安全な経路で共有します。[SECURITY.md](SECURITY.md) / [運用手順](docs/operations.md)。
 
-This repository is public. **Never commit API keys, access tokens, passwords, private keys, service-account credentials, invite codes, or real conversation data.**
-
-See [SECURITY.md](./SECURITY.md) and [docs/operations.md](./docs/operations.md).
-
-## Documentation
-
-- [MVVM architecture and change locations](./docs/architecture.md)
-- [Game rules](./docs/game-rules.md)
-- [Balance measurements](./docs/game-balance.md)
-- [Wire protocol](./docs/protocol.md)
-- [Live voice integration](./docs/voice-spike.md)
-- [Operations / limits](./docs/operations.md)
-- [MVP verification](./docs/mvp-verification.md)
-
-## Third-party reference
-
-Reels, cabinet background/frame, payout lines, win lighting and jackpot coins share one Three.js renderer. It redraws only while animating or when the visible state changes; settled/hidden screens have no continuous render loop. Text and controls use HTML/CSS. The avatar SDK is loaded only when live video is selected. See [rendering verification](./docs/render-performance.md).
-
-Cabinet, character expressions, symbols and coin art were generated for this project and are served locally as four shared WebP textures. Reels move downward with continuous UV scrolling and stop left, middle, then right; score and reaction updates follow the settled frame. Text and controls remain accessible HTML. Sound effects are original Web Audio oscillator cues. The fixed landscape composition is verified at 1280×720 and 1920×1080; rival symbols retain their square proportions. Actual Edge and human play/sound evaluation remain pending. See [visual assets](./docs/visual-assets.md) and [visual verification](./docs/visual-redesign-verification.md).
-
-The LiveAvatar/GPT-Live bridge design is based on HeyGen's MIT-licensed reference implementation `heygen-com/liveavatar-gpt-live-demos`. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+筐体・キャラクター表情・絵柄・コインは本プロジェクト用に生成した素材です。[画像素材](docs/visual-assets.md) / [画面検証](docs/visual-redesign-verification.md)。LiveAvatarとGPT-Liveの接続設計は、MITライセンスの `heygen-com/liveavatar-gpt-live-demos` を参考にしています。[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
