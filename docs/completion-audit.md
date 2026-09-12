@@ -1,5 +1,7 @@
 # 完成条件の照合（2026-09-12）
 
+> PR #34時点の履歴。最新の実装・公開記録は [current-status.md](current-status.md)、新しい見た目の証拠は [visual-redesign-verification.md](visual-redesign-verification.md) を参照。#43以降はPC専用で、以下のタッチ確認は現在の対応範囲を示さない。
+
 対象はユーザー指定のSlot-chan: Three.js中心の描画、無料の60秒CPUスロット対戦、2回の改造、結果と再戦。映像・音声は任意。元の音声必須仕様の課金・接続検証を通常対戦の前提へ戻さない。
 
 公開ゲーム: `b43dc186c5e5a2ddabe2424e47a45a860c47d4f1`（PR #34）、https://slot-chan.vercel.app 。Vercel `dpl_6XdTqp9VizBKC7qxFC2u4tGsfoh7` はREADY。main CI https://github.com/yuin15/donburi-g/actions/runs/34666695337 は成功。以下はこの時点の証拠で、未確認項目を合格へ読み替えない。

@@ -1,42 +1,48 @@
-# Slot-chan completion status
+# Slot-chanの現在地
 
-## Scope
+2026-09-12。無料の60秒CPUスロット対戦が公開済み。**PC専用、横画面1280×720以上、マウス・キーボード**を対象にする。音声・映像は任意で、APIキー、招待、マイク、Upstashなしに遊べる。
 
-The core game is a free, local 60-second CPU slot battle with two upgrades and rematch. OpenAI voice and LiveAvatar video are optional additions. They are not prerequisites for playing or completing the core game. No shared database is required. Game graphics use Three.js; controls and readable text use HTML.
+## ゲームと画面
 
-## Verified implementation (2026-09-12)
+- 両者30回転、中央1ライン、配当120/240/1200、20秒・40秒に2択改造、勝利・敗北・引き分け、再戦まで実装。選択は24秒・44秒の期限で確定し、遅れた入力や二重入力で延長しない。
+- 参考画像を基に筐体・操作台・専用絵柄・架空の成人ライバル4表情を制作。1つのThree.js描画へ集約し、HTMLで文字・操作を重ねる。
+- リールは同じ絵柄が上から下へ連続して流れ、左→中→右に停止。両得点・台詞・結果は確定した停止フレームの後に更新する。相手の小リールは正方形の絵柄を保ち、縦潰れを修正した。
+- #43でスマホ用の縦配置・縮小UI・背景切り出しを削除。狭いウィンドウは最小幅1280pxと横スクロールでPC構図を維持する。スマホ用UI・タッチ最適化は対象外。
+- 静止/非表示では連続描画せず、素材4点・概算20.4MiB。任意LiveClient/LiveKitはCPU入口で読み込まない。PC専用変更後の主JSは132.58KB gzip、CSSは3.59KB gzip。
 
-- CPU entry requires no invite, microphone, keys or external API. Browser observation of a complete match recorded zero external/API requests without observation-buffer truncation (PR #25).
-- The common game domain resolves 30 rounds, upgrades at 20/40 seconds with 24/44-second deadlines, final-round scoring, win/loss/draw and rematch. Deterministic fixtures include a last-ten-second comeback. Strategy distributions are documented in `game-balance.md`.
-- Player selections lock on first submission. CPU player and rival input now use the actual monotonic clock rather than the last timer update; stalled-timer deadline and rematch regressions are tracked in #30.
-- Three.js draws the cabinet, backdrop panel, reels, winning line and bounded jackpot coins with one renderer. Idle and hidden scenes stop scheduling frames; shared textures and all scene resources have cleanup coverage (PR #29).
-- The optional LiveKit SDK loads only when avatar playback is requested. PR #29's public entry loaded only the main JavaScript file. Initial gzip JavaScript fell from 279 KB to about 134 KB. A five-second idle sample measured 0 ms script time and 0.393 ms total task time; this is not a claim of 60 fps on every device.
-- Browser checks cover both pointer/keyboard upgrade choices, locked selection feedback, full 60-second matches, result, rematch, countdown cancellation, effect mute and exit. 1280×720 and 1920×1080 layouts were visually checked under PR #27. Reduced-motion preference was recognized by the browser.
-- Optional-media failures are isolated from an already connected game. Tests verify the same match completes 30 spins and its second upgrade after media shutdown. Initial connection failure prepares CPU play. Game-WebSocket loss is reported as a separate interruption (PR #25).
-- Tests cover token rejection, quota/replay, emitted Node ESM startup, WebSocket lifecycle, bounded provider cleanup, late microphone/SDK callbacks, sound resources and Three.js lifecycle. The current local suite has 75 passing tests; lint, TypeScript/build and emitted-server checks pass. The build retains a large-chunk warning.
+## 確認した範囲
 
-## Recorded game publication
+- 型検査、lint、98テスト、生成済みNode ESMの起動と拒否応答、本番ビルドが成功。500KB超のビルド警告は残る。
+- Windows Chrome 152で自然抽選の60秒対戦、2回の改造、結果、再戦、初期化、カウントダウン取消、効果音ミュート、退出を確認。25秒のページ停止から最新の30回転の結果へ追いつくことも確認した。
+- PCの1280×720 / 1920×1080を目視。通常・小当たり・7揃い・逆転・同点・最終スピンはDEV専用の検収画面でも確認し、回転動画と連続フレームを記録した。固定出目は本番に含まれない。
+- 描画再計測は384標本、中央値17.7ms、p95 18.2ms、最大33描画・252三角形。高性能PC上の測定であり、全端末の性能保証ではない。
+- 公開CPU入口の通信は外部/API要求なし、初期約0.684MB（PR #41観測）。任意Live無効時のHTTP 401 / WebSocket拒否1008を、PR #42の公開版でも確認した。
+- 個人メール・実会話を記録しない。秘密値はGit対象外のローカル環境とVercelのサーバーSecretsで管理し、追跡ファイル・ビルド・コミット差分を検査する。
 
-- Public URL: https://slot-chan.vercel.app
-- main: `b43dc186c5e5a2ddabe2424e47a45a860c47d4f1` (PR #34)
-- Vercel READY: `dpl_6XdTqp9VizBKC7qxFC2u4tGsfoh7`
-- Post-merge CI: https://github.com/yuin15/donburi-g/actions/runs/34666695337 (success)
-- Public CPU start and Three.js graphics were checked. Disabled-live smoke returned HTTP 401 `invalid_access` and WebSocket `session_rejected` / close 1008, without starting providers.
-- Actual Windows Chrome 152 completed three consecutive published CPU matches: 600–3,480 loss, 600–120 win and 1,080–1,080 draw. Both upgrades were manually chosen in match two; default choices, rematch reset, effect mute and countdown cancellation were also checked. See `browser-release-check.md` for scope and remaining gaps.
-- PR #34 corrected keyboard focus at entry, upgrades and exit; public Tab/Enter cancellation was verified. A later audit of this publication added touch-emulation input, recovery after a 25-second frozen page, and fresh screenshots at both target sizes. See `completion-audit.md` for requirement-by-requirement evidence and limits.
-- Git-based automatic deployment is not connected; manual deployment through the connected Vercel API is available.
+詳細: [ビジュアルと実ブラウザの証拠](visual-redesign-verification.md)、[通信・期限の検証](live-sync-verification.md)、[ゲーム規則](game-rules.md)、[バランス測定](game-balance.md)。[旧完了監査](completion-audit.md)はPR #34時点の履歴。
 
-## Remaining core verification
+## 公開記録
 
-- Complete first-time play observations under #12: win condition, upgrade meaning, four-second choice time, sound quality and willingness to rematch. Do not collect names, emails or conversation content. Automated play is not a substitute for these observations.
-- Verify the main flow and failure states in actual Edge. In-app Chromium and domain/client tests do not establish Edge coverage.
-- The requirement-by-requirement audit is recorded in `completion-audit.md`. Edge and human play/sound observations remain incomplete; no new implementation defect was found in that audit. Open optional-provider issues do not make CPU play dependent on their approval or services.
+- URL: https://slot-chan.vercel.app
+- PC専用変更前の公開コード: `9fde0621255d197d92cc8a856896282006730af5`（PR #42）
+- Vercel READY: `dpl_kfU653ipTqNTULV4G9WBVqKZuv1f`
+- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34672296070 （success）
+- PC専用変更の公開追跡: https://github.com/yuin15/donburi-g/issues/43
+- Git連動の自動デプロイは未接続。接続済みVercel APIで公開する。
 
-## Optional voice/video remains disabled
+## 今回スキップする確認
 
-- Keys, signing key and invite code are in ignored local configuration and Vercel server Secrets. `LIVE_MODE_ENABLED=false` remains in force; real-provider API use awaits the previously requested bounded-test approval.
-- Before enabling it, verify three real-provider matches, connection survival, interruption, audible response, teardown, latency and actual usage. Provider mocks do not prove these results. Actual browser microphone-denial verification is also pending.
-- The invitation-only demo uses an in-process guard (10 starts/day, one active session by default), replay prevention and lease expiry. These are not global limits across instances or restarts. General paid access remains gated by #11.
-- A free Upstash store was created during setup but is unused and not required by the game. No paid plan or Firewall rule was added by these changes.
+ユーザーの「できない項目はスキップして別の作業を進める」方針に従う。以下を完了扱いで閉じず、無料CPU対戦の利用条件にも戻さない。
 
-Credentials, personal contact details, raw provider errors and conversation data must not appear in the repository, screenshots or public verification records.
+| Issue | 実装・確認済み | 残る確認 |
+| --- | --- | --- |
+| #7 | 連番/ID/実行時スキーマ、欠落時snapshot復旧、期限・頻度・データ量制限、2試合分離、無応答・終了境界テスト | Vercel実接続での画面との通し照合。テストではソケット・外部サービスを代替 |
+| #3 | 任意の接続・解放経路 | 実APIで90秒、3回の開始/終了、実音声・映像・割り込み・遅延 |
+| #8 | 実況候補の期限、優先度、重複排除、結果への切替、要求回数制限 | 実際の発声内容と遅延、生成側/再生側の割り込み |
+| #9 | 2回の判断、公開情報のみの入力、ID/期限検証、無応答時の既定選択 | 実API判断と音声説明・リールの一致 |
+| #11 | 秘密保護、認証、停止スイッチ、入力制限、最大120秒、後始末テスト | 実サービスの残存セッション/利用量、一般開放する場合の全体上限 |
+| #12 | 実Chromeの通し対戦とPC描画 | 実Edge、初見の方の遊びやすさ・音質評価、実マイク拒否 |
+
+Chromeの権限設定画面への移動はブラウザの安全規則で拒否されたため、実マイク拒否の操作は行っていない。模擬テストを実機確認とは扱わない。
+
+`LIVE_MODE_ENABLED=false`を維持。実APIの課金利用は実施していない。接続数・日次枠はプロセス内メモリであり、再起動や別Vercelインスタンスをまたぐ全体の支出上限ではない。通常CPUデモには共有DBを追加しない。詳しくは [operations.md](operations.md)。

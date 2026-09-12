@@ -2,6 +2,8 @@
 
 2026-09-12 / PR #41 / #5、#36〜#40。以下は新しいThree.jsステージの実装と実Chromeの観測結果。旧版のCIや配置確認を、参考画像に沿った見た目の評価に流用していない。ユーザーの美的な承認そのものを代行する記録ではない。
 
+ユーザーの追加指定 #43 によりPC専用へ統一。1280×720以上の横画面、マウス・キーボードを対象とし、スマホの縦配置を廃止した。過去のモバイル画像は旧版の履歴であり、現在の対応環境には含めない。最新公開記録は [current-status.md](current-status.md)。
+
 ## 参考と実装の比較
 
 | 観点 | 参考から採用した要素と修正 |
@@ -12,7 +14,7 @@
 | 人物 | 本プロジェクト用に生成した架空の成人ライバルの4表情。CPUのみで表情・台詞・作戦表示が成立。参考の人物画像は配布しない |
 | 回転 | 同じ絵柄が上から入り、中央を通過し、下へ抜ける連続UV移動。加速・等速・減速を経て820/940/1060msで左・中・右を順に停止 |
 | 当たり | 小当たりは中央ラインと+配当、7揃いは最大24枚の金貨、逆転は首位交代を確認した時だけ表示。顔とHUDを避けて配置 |
-| 操作 | 赤い開始・自動回転状態・再戦を操作台に統合。20/40秒の2択改造、数字キー、ミュート、退出を維持。狭い画面では同じ素材を縦に配置 |
+| 操作 | 赤い開始・自動回転状態・再戦を操作台に統合。20/40秒の2択改造、数字キー、ミュート、退出。PCの横長構図を共用し、狭いウィンドウでは最小幅1280pxを保つ |
 
 参考の名称・3分ルールは採用せず、Slot-chan、60秒、30回転、配当120/240/1200、無料改造2回を維持。ゲームの抽選・得点は共通ドメインが確定し、表示側は出目を操作しない。
 
@@ -29,7 +31,8 @@
 - [実際の下向き回転・小当たり・7揃いの動画](evidence/visual-redesign/downward-reels-1920.webm)：約8秒。Three.jsキャンバスの録画で、HTMLの得点・台詞は静止画で補う。ステージの縦横比により映像の実寸は1919×1080。
 - 連続フレーム：[0.200秒](evidence/visual-redesign/frame-0200.webp)、[0.233秒](evidence/visual-redesign/frame-0233.webp)、[0.266秒](evidence/visual-redesign/frame-0266.webp)。左リールの同じチェリーが上部→中央→下部へ移動し、上側から次の7が入ることを目視した。
 - [最終スピン後の結果](evidence/visual-redesign/final-result-1920.webp)、[引き分け](evidence/visual-redesign/draw-1920.webp)。最終回の回転中は残り0秒でも結果を伏せ、停止後に3,600対3,240と勝利を表示。
-- 自然抽選の本番用ビルド：[1試合目](evidence/visual-redesign/cpu-result-1920.webp)は720対840、[再戦](evidence/visual-redesign/cpu-rematch-result-1920.webp)は840対1,200。再戦では大勝負→安定型を数字キー2→1で選択し、両ボタンのロック、選択済みフォーカス、最終履歴との一致を確認した。
+- 自然抽選の本番用ビルド：[1試合目の部分画像](evidence/visual-redesign/cpu-result-crop.webp)は720対840、[再戦の部分画像](evidence/visual-redesign/cpu-rematch-result-crop.webp)は840対1,200。両画像は1180×1080の部分キャプチャで、得点は同時にDOMでも照合。再戦では大勝負→安定型を数字キー2→1で選択し、両ボタンのロック、選択済みフォーカス、最終履歴との一致を確認した。
+- PC専用変更後の改造画面：[1280×720](evidence/visual-redesign/pc-upgrade-1280.webp)、[1920×1080](evidence/visual-redesign/pc-upgrade-1920.webp)。小リールの比率、2択とキー表示、時間・得点・履歴を目視。幅760pxのPCウィンドウでもステージは1280pxを保ち、縦配置には切り替わらないことを確認。
 
 検収画面は開発サーバーの `/?visual-review`。通常・小当たり・7揃い・同点・最終回・改造を選べる。録画、1/4速度再生、時刻指定、動画のフレーム書き出し、待機計測ができる。成果物や検証画面にAPIキー・メール・実会話は含まない。
 
@@ -52,7 +55,7 @@
 
 PR #41のmain `e99e88009c32f6fe0253d5c9d38409eda8d5fb9f`、Vercel `dpl_FSGJF8cRW24uwLu75jb4bTbsKhDS` はREADY。公開URLは https://slot-chan.vercel.app 。マージ後CI https://github.com/yuin15/donburi-g/actions/runs/34670929185 は成功。
 
-- 公開Chromeで40秒の改造を数字キー1で選択。終盤にページを25秒凍結し、復帰後360対840、双方30回転の決着へ追いついた。[対戦画面](evidence/visual-redesign/public-playing-1280.webp)、[結果1280](evidence/visual-redesign/public-result-1280.webp)、[結果1920](evidence/visual-redesign/public-result-1920.webp)、[390×844](evidence/visual-redesign/public-mobile-390.webp)。
+- 公開Chromeで40秒の改造を数字キー1で選択。終盤にページを25秒凍結し、復帰後360対840、双方30回転の決着へ追いついた。[対戦画面](evidence/visual-redesign/public-playing-1280.webp)、[結果1280](evidence/visual-redesign/public-result-1280.webp)、[結果1920](evidence/visual-redesign/public-result-1920.webp)。
 - 再戦を押した直後から0対0・未改造・結果非表示へ戻り、Enterでカウントダウンを取消できた。低減モーション設定の認識も確認。
 - [公開通信](evidence/visual-redesign/public-network.json)は初期転送約0.684MB、外部オリジン/API要求なし、任意SDK未読込、描画キャンバス1つ、検収ツールなし。JavaScriptエラーログ0件。faviconの404を1件検出し、PR #42で既存の金貨アイコンを指定した。
 
@@ -60,6 +63,8 @@ PR #41のmain `e99e88009c32f6fe0253d5c9d38409eda8d5fb9f`、Vercel `dpl_FSGJF8cRW
 
 ## 自動確認と範囲
 
-型検査、lint、84テスト、生成後Node ESMのAPI起動・LIVE無効時のHTTP/WebSocket拒否、本番ビルドが成功。主JSと任意LiveKitチャンクの500KB超警告は残る。描画テストは下向きの30/60/120Hz、順次停止、遅着/重複/再戦、両者同時加点、最終回、低減モーション、非表示中の描画停止、リソース解放、小リールのPC/モバイル縦横比を含む。
+型検査、lint、98テスト、生成後Node ESMのAPI起動・LIVE無効時のHTTP/WebSocket拒否、本番ビルドが成功（PR #42とPC専用変更を含む）。主JSと任意LiveKitチャンクの500KB超警告は残る。描画テストは下向きの30/60/120Hz、順次停止、遅着/重複/再戦、両者同時加点、最終回、低減モーション、非表示中の描画停止、リソース解放、小リールのPCリサイズ時の縦横比を含む。
+
+PC専用変更後は主JS 132.58KB gzip、CSS 3.59KB gzip。追加の [描画計測](evidence/visual-redesign/pc-rendering-metrics.json) は回転・当たり384標本、中央値17.7ms、p95 18.2ms、最大33描画/252三角形。[静止5秒](evidence/visual-redesign/pc-idle-metrics.json)の追加描画は0フレーム。測定機・条件は上記と同じ。
 
 実Edge、初見の方の遊びやすさ・音質評価は #12。実サービスを使う音声・映像、課金上限の実測は #3 / #8 / #9 / #11 に残す。通常CPU対戦の開始条件にはしない。`LIVE_MODE_ENABLED=false` を維持し、実API接続・課金利用は実施していない。
