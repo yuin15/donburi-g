@@ -2,6 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventEmitter } from 'node:events';
 import { MediaServerLeg } from './mediaServer';
 
+// Framing is exercised with real PCM in pcm.test; these tests isolate provider ACKs.
+vi.mock('./pcm', () => ({ AvatarAudioBuffer: class {
+  constructor(private readonly send: (audio: string) => void) {}
+  append(audio: string) { this.send(audio); }
+  reset() {}
+} }));
+
 type FakeSocket = EventEmitter & { readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn> };
 const sockets = vi.hoisted(() => [] as FakeSocket[]);
 vi.mock('ws', async () => {
@@ -74,9 +81,9 @@ describe('avatar interrupt acknowledgment', () => {
     expect(await pending).toBe(true);
     media.speak('result-audio');
     expect(socket.send.mock.calls.map(([value]) => JSON.parse(value))).toEqual([
-      { type: 'agent.speak', audio: 'old-audio' },
+      { type: 'agent.speak', event_id: expect.any(String), audio: 'old-audio' },
       interrupt,
-      { type: 'agent.speak', audio: 'result-audio' },
+      { type: 'agent.speak', event_id: expect.any(String), audio: 'result-audio' },
     ]);
     expect(vi.getTimerCount()).toBe(1); // Only the existing keep-alive remains.
     media.close();
@@ -95,7 +102,7 @@ describe('avatar interrupt acknowledgment', () => {
     expect(await first).toBe(true);
     expect(await second).toBe(true);
     media.interrupt();
-    expect(lastCommand(socket)).toEqual({ type: 'agent.interrupt' });
+    expect(lastCommand(socket)).toMatchObject({ type: 'agent.interrupt', event_id: expect.any(String) });
     expect(socket.send).toHaveBeenCalledTimes(2);
     media.close();
     expect(vi.getTimerCount()).toBe(0);

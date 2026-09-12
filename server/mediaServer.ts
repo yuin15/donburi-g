@@ -1,9 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
+import { AvatarAudioBuffer } from './pcm.js';
 
 export class MediaServerLeg {
   private ws: WebSocket | null = null;
   private connected = false;
+  private utteranceId: string | null = null;
+  private readonly audio = new AvatarAudioBuffer(audio => {
+    this.utteranceId ??= randomUUID();
+    this.send({ type: 'agent.speak', event_id: this.utteranceId, audio });
+  }, () => {
+    this.send({ type: 'agent.speak_end' });
+    this.utteranceId = null;
+  });
   private closed = false;
   private readyResolve: ((value: boolean) => void) | null = null;
   private readyTimer: NodeJS.Timeout | null = null;
@@ -63,16 +72,20 @@ export class MediaServerLeg {
 
   speak(audio: string): void {
     // Drop audio while the old utterance is being cleared; never replay it later.
-    if (this.pendingInterrupt) return;
-    this.send({ type: 'agent.speak', audio });
+    if (this.closed || !this.connected || this.pendingInterrupt) return;
+    this.audio.append(audio);
   }
 
   interrupt(): void {
-    if (this.pendingInterrupt) return;
-    this.send({ type: 'agent.interrupt' });
+    if (this.pendingInterrupt || this.closed) return;
+    void this.interruptAndWait().then(confirmed => {
+      if (!confirmed && !this.closed) this.fail();
+    });
   }
 
   interruptAndWait(timeoutMs = 2000): Promise<boolean> {
+    this.audio.reset();
+    this.utteranceId = null;
     if (this.pendingInterrupt) return this.pendingInterrupt.promise;
     if (this.closed || !this.connected || this.ws?.readyState !== WebSocket.OPEN) return Promise.resolve(false);
     const eventId = randomUUID();
@@ -92,6 +105,8 @@ export class MediaServerLeg {
     if (this.closed) return;
     this.closed = true;
     this.connected = false;
+    this.audio.reset();
+    this.utteranceId = null;
     if (this.keepAlive) clearInterval(this.keepAlive);
     if (this.readyTimer) clearTimeout(this.readyTimer);
     this.finishReady(false);

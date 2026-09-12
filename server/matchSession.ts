@@ -143,10 +143,17 @@ export class MatchSession {
       onAudio: audio => { if (outputAllowed()) this.media?.speak(audio); },
       onTranscript: (role, delta) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
-        if (role === 'user') this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
+        if (role === 'user') {
+          this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
+          this.reactions.conversationActivity();
+        }
         this.emit({ type: 'transcript', role, delta });
       },
-      onUserSpeech: () => { if (current() && !resultOnly) this.media?.interrupt(); },
+      onUserSpeech: () => {
+        if (!current() || resultOnly) return;
+        this.reactions.conversationActivity();
+        this.media?.interrupt();
+      },
       onError: () => { if (current()) this.failVoice(); },
       // Old-session usage still belongs to this game even after its output is invalidated.
       onUsage: usage => console.info(JSON.stringify({ event: 'voice_session_usage', phase: resultOnly ? 'result' : 'match', ...usage })),

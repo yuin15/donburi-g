@@ -41,3 +41,17 @@ describe('bounded live reaction candidates', () => {
     expect(a).not.toHaveBeenCalled(); expect(b).toHaveBeenCalledExactlyOnceWith('b'); qb.close();
   });
 });
+it('drops pending commentary and leaves room for a user reply before new game reactions', () => {
+  const speak = vi.fn(), q = new ReactionQueue(speak);
+  q.offer('old-jackpot', 'old', 80, () => true);
+  q.conversationActivity();
+  vi.advanceTimersByTime(100);
+  q.offer('leader', 'distracting', 60, () => true);
+  vi.advanceTimersByTime(3000);
+  expect(speak).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1500);
+  q.offer('new-jackpot', 'fresh', 80, () => true);
+  vi.advanceTimersByTime(1);
+  expect(speak).toHaveBeenCalledExactlyOnceWith('fresh');
+  q.close();
+});

@@ -52,12 +52,12 @@ class MicrophonePump {
 
   async start(send: (audio: string) => void): Promise<void> {
     if (!this.stream) throw new Error('microphone_not_prepared');
-    const context = new AudioContext();
+    const context = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
     this.context = context;
     await context.resume();
     if (this.stopped || !this.stream) throw new Error('connection_cancelled');
     this.source = this.context.createMediaStreamSource(this.stream);
-    this.processor = this.context.createScriptProcessor(4096, 1, 1);
+    this.processor = this.context.createScriptProcessor(1024, 1, 1);
     this.sink = this.context.createGain();
     this.sink.gain.value = 0;
     this.processor.onaudioprocess = (event) => {
