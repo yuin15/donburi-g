@@ -16,6 +16,7 @@ describe('avatar startup ownership', () => {
     request.mockResolvedValueOnce(response(null));
     await expect(startAvatarSession()).rejects.toThrow();
     expect(request).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toMatchObject({ mode: 'LITE', max_session_duration: 120 });
     expect(request.mock.calls[2][0]).toBe('https://provider.example/v1/sessions/stop');
     expect(JSON.parse(request.mock.calls[2][1].body)).toEqual({ session_id: 'test-session' });
     expect(request.mock.calls.every(([, options]) => options.signal instanceof AbortSignal)).toBe(true);

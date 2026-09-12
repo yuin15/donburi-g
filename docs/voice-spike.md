@@ -1,10 +1,18 @@
-# GPT-Live × LiveAvatar integration
+# GPT-Live voice with optional LiveAvatar video
 
-## Implemented path
+## Implemented paths
+
+Default voice-only route:
+
+`browser microphone → Vercel WebSocket → GPT-Live → Vercel WebSocket → browser PCM player`
+
+Selecting live video uses:
 
 `browser microphone → Vercel WebSocket → GPT-Live → LiveAvatar LITE media-server WebSocket → LiveKit → browser`
 
-The server starts a bare LiveAvatar LITE session. It sends the returned LiveKit URL/token to the browser and keeps the media-server `ws_url` server-side. GPT-Live output is continuous PCM16 24kHz, including silence. After LiveAvatar reports `session.state_updated: connected`, the adapter preserves 100ms before speech, groups about 400ms of audio per `agent.speak`, and seals the utterance with `agent.speak_end` after 300ms of silence. Idle silence is not streamed into avatar playback. A 500ms deadline also flushes a short final packet when the upstream stream pauses.
+Voice-only mode starts no LiveAvatar session and never loads LiveKit. Its selected mode is signed into the access ticket. The PCM adapter plays mono 24kHz audio with a short buffer; interruption clears all scheduled sources. Mute and cleanup apply to the selected output route.
+
+For video, the server starts a bare LiveAvatar LITE session with `max_session_duration: 120`. It sends the returned LiveKit URL/token to the browser and keeps the media-server `ws_url` server-side. GPT-Live output is continuous PCM16 24kHz, including silence. After LiveAvatar reports `session.state_updated: connected`, the adapter preserves 100ms before speech, groups about 400ms of audio per `agent.speak`, and seals the utterance with `agent.speak_end` after 300ms of silence. Idle silence is not streamed into avatar playback. A 500ms deadline also flushes a short final packet when the upstream stream pauses.
 
 The browser never receives OpenAI or LiveAvatar API keys.
 
@@ -24,7 +32,7 @@ Game reactions use `session.commentary.append`; they do not inject new behavior 
 
 ## Interrupts
 
-Sustained microphone PCM activity triggers `agent.interrupt` without waiting for transcript arrival. The provider must acknowledge `agent.audio_buffer_cleared` with the matching interrupt ID before new avatar audio is accepted. A missing acknowledgment ends optional voice; the game continues.
+Sustained microphone PCM activity clears browser playback immediately in voice-only mode, or triggers `agent.interrupt` in video mode, without waiting for transcript arrival. The provider must acknowledge `agent.audio_buffer_cleared` with the matching interrupt ID before new avatar audio is accepted. A missing acknowledgment ends optional voice; the game continues.
 
 If GPT-Live was speaking, the interrupted output is dropped until 200ms of model silence, with a four-second bound. This is application playback control, not a model turn-end event. Short quiet microphone chunks reset unconfirmed activity so separated key clicks do not accumulate into speech. Real microphones, noise suppression, soft voices, and overlapping speech still require listening checks.
 
@@ -84,3 +92,8 @@ Production browser verification remains open. Record, without conversation conte
 - normal close and tab-close teardown, repeated at least three times
 
 Do not mark mock/practice results as live-provider verification.
+## 2026-09-12 voice-only browser check (#86)
+
+Local Chrome at 1280×720 connected through the real GPT-Live API with video unchecked. The microphone was already authorized by the user. `VOICE READY` appeared with the existing rival artwork and hidden video. After PLAY and Space input, the 60-second result contained player 2 spins / 0 coins and rival 30 spins / 480 coins. The connection closed normally into rematch-ready state. Match/result usage finalized at 84/3 seconds; the longer match usage includes time spent checking the ready screen. No user speech was present during this browser run; generated speech transcripts were counted, not retained. This validates browser connection, game progression and teardown, not a human listening assessment.
+
+The expanded voice gate also fits 1280×720: optional instructions and all controls are visible without clipping the headline. Automated boundary checks cover signed mode selection, full audio-only server completion without avatar start/stop, the exclusive client playback routes, PCM decoding, interruption, bounded queueing and cleanup. Typecheck, lint, runtime import check and production build pass; 228 tests pass across the existing suite and the new PCM-player checks.

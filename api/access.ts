@@ -25,9 +25,16 @@ export default function handler(req: IncomingMessage, res: ServerResponse): void
     json(res, 401, { error: 'invalid_access' });
     return;
   }
+  const requestedMode = req.headers['x-voice-mode'];
+  if (requestedMode !== undefined && requestedMode !== 'audio' && requestedMode !== 'avatar') {
+    json(res, 400, { error: 'invalid_voice_mode' });
+    return;
+  }
+  // Older clients did not send a mode; keep their avatar path compatible.
+  const voiceMode = requestedMode ?? 'avatar';
   try {
-    assertLiveConfiguration();
-    const ticket = issueTicket(code, origin ?? '');
+    assertLiveConfiguration(voiceMode);
+    const ticket = issueTicket(code, origin ?? '', voiceMode);
     json(res, 200, { ticket, expiresIn: 60 });
   } catch {
     json(res, 401, { error: 'invalid_access' });

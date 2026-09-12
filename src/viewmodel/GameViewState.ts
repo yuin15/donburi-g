@@ -12,7 +12,7 @@ export interface GameViewState {
   readonly scores: Readonly<Record<Side, number>>;
   readonly lastSpin: Partial<Record<Side, SpinView>> | null;
   readonly gate: { readonly visible: boolean; readonly message: string; readonly connecting: boolean };
-  readonly connection: { readonly text: string; readonly voiceReady: boolean; readonly showVoiceControls: boolean };
+  readonly connection: { readonly text: string; readonly voiceReady: boolean; readonly showVideo: boolean; readonly showVoiceControls: boolean };
   readonly modeBadge: { readonly text: string; readonly tone: 'idle' | 'practice' | 'live' };
   readonly countdown: 3 | 2 | 1 | 'GO!' | null;
   readonly startControl: {
@@ -63,7 +63,7 @@ export interface GameViewModelDependencies {
 export interface GameCommands {
   startCpu(): Promise<void>;
   start(): Promise<void>;
-  connectLive(inviteCode: string): Promise<void>;
+  connectLive(inviteCode: string, video?: boolean): Promise<void>;
   requestSpin(): void;
   leave(): void;
   toggleVoiceMuted(): void;

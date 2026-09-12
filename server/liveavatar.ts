@@ -47,7 +47,7 @@ async function resolveAvatarId(): Promise<string> {
 export async function startAvatarSession(): Promise<StartedAvatarSession> {
   const token = await post(
     '/v1/sessions/token',
-    { mode: 'LITE', avatar_id: await resolveAvatarId() },
+    { mode: 'LITE', avatar_id: await resolveAvatarId(), max_session_duration: 120 },
     { 'X-API-KEY': env.liveAvatarKey },
   );
   const sessionId = String(token.session_id ?? '');

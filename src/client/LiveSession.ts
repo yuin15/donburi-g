@@ -1,7 +1,7 @@
-import type { ClientMessage, ServerMessage } from '../../shared/protocol';
+import type { ClientMessage, ServerMessage, VoiceMode } from '../../shared/protocol';
 
 export interface LiveSession {
-  connect(code: string): Promise<void>;
+  connect(code: string, voiceMode?: VoiceMode): Promise<void>;
   disconnect(): Promise<void>;
   setMuted(muted: boolean): void;
   send(message: ClientMessage): void;
@@ -27,7 +27,7 @@ export function createLiveSessionFactory(video: HTMLVideoElement): LiveSessionFa
 
     // The owner establishes its generation before explicitly starting a connection.
     return {
-      connect: code => client.connect(code),
+      connect: (code, voiceMode) => client.connect(code, voiceMode),
       disconnect: () => {
         client.removeEventListener('message', onMessage);
         client.removeEventListener('disconnect', onDisconnect);

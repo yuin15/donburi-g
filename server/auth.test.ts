@@ -43,3 +43,13 @@ describe('live access control', () => {
     expect(() => verifyTicket(ticket, 'https://game.example')).toThrow('expired_ticket');
   });
 });
+it('signs a voice-only mode that needs no avatar credential', () => {
+  const previous = { openaiKey: env.openaiKey, liveAvatarKey: env.liveAvatarKey };
+  Object.assign(env, { openaiKey: 'test-provider-key', liveAvatarKey: '' });
+  try {
+    expect(() => assertLiveConfiguration('audio')).not.toThrow();
+    expect(() => assertLiveConfiguration('avatar')).toThrow('LIVEAVATAR_API_KEY');
+    const ticket = issueTicket('test-invite', 'https://game.example', 'audio');
+    expect(verifyTicket(ticket, 'https://game.example').voiceMode).toBe('audio');
+  } finally { Object.assign(env, previous); }
+});

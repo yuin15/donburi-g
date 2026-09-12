@@ -10,6 +10,7 @@
 | `src/view/GameView.ts` | 状態からDOMを更新し、入力・フォーカス・描画と音の実行を扱う | 配置、表示書式、キーボード操作を変える |
 | `src/view/GameTemplate.ts`、CSS、`ReelScene` | HTMLとPCレイアウト、Three.jsの描画 | パネルや筐体、絵柄、演出を変える |
 | `src/client/LiveSession.ts`、`live.ts` | 型付き通信portとブラウザの音声・映像アダプター | 接続方法やメディア処理を変える |
+| `src/client/LiveAudioPlayer.ts` | 映像なしのPCM音声再生、消音、割り込み時の再生待ち破棄 | 音声再生の遅延や後始末を変える |
 | `src/dev/GameReview.ts`、`VisualReview.ts` | DEV専用の固定画面・回転動画の検収 | 表示例を追加する |
 | `src/main.ts` | View・ViewModel・依存関係を生成し、接続・破棄する | 起動時の依存を差し替える |
 
@@ -29,6 +30,6 @@ flowchart LR
 
 状態購読は再描画用。回転開始・効果音・結果の金貨は`GamePresentation`経由で一度だけ実行する。100msごとの表示更新で再生し直さない。Viewは結果詳細の開閉やフォーカスも毎回初期化しない。
 
-ViewModelにはDOM・Three.js・動画要素を渡さず、時計・乱数・可視状態・Live factory・演出portを注入する。Live factoryは任意の接続時だけ読み込む。招待コードはViewModelの非公開な接続情報として扱い、表示状態・記録へ含めない。
+ViewModelにはDOM・Three.js・動画要素を渡さず、時計・乱数・可視状態・Live factory・演出portを注入する。Live factoryは任意の接続時だけ読み込む。招待コードはViewModelの非公開な接続情報として扱い、表示状態・記録へ含めない。声だけの接続が既定で、映像の選択は署名付きチケットに結び付ける。ViewModelの`showVideo`が既存のThree.jsライバル画像と動画表示を切り替え、PCM処理はViewへ持ち込まない。
 
 検証は既存のdomain・通信・描画テストを再利用し、ViewModelの境界（予約、停止待ち、退出後の古い通知、字幕・左右の回転の独立性）をDOMなしで確認する。固定画面はDEVのViewへ状態を渡す方式に限定し、本番ViewModelに任意の書換口を作らない。

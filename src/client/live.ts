@@ -1,7 +1,8 @@
 import type { Room } from 'livekit-client';
-import type { ClientMessage, ServerMessage } from '../../shared/protocol';
+import type { ClientMessage, ServerMessage, VoiceMode } from '../../shared/protocol';
 import { parseServerEnvelope } from '../../shared/wire';
 import { LiveSync } from './LiveSync';
+import { LiveAudioPlayer } from './LiveAudioPlayer';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -91,6 +92,7 @@ export class LiveClient extends EventTarget {
   private ws: WebSocket | null = null;
   private room: Room | null = null;
   private mic = new MicrophonePump();
+  private pcm = new LiveAudioPlayer();
   private audioElement = document.createElement('audio');
   private abort = new AbortController();
   private closed = false;
@@ -110,21 +112,23 @@ export class LiveClient extends EventTarget {
     this.audioElement.autoplay = true;
   }
 
-  connect(inviteCode: string): Promise<void> {
-    this.connecting ??= this.prepareConnection(inviteCode).catch(async (error: unknown) => {
+  connect(inviteCode: string, voiceMode: VoiceMode = 'avatar'): Promise<void> {
+    this.connecting ??= this.prepareConnection(inviteCode, voiceMode).catch(async (error: unknown) => {
       await this.disconnect();
       throw error;
     });
     return this.connecting;
   }
 
-  private async prepareConnection(inviteCode: string): Promise<void> {
+  private async prepareConnection(inviteCode: string, voiceMode: VoiceMode): Promise<void> {
     if (this.closed) throw new Error('connection_cancelled');
     await this.mic.prepare();
     if (this.closed) throw new Error('connection_cancelled');
+    if (voiceMode === 'audio') await this.pcm.prepare();
+    if (this.closed) throw new Error('connection_cancelled');
     const response = await fetch('/api/access', {
       method: 'POST',
-      headers: { 'X-Invite-Code': inviteCode },
+      headers: { 'X-Invite-Code': inviteCode, 'X-Voice-Mode': voiceMode },
       signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(10_000)]),
     });
     if (!response.ok) throw new Error('access_denied');
@@ -137,7 +141,7 @@ export class LiveClient extends EventTarget {
     this.ws = ws;
     await new Promise<void>((resolve, reject) => {
       let microphoneReady = false;
-      let avatarReady = false;
+      let avatarReady = voiceMode === 'audio';
       let voiceReady = false;
       const timeout = setTimeout(() => fail(new Error('connection_timeout')), 30_000);
       const fail = (error: Error) => {
@@ -178,13 +182,28 @@ export class LiveClient extends EventTarget {
           void this.stopMicrophone();
         }
         if (synchronized.requestSnapshot) {
+          this.pcm.interrupt();
           this.send({ type: 'snapshot' });
           this.syncTimeout = setTimeout(() => fail(new Error('snapshot_timeout')), 5000);
         }
         const message = synchronized.message;
         if (!message) return;
         if (message.type === 'snapshot' && this.syncTimeout) { clearTimeout(this.syncTimeout); this.syncTimeout = null; }
-        if (message.type === 'avatar' && !this.voiceStopped) {
+        if (message.type === 'voice_audio' || message.type === 'voice_interrupt') {
+          if (!this.voiceStopped && voiceMode === 'audio') {
+            try {
+              if (message.type === 'voice_interrupt') this.pcm.interrupt();
+              else this.pcm.play(message.audio);
+            } catch {
+              void this.stopVoice();
+              this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
+                detail: { type: 'voice_status', status: 'error', message: 'Voice playback stopped. Your duel continues.' },
+              }));
+            }
+          }
+          return;
+        }
+        if (message.type === 'avatar' && !this.voiceStopped && voiceMode === 'avatar') {
           void this.attachAvatar(message.livekitUrl, message.livekitToken).then(() => {
             avatarReady = true;
             ready();
@@ -228,6 +247,7 @@ export class LiveClient extends EventTarget {
 
   setMuted(muted: boolean): void {
     this.audioElement.muted = muted;
+    this.pcm.setMuted(muted);
   }
 
   disconnect(): Promise<void> {
@@ -255,7 +275,7 @@ export class LiveClient extends EventTarget {
     if (this.voiceCleanup) return this.voiceCleanup;
     this.voiceStopped = true;
     this.send({ type: 'voice_close' });
-    this.voiceCleanup = Promise.allSettled([this.stopMicrophone(), this.detachAvatar()]).then(() => undefined);
+    this.voiceCleanup = Promise.allSettled([this.stopMicrophone(), this.detachAvatar(), this.pcm.close()]).then(() => undefined);
     return this.voiceCleanup;
   }
 
