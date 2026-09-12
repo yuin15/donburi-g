@@ -26,21 +26,24 @@ app.innerHTML = `
     <div class="status-cluster"><span id="modeBadge">未接続</span><button id="sound" aria-label="AI音声をミュート" aria-pressed="false" hidden>AI音声 ON</button><button id="effects" aria-label="効果音をミュート" aria-pressed="false">効果音 ON</button><button id="leave">退出</button></div>
   </header>
   <div class="scores">
-    <div class="you"><span>あなた</span><strong id="ps">0</strong></div>
-    <div class="rival"><span>ライバル</span><strong id="rs">0</strong></div>
+    <div class="you"><span><i class="score-crest" aria-hidden="true">♛</i>あなた</span><strong id="ps">0</strong><span class="score-meter" aria-hidden="true"><i id="playerMeter"></i></span></div>
+    <span class="duel-gap" id="scoreGap" role="status">互角の勝負</span>
+    <div class="rival"><span><i class="score-crest" aria-hidden="true">♜</i>ライバル</span><strong id="rs">0</strong><span class="score-meter" aria-hidden="true"><i id="rivalMeter"></i></span></div>
   </div>
   <div class="arena">
     <section class="machine" aria-label="あなたのスロット">
-      <div class="machine-title">Slot-chan</div>
+      <div class="machine-title"><span>◆</span> Slot-chan <span>◆</span></div>
       <div class="event-cue" id="eventCue" role="status" hidden></div>
-      <div id="reels"></div>
+      <div class="reel-window"><div id="reels"></div><div class="payline" aria-hidden="true"><span>▶</span><span>◀</span></div></div>
       <div class="pay" id="pay" aria-live="polite"></div>
       <div class="last-spin" id="lastSpin">🍒　🔔　7</div>
+      <div class="machine-trim"><span>中央の1ラインで判定</span><span id="upgradeProgress">改造チャンス 20秒・40秒</span></div>
     </section>
     <aside class="avatar">
-      <div class="portrait"><div class="mock-face" id="mockFace">CPU<small>RIVAL</small></div><video id="avatar" autoplay playsinline></video></div>
+      <div class="portrait"><div class="mock-face" id="mockFace"><small>YOUR CHALLENGER</small><div class="rival-crest" aria-hidden="true"><span>7</span></div><strong>CPU RIVAL</strong><span id="rivalMood">正々堂々、60秒。</span></div><video id="avatar" autoplay playsinline></video></div>
       <div class="speech"><p id="line">「60秒。私に勝てる？」</p><small id="heard"></small></div>
       <div class="mini"><span>ライバルのリール</span><strong id="rivalReels">🍒　🔔　7</strong></div>
+      <div class="builds"><div><span>あなたの改造</span><strong id="playerBuild">未改造</strong></div><div><span>相手の改造</span><strong id="rivalBuild">未改造</strong></div></div>
       <div class="connection" id="connection">接続していません</div>
     </aside>
   </div>
@@ -49,8 +52,8 @@ app.innerHTML = `
     <button data-up="steady" aria-pressed="false"><strong>🍒 安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><kbd>1</kbd></button>
     <button data-up="jackpot" aria-pressed="false"><strong>7 大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><kbd>2</kbd></button>
   </div>
-  <div class="result" id="result" hidden><strong id="resultTitle"></strong><span id="resultScore"></span></div>
   <footer>
+    <div class="result" id="result" hidden><strong id="resultTitle"></strong><span id="resultScore"></span></div>
     <button id="start" disabled>60秒で勝ちきれ！</button>
     <p>自動で回る。20秒・40秒でリールを改造。多く稼いだ方が勝ち。</p>
     <p>3つそろうと 🍒 ${PAYOUT.cherry} ／ 🔔 ${PAYOUT.bell} ／ 7 ${PAYOUT.seven.toLocaleString()} 点</p>
@@ -162,6 +165,19 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
   q('#time').textContent = String(Math.max(0, Math.ceil(snapshot.remaining))).padStart(2, '0');
   q('#ps').textContent = snapshot.scores.player.toLocaleString();
   q('#rs').textContent = snapshot.scores.rival.toLocaleString();
+  const total = snapshot.scores.player + snapshot.scores.rival;
+  const gap = snapshot.scores.player - snapshot.scores.rival;
+  q('#playerMeter').style.width = `${total ? snapshot.scores.player / total * 100 : 50}%`;
+  q('#rivalMeter').style.width = `${total ? snapshot.scores.rival / total * 100 : 50}%`;
+  const gapText = gap === 0 ? '互角の勝負' : `${Math.abs(gap).toLocaleString()}点 ${gap > 0 ? 'リード' : 'ビハインド'}`;
+  if (q('#scoreGap').textContent !== gapText) q('#scoreGap').textContent = gapText;
+  q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
+  q('#mockFace').dataset.mood = gap > 0 ? 'behind' : gap < 0 ? 'ahead' : 'even';
+  q('#rivalMood').textContent = snapshot.status === 'result' ? (gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。') : gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。';
+  const buildLabel = (upgrades: UpgradeId[]) => upgrades.length ? upgrades.map(id => id === 'steady' ? '🍒 安定型' : '7 大勝負').join(' / ') : '未改造';
+  q('#playerBuild').textContent = buildLabel(snapshot.upgrades.player);
+  q('#rivalBuild').textContent = buildLabel(snapshot.upgrades.rival);
+  q('#upgradeProgress').textContent = snapshot.status === 'playing' ? activeOffer ? '改造を選ぼう！' : snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - snapshot.elapsed)}秒` : snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - snapshot.elapsed)}秒` : '改造完了・ラストスパート' : snapshot.status === 'result' ? '対戦終了' : '改造チャンス 20秒・40秒';
   q('#time').parentElement!.classList.toggle('urgent', snapshot.status === 'playing' && snapshot.remaining <= 10);
   if (snapshot.status === 'playing') {
     const leader = snapshot.scores.player === snapshot.scores.rival ? null : snapshot.scores.player > snapshot.scores.rival ? 'player' : 'rival';
