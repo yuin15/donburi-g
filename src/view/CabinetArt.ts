@@ -53,8 +53,6 @@ export class CabinetArt {
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
 
-  hideWinSymbol(side: Side): void { this.bursts[side].symbol = null; }
-
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
     const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
     const matrix = new THREE.Matrix4();

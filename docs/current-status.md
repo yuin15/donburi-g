@@ -23,8 +23,8 @@
 - #94で大型の獲得コイン表示、金貨・光・きらめき、機械的なリール停止音とジャックポット音を追加。得点とライバルの表情にも動きを付けた。
 - #96で残り10秒のライトとカウント音、自己ベスト・連勝表示を追加。再戦中にも自己ベストを表示し、結果・詳細と再戦ボタンの余白を確認。[終盤と再戦](final-spins-and-records.md)。
 - #99でHoudini Apprentice製の立体コインを追加。面取りした両面の7、二重の縁、刻みのある側面を持ち、24枚で同じ形状・反射マップを共有する。[制作元と実画面](houdini-coin.md)。
-- #102の追加実装で、ベル・チェリーのHoudiniモデルをWIN表示へ組み込む。両者のモデルを共有し、次の回転ではその側のマークだけを消す。モデルの重複データ整理で、3つのOBJ合計を約1.42MBから約0.57MBへ削減。[モデルと実画面](houdini-symbols.md)。
-- #102の変更を含む主JSは284.46KB gzip、CSSは6.06KB gzip。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
+- #102でベル・チェリーのHoudiniモデルをWIN表示へ追加。PR #104で、次の回転を予約しても獲得表示と同じ通常650msの間はマークを残すよう調整。形状を両者で共有し、3つのOBJ合計を約1.42MBから約0.57MBへ削減。[モデルと実画面](houdini-symbols.md)。
+- 主JSは284.43KB gzip、CSSは6.06KB gzip。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
 
 ## 確認した範囲
 
@@ -40,11 +40,11 @@
 
 ## 公開記録
 
-ベル・チェリーの立体マーク（#102）はPRで追加する変更。以下はその変更を反映する前の公開記録であり、本番ビルドのローカル確認と区別する。
-
 - URL: https://slot-chan.vercel.app
-- 公開コード: `d6f5d91aaace74da63c64940096f77296723459c`（PR #100）。既存のゲーム・任意音声機能に、Houdini製の立体コインを追加。[制作・画面・公開確認](houdini-coin.md)。
-- Vercel READY: `dpl_EtJRdGajztxpDEjsbtZYA5ECBZkm`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開した実装: `ff51002e71077b8ef0c846700ff418c2e0761537`（PR #104の実装コミット）。PR #103のベル・チェリーを追加し、連打しても獲得表示と同じ時間だけ立体マークを残す。[制作・公開画面](houdini-symbols.md)。
+- Vercel READY: `dpl_SBKGNPtERB8aRafgPgZQZfcTpeFk`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #103のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34707898918 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34708068099 （success）。Issue #102はクローズ済み。
+- #104の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34708461372 （success）。公開JS `index-DXFoCrfB.js` / CSS `index-BmcVU8Sl.css` を照合し、JSは本番ビルドとSHA-256が一致。公開Chromeで28回/120点対30回/1,680点の60秒完走、結果・再戦、連打中のベルとチェリーの立体表示を確認。音声・映像APIは使用していない。[公開画面と記録](houdini-symbols.md#公開反映)。
 - #100のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34705628961 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34705785354 （success）。公開JS `index-B8Kmeiv_.js` は確認した本番ビルドとSHA-256が一致。制作・公開確認に音声や映像APIは使用していない。
 - #93の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34696057058 （success）。ローカル実ChromeでMIC OFF/MIC ON、Space回転、2回/0点対30回/360点の60秒対戦、結果でのマイク停止を確認。GPT利用81秒＋結果4秒は確定済み。公開JS `index-tY--qv4X.js` / CSS `index-xwHXw9ko.css`を照合。公開サイトのマイク許可と人による聴感は未確認。
 - #91の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34694460576 （success）。ローカルと公開実APIで80秒待機後に開始し、音声上限後も4回の手動回転を受理、8回対30回・60秒の結果まで確定。公開では1,320対240点、1,399イベントの欠落0、正常終了1000。GPT利用はローカル113秒、公開111秒が確定済み。
