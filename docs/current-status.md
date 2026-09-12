@@ -15,11 +15,12 @@
 - #81で画面内タイトルを非表示にし、英語UIと大型の左右得点を採用。BIG WIN・電球・コインは当たった側だけを強調し、逆転判定は両者の停止を待つ。[画面検証](english-win-presentation.md)。
 - #90で音声の120秒制限と試合の終了を分離。音声終了後も同じ60秒対戦を完走し、開始待ちは90秒で終了する。
 - 声だけの接続を既定にし、映像は追加のチェック項目へ分離（#86）。映像未選択ならLiveAvatarキーは不要で、LiveKitも読み込まない。既存のライバル画像と声で対戦できる。
-- 主JSは139.68KB gzip、CSSは4.85KB gzip。CPU入口では任意Live/LiveKitを読み込まない。
+- #92でマイクの入力メーターとMIC ON/OFFを追加。相手の声のミュートとは独立し、音声入力を止めても対戦を継続する。字幕を枠内に収め、1280×720 / 1920×1080で確認。[マイク操作の画面](microphone-feedback.md)。
+- 主JSは140.43KB gzip、CSSは5.29KB gzip。CPU入口では任意Live/LiveKitを読み込まない。
 
 ## 確認した範囲
 
-- 型検査・lint・232テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
+- 型検査・lint・234テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
 - ローカルChromeの無操作60秒はプレイヤー0回/0点、ライバル30回/600点で決着。再戦後のSpace操作で、片側のみ・両側同時の回転を確認。[今回の画面検証](independent-duel.md)。
 - 開始カウントダウンの先行Space取消防止、結果の字幕保持など、過去の修正は引き続き有効。[開始操作](countdown-start.md)、[MVVM移行](mvvm-verification.md)。
 - 過去の改造や両者同時回転の検証資料は、その当時の履歴。現在の操作・規則は[ゲーム規則](game-rules.md)を正とする。
@@ -30,8 +31,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `97ca8c69c45631d8990ed66f8db8041ffd00595a`（PR #91の実装コミット）。#87の映像なし音声と#89の現在の首位を明示する文脈に、音声上限後の試合継続を追加。クライアントの画面・操作は#87と同じ。
-- Vercel READY: `dpl_BXXgGMqGpNTaepupCCVqPLRtLTFB`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開コード: `e89e6f05a8eed7f1dc3945a23998bf21ea699c76`（PR #93の実装コミット）。#91の音声上限後の試合継続に、マイクの入力メーター・ミュート操作・字幕の背景を追加。
+- Vercel READY: `dpl_6dF66TugnaCrRU4ZWnm74qvMn2yL`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #93の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34696057058 （success）。ローカル実ChromeでMIC OFF/MIC ON、Space回転、2回/0点対30回/360点の60秒対戦、結果でのマイク停止を確認。GPT利用81秒＋結果4秒は確定済み。公開JS `index-tY--qv4X.js` / CSS `index-xwHXw9ko.css`を照合。公開サイトのマイク許可と人による聴感は未確認。
 - #91の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34694460576 （success）。ローカルと公開実APIで80秒待機後に開始し、音声上限後も4回の手動回転を受理、8回対30回・60秒の結果まで確定。公開では1,320対240点、1,399イベントの欠落0、正常終了1000。GPT利用はローカル113秒、公開111秒が確定済み。
 - #89の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34692986660 （success）。実文脈生成処理を使う合成局面で首位への返答を確認。音声を人が聞いた遅延の検証とは分ける。未認証の音声アクセスはHTTP 401を維持。
 - #87のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34692346148 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34692381994 （success）。公開画面のJS `index-DcXOweyw.js` / CSS `index-C_glZ5y0.css`を照合。
