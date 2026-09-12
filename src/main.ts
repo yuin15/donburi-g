@@ -54,11 +54,11 @@ app.innerHTML = `
     <span id="rivalMood">正々堂々、60秒。</span>
     <p id="line">「60秒。私に勝てる？」</p>
     <small id="heard"></small>
-    <div id="miniLabel">ライバルのリール <span>CPU</span></div>
+    <div id="miniLabel">ライバルのリール <strong id="rivalPay" hidden></strong><span>CPU</span></div>
     <strong class="sr-only" id="rivalReels">チェリー・ベル・7</strong>
     <div class="builds" id="builds" aria-label="改造後のリール構成">
       <div id="playerBuildRow"><div class="build-heading"><span>あなたのリール</span><strong id="playerBuild">基本リール</strong></div><div class="build-strip" id="playerStrip" role="img"></div></div>
-      <div id="rivalBuildRow"><div class="build-heading"><span>相手のリール</span><strong id="rivalBuild">基本リール</strong></div><div class="build-strip" id="rivalStrip" role="img"></div></div>
+      <div id="rivalBuildRow"><div class="build-heading"><span>相手のリール</span><strong id="rivalBuild">基本リール</strong><strong id="rivalUpgradeNote" role="status" hidden></strong></div><div class="build-strip" id="rivalStrip" role="img"></div></div>
     </div>
     <div class="connection" id="connection">接続していません</div>
   </aside>
@@ -162,6 +162,7 @@ let warnedTime = false;
 let previousLeader: 'player' | 'rival' | null = null;
 const rivalReactions = new RivalReactions();
 let cueTimer = 0;
+let payoutTimer = 0;
 let beforeUpgradeFocus: HTMLElement | null = null;
 const battleTimers = new Set<number>();
 
@@ -193,6 +194,7 @@ function cancelBattle(): void {
   battleTimers.forEach(clearTimeout);
   battleTimers.clear();
   effects.stop();
+  clearPayout();
   scene.stop();
   presentation.reset();
   clearTimeout(cueTimer);
@@ -271,6 +273,7 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
   q('#rivalMood').textContent = snapshot.status === 'result' ? (gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。') : gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。';
   renderBuild('player', snapshot.upgrades.player);
   renderBuild('rival', snapshot.upgrades.rival);
+  renderRivalUpgrade(snapshot);
   q('#machineTrim').textContent = performance.now() < upgradeReceiptUntil ? upgradeReceipt : '中央の1ラインで判定 · 60秒の獲得コインで勝負';
   if (!activeOffer) {
     const upcoming = snapshot.status === 'playing' ? UPGRADE_OPEN_SECONDS.findIndex(at => snapshot.elapsed >= at - 5 && snapshot.elapsed < at) : -1;
@@ -300,6 +303,44 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
 
 function isMatchPlaying(): boolean {
   return (mode === 'practice' ? practiceState?.status : mode === 'live' ? liveSnapshot?.status : undefined) === 'playing';
+}
+
+function renderRivalUpgrade(snapshot: MatchSnapshot): void {
+  let notice = '';
+  if (snapshot.status === 'playing') {
+    const choosing = UPGRADE_OPEN_SECONDS.some((open, index) => snapshot.elapsed >= open && snapshot.elapsed < UPGRADE_CLOSE_SECONDS[index]);
+    const applied = snapshot.upgrades.rival;
+    const sinceApplied = snapshot.elapsed - UPGRADE_CLOSE_SECONDS[applied.length - 1];
+    if (choosing) notice = '⚙ リール改造中';
+    else if (applied.length && sinceApplied >= 0 && sinceApplied < 3.5) {
+      const definition = UPGRADE_DEFINITIONS[applied[applied.length - 1]];
+      notice = `${definition.addedSymbol === 'cherry' ? 'チェリー' : '7'} +${definition.addedCount} · ${definition.label}`;
+    }
+  }
+  const note = q('#rivalUpgradeNote');
+  if (note.textContent !== notice) note.textContent = notice;
+  note.hidden = !notice;
+  q('#rivalBuild').hidden = Boolean(notice);
+}
+
+function clearPayout(): void {
+  clearTimeout(payoutTimer);
+  payoutTimer = 0;
+  q('#pay').textContent = '';
+  q('#rivalPay').textContent = '';
+  q('#rivalPay').hidden = true;
+}
+
+function showPayout(player: SpinView, rival: SpinView): void {
+  clearPayout();
+  q('#pay').textContent = player.payout ? `+${player.payout.toLocaleString()}` : '';
+  q('#pay').dataset.jackpot = String(player.payout >= PAYOUT.seven);
+  q('#rivalPay').textContent = rival.payout ? `+${rival.payout.toLocaleString()}` : '';
+  q('#rivalPay').dataset.jackpot = String(rival.payout >= PAYOUT.seven);
+  q('#rivalPay').hidden = rival.payout === 0;
+  if (player.payout || rival.payout) {
+    payoutTimer = window.setTimeout(clearPayout, Math.max(player.payout, rival.payout) >= PAYOUT.seven ? 1200 : 650);
+  }
 }
 
 function clearSpinInput(): void {
@@ -524,6 +565,7 @@ function showResult(snapshot: MatchSnapshot): void {
 
 function resetBattleUi(): void {
   clearSpinInput();
+  clearPayout();
   playerChoices = {};
   liveReelUpgrades = { player: [], rival: [] };
   upgradeReceiptUntil = 0;
@@ -565,9 +607,7 @@ function handleSpin(player: SpinView, rival: SpinView, upgrades = latestSnapshot
     spinRequestId = undefined;
     clearTimeout(spinRequestTimer);
     refreshSpinControl();
-    q('#pay').textContent = '';
-    clearTimeout(cueTimer);
-    q('#eventCue').hidden = true;
+    // Keep the last settled payout readable while a queued spin starts.
     effects.play('spin');
   }
 }
@@ -582,10 +622,12 @@ function revealRound(player: SpinView, rival: SpinView, celebrate: boolean): voi
   if (latestSnapshot) renderSnapshot(latestSnapshot);
   flushSpinQueue();
   const stale = !celebrate || document.hidden || (latestSnapshot?.round ?? player.round) > player.round;
-  if (stale) return;
-  q('#pay').textContent = player.payout ? `+${player.payout.toLocaleString()}` : '';
-  q('#pay').dataset.jackpot = String(player.payout >= PAYOUT.seven);
-  if (player.payout) later(() => { q('#pay').textContent = ''; }, player.payout >= PAYOUT.seven ? 1200 : 650);
+  if (stale) { clearPayout(); return; }
+  showPayout(player, rival);
+  if (q('#eventCue').dataset.kind !== 'warning') {
+    clearTimeout(cueTimer);
+    q('#eventCue').hidden = true;
+  }
   reactionUntil = performance.now() + 1600;
   const reaction = rivalReactions.next(player, rival, latestSnapshot?.remaining ?? 60, comeback ? leader : null);
   scene.setExpression(reaction.expression);
@@ -596,6 +638,8 @@ function revealRound(player: SpinView, rival: SpinView, celebrate: boolean): voi
     announce(leader === 'player' ? '逆転！' : 'ライバルが逆転！', 'lead');
   } else if (player.payout) {
     effects.play('win');
+  } else if (rival.payout) {
+    effects.play('rivalWin');
   }
 }
 
@@ -605,7 +649,7 @@ function finishPresentation(snapshot: MatchSnapshot): void {
   hideUpgrade();
   scene.stop();
   scene.celebrateResult(snapshot.winner ?? 'draw');
-  q('#pay').textContent = '';
+  clearPayout();
   clearTimeout(cueTimer);
   q('#eventCue').hidden = true;
   scene.setExpression(snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral');
@@ -980,16 +1024,19 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
     preview: example => {
       prepareCpuMatch();
       resetBattleUi();
-      const snapshot: MatchSnapshot = { ...getSnapshot(createMatch(1, 'visual-fixture')), status: 'playing', elapsed: 42, remaining: 18, round: 21, scores: { player: 1440, rival: 1200 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, eventSeq: 1 };
+      const snapshot: MatchSnapshot = { ...getSnapshot(createMatch(1, 'visual-fixture')), status: 'playing', elapsed: 46, remaining: 14, round: 21, scores: { player: 1440, rival: 1200 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, eventSeq: 1 };
       snapshot.stats = { player: { wins: { cherry: 2, bell: 0, seven: 1 }, bestSpin: { round: 5, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 8, payout: 1200 } } };
-      if (example === 'upgrade') snapshot.upgrades = { player: ['steady'], rival: ['steady'] };
+      if (example === 'upgrade') {
+        snapshot.elapsed = 42; snapshot.remaining = 18;
+        snapshot.upgrades = { player: ['steady'], rival: ['steady'] };
+      }
       if (example === 'upgrade-preview') {
         snapshot.elapsed = 15; snapshot.remaining = 45; snapshot.round = 7;
         snapshot.upgrades = { player: [], rival: [] };
       }
       presentation.scores = { ...snapshot.scores };
       renderSnapshot(snapshot);
-      startButton.textContent = '自動回転中';
+      startButton.textContent = '回転プレビュー';
       startButton.disabled = true;
       if (example === 'normal') scene.show(['bell', 'seven', 'cherry']);
       if (example === 'small' || example === 'jackpot' || example === 'rival-jackpot' || example === 'both-jackpot' || example === 'quiet') {
@@ -1000,16 +1047,18 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
         if (example === 'rival-jackpot' || example === 'both-jackpot') {
           r.symbols = ['seven', 'seven', 'seven']; r.payout = 1200; r.total = 3600;
         }
+        if (example === 'rival-jackpot') { p.symbols = ['cherry', 'bell', 'seven']; p.payout = 0; }
         if (example === 'quiet') { p.symbols = ['cherry', 'bell', 'seven']; p.payout = 0; }
         previousLeader = example === 'jackpot' ? 'rival' : null;
         presentation.scores = { player: p.total, rival: r.total };
         if (jackpot) { snapshot.remaining = 8; snapshot.elapsed = 52; }
         renderSnapshot(snapshot);
-        scene.show(p.symbols, p.payout, r.symbols, true);
+        scene.show(p.symbols, p.payout, r.symbols, true, r.payout);
         revealRound(p, r, true);
         battleTimers.forEach(clearTimeout);
         battleTimers.clear();
         clearTimeout(cueTimer);
+        clearTimeout(payoutTimer);
       }
       if (example === 'draw' || example === 'defeat') {
         snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30;

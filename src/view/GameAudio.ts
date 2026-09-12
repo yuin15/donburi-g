@@ -1,8 +1,8 @@
-type Cue = 'spin' | 'choose' | 'win' | 'jackpot' | 'lead' | 'warning' | 'result';
+type Cue = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'result';
 
 // Original synthesized cues: no downloaded samples or personal recordings.
 const NOTES: Record<Cue, number[]> = {
-  spin: [180, 240], choose: [660], win: [660, 880],
+  spin: [180, 240], choose: [660], win: [660, 880], rivalWin: [392, 330],
   jackpot: [523, 659, 784, 1047], lead: [440, 660, 880],
   warning: [880, 660, 880], result: [523, 659, 784],
 };

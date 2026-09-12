@@ -35,9 +35,15 @@ const fragmentShader = `
     float seam = pow(abs(vUv.x-.5)*2.,12.)*.2;
     gl_FragColor.rgb *= 1.-edge-seam;
     float center = 1.-smoothstep(.43,.6,abs(row));
-    gl_FragColor.rgb += vec3(.08,.045,.005)*center*winning;
-    float line = (1.-smoothstep(.003,.014,abs(abs(row)-.51)))*winning;
-    gl_FragColor.rgb += vec3(.8,.4,.08)*line;
+    if(mini>.5){
+      float border = min(min(vUv.x,1.-vUv.x),min(vUv.y,1.-vUv.y));
+      float rim = 1.-smoothstep(.025,.11,border);
+      gl_FragColor.rgb += (vec3(.02,.10,.20)*center+vec3(.12,.55,1.)*rim)*winning;
+    }else{
+      gl_FragColor.rgb += vec3(.08,.045,.005)*center*winning;
+      float line = (1.-smoothstep(.003,.014,abs(abs(row)-.51)))*winning;
+      gl_FragColor.rgb += vec3(.8,.4,.08)*line;
+    }
     #include <colorspace_fragment>
   }`;
 
@@ -61,6 +67,7 @@ export class ReelScene {
   private frame = 0;
   private pending: PendingSpin | null = null;
   private winUntil = 0;
+  private rivalWinUntil = 0;
   private disposed = false;
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private cabinet: CabinetArt;
@@ -170,7 +177,8 @@ export class ReelScene {
   play(player: SpinView, rival: SpinView, complete: (celebrate: boolean) => void): void {
     if (this.disposed || player.round <= this.lastRound) return;
     this.lastRound = player.round;
-    this.clearWin();
+    // Keep a timed burst in flight, but end an explicitly frozen preview.
+    this.clearWin(this.winUntil === Infinity);
     this.applyStagedStrips();
     this.pending = {
       player, rival, complete, started: performance.now(),
@@ -181,15 +189,16 @@ export class ReelScene {
   }
 
   /** Preview/reset path; matches use play() and its actual stop notification. */
-  show(symbols: [SymbolId, SymbolId, SymbolId], payout = 0, rival: [SymbolId, SymbolId, SymbolId] = ['cherry', 'bell', 'seven'], still = false): void {
+  show(symbols: [SymbolId, SymbolId, SymbolId], payout = 0, rival: [SymbolId, SymbolId, SymbolId] = ['cherry', 'bell', 'seven'], still = false, rivalPayout = 0): void {
     if (this.disposed) return;
+    this.clearWin();
     this.pending = null;
     this.lastRound = 0;
     this.applyStagedStrips();
     this.host.dataset.round = '0';
     [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol, this.activeStrips[i < 3 ? 0 : 1]); });
     this.host.dataset.spinning = 'false';
-    this.flash(payout, still);
+    this.flash(payout, still, rivalPayout);
     this.requestRender();
   }
 
@@ -212,21 +221,40 @@ export class ReelScene {
     this.requestRender();
   }
 
-  private flash(payout: number, still = false): void {
+  private flash(payout: number, still = false, rivalPayout = 0): void {
+    const now = performance.now();
     const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
-    this.winUntil = payout > 0 ? still ? Infinity : performance.now() + duration : 0;
-    this.cabinet.flash(payout, performance.now(), duration, still);
+    const rivalDuration = this.motionPreference.matches ? 180 : rivalPayout >= 1200 ? 1200 : 650;
+    this.winUntil = payout > 0 ? still ? Infinity : now + duration : 0;
+    this.rivalWinUntil = rivalPayout > 0 ? still ? Infinity : now + rivalDuration : 0;
+    // A miss must neither start a new coin burst nor cut short an earlier one.
+    if (payout > 0) this.cabinet.flash(payout, now, duration, still);
     this.host.dataset.win = String(payout > 0);
     this.host.dataset.jackpot = String(payout >= 1200);
+    this.host.dataset.rivalWin = String(rivalPayout > 0);
+    this.host.dataset.rivalJackpot = String(rivalPayout >= 1200);
     this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
+    this.materials.slice(3).forEach(m => { m.uniforms.winning.value = rivalPayout > 0 ? 1 : 0; });
+  }
+
+  private clearPlayerWin(): void {
+    this.winUntil = 0;
+    this.host.dataset.win = 'false';
+    this.host.dataset.jackpot = 'false';
+    this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = 0; });
+  }
+
+  private clearRivalWin(): void {
+    this.rivalWinUntil = 0;
+    this.host.dataset.rivalWin = 'false';
+    this.host.dataset.rivalJackpot = 'false';
+    this.materials.slice(3).forEach(m => { m.uniforms.winning.value = 0; });
   }
 
   private clearWin(stopCabinet = true): void {
-    this.winUntil = 0;
+    this.clearPlayerWin();
+    this.clearRivalWin();
     if (stopCabinet) this.cabinet.stop();
-    this.host.dataset.win = 'false';
-    this.host.dataset.jackpot = 'false';
-    this.materials.forEach(m => { m.uniforms.winning.value = 0; });
   }
 
   stop(): void {
@@ -248,6 +276,7 @@ export class ReelScene {
     if (this.disposed) return;
     this.disposed = true;
     this.pending = null;
+    this.clearWin();
     cancelAnimationFrame(this.frame);
     removeEventListener('resize', this.resize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -298,15 +327,20 @@ export class ReelScene {
         this.host.dataset.spinning = 'false';
         this.host.dataset.round = String(pending.player.round);
         // A long-hidden tab catches up without replaying old celebrations.
-        this.flash(elapsed > 1800 ? 0 : pending.player.payout);
+        this.flash(elapsed > 1800 ? 0 : pending.player.payout, false, elapsed > 1800 ? 0 : pending.rival.payout);
         completion = () => pending.complete(elapsed <= 1800);
       }
     }
-    if (this.winUntil && now >= this.winUntil) this.clearWin(false);
+    if (this.winUntil && now >= this.winUntil) this.clearPlayerWin();
+    if (this.rivalWinUntil && Number.isFinite(this.rivalWinUntil)) {
+      if (this.motionPreference.matches) this.rivalWinUntil = Math.min(this.rivalWinUntil, now + 180);
+      if (now >= this.rivalWinUntil) this.clearRivalWin();
+      else this.materials.slice(3).forEach(m => { m.uniforms.winning.value = Math.min(1, (this.rivalWinUntil - now) / 180); });
+    }
     const animating = this.cabinet.update(now, this.motionPreference.matches);
     this.renderer.render(this.scene, this.camera);
     // Scores, speech and sound follow the actual settled frame.
     completion?.();
-    if (this.pending || animating) this.requestRender();
+    if (this.pending || animating || (Number.isFinite(this.rivalWinUntil) && now < this.rivalWinUntil)) this.requestRender();
   };
 }
