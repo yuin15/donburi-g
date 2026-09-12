@@ -1,0 +1,1085 @@
+{
+  "deployment": "dpl_9ZdVpeHgNJ3hn3vrWEp9CWTED3rL",
+  "code": "f301e304a77bed217fed613ee0774b16aa2c23c9",
+  "observations": [
+    {
+      "ms": 10,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 181,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 351,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 521,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 693,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 863,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 1032,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 1204,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 1372,
+      "button": "準備中",
+      "choice": "",
+      "focus": "leave",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 1544,
+      "button": "回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 1716,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 1899,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 2070,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 2238,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 2407,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "60",
+      "round": "0"
+    },
+    {
+      "ms": 2579,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "59",
+      "round": "0"
+    },
+    {
+      "ms": 2751,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "59",
+      "round": "1"
+    },
+    {
+      "ms": 2920,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "59",
+      "round": "1"
+    },
+    {
+      "ms": 3090,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "59",
+      "round": "1"
+    },
+    {
+      "ms": 3260,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "59",
+      "round": "1"
+    },
+    {
+      "ms": 3432,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "59",
+      "round": "1"
+    },
+    {
+      "ms": 3601,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "58",
+      "round": "1"
+    },
+    {
+      "ms": 3771,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "58",
+      "round": "2"
+    },
+    {
+      "ms": 3941,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "58",
+      "round": "2"
+    },
+    {
+      "ms": 4113,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "58",
+      "round": "2"
+    },
+    {
+      "ms": 4283,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "58",
+      "round": "2"
+    },
+    {
+      "ms": 4451,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "58",
+      "round": "2"
+    },
+    {
+      "ms": 4622,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "57",
+      "round": "2"
+    },
+    {
+      "ms": 4794,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "57",
+      "round": "2"
+    },
+    {
+      "ms": 4966,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "57",
+      "round": "3"
+    },
+    {
+      "ms": 5136,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "57",
+      "round": "3"
+    },
+    {
+      "ms": 5306,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "57",
+      "round": "3"
+    },
+    {
+      "ms": 5479,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "56",
+      "round": "3"
+    },
+    {
+      "ms": 5648,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "56",
+      "round": "3"
+    },
+    {
+      "ms": 5819,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "56",
+      "round": "3"
+    },
+    {
+      "ms": 5993,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "56",
+      "round": "4"
+    },
+    {
+      "ms": 6163,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "56",
+      "round": "4"
+    },
+    {
+      "ms": 6332,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "56",
+      "round": "4"
+    },
+    {
+      "ms": 6503,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "55",
+      "round": "4"
+    },
+    {
+      "ms": 6672,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "55",
+      "round": "4"
+    },
+    {
+      "ms": 6843,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "55",
+      "round": "4"
+    },
+    {
+      "ms": 7015,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "55",
+      "round": "4"
+    },
+    {
+      "ms": 7185,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "55",
+      "round": "5"
+    },
+    {
+      "ms": 7353,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "55",
+      "round": "5"
+    },
+    {
+      "ms": 7523,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "54",
+      "round": "5"
+    },
+    {
+      "ms": 7695,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "54",
+      "round": "5"
+    },
+    {
+      "ms": 7866,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "54",
+      "round": "5"
+    },
+    {
+      "ms": 8035,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "54",
+      "round": "5"
+    },
+    {
+      "ms": 8215,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "54",
+      "round": "6"
+    },
+    {
+      "ms": 8397,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "54",
+      "round": "6"
+    },
+    {
+      "ms": 8566,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "53",
+      "round": "6"
+    },
+    {
+      "ms": 8736,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "53",
+      "round": "6"
+    },
+    {
+      "ms": 8904,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "53",
+      "round": "6"
+    },
+    {
+      "ms": 9077,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "53",
+      "round": "6"
+    },
+    {
+      "ms": 9248,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "53",
+      "round": "6"
+    },
+    {
+      "ms": 9418,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "53",
+      "round": "7"
+    },
+    {
+      "ms": 9590,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "52",
+      "round": "7"
+    },
+    {
+      "ms": 9760,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "52",
+      "round": "7"
+    },
+    {
+      "ms": 9928,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "52",
+      "round": "7"
+    },
+    {
+      "ms": 10100,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "52",
+      "round": "7"
+    },
+    {
+      "ms": 10269,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "52",
+      "round": "7"
+    },
+    {
+      "ms": 10439,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "52",
+      "round": "8"
+    },
+    {
+      "ms": 10608,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "51",
+      "round": "8"
+    },
+    {
+      "ms": 10781,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "51",
+      "round": "8"
+    },
+    {
+      "ms": 10950,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "51",
+      "round": "8"
+    },
+    {
+      "ms": 11121,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "51",
+      "round": "8"
+    },
+    {
+      "ms": 11293,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "51",
+      "round": "8"
+    },
+    {
+      "ms": 11465,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "50",
+      "round": "8"
+    },
+    {
+      "ms": 11634,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "50",
+      "round": "9"
+    },
+    {
+      "ms": 11804,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "50",
+      "round": "9"
+    },
+    {
+      "ms": 11975,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "50",
+      "round": "9"
+    },
+    {
+      "ms": 12148,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "50",
+      "round": "9"
+    },
+    {
+      "ms": 12317,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "50",
+      "round": "9"
+    },
+    {
+      "ms": 12486,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "49",
+      "round": "9"
+    },
+    {
+      "ms": 12657,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "49",
+      "round": "10"
+    },
+    {
+      "ms": 12829,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "49",
+      "round": "10"
+    },
+    {
+      "ms": 13000,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "49",
+      "round": "10"
+    },
+    {
+      "ms": 13168,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "49",
+      "round": "10"
+    },
+    {
+      "ms": 13339,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "49",
+      "round": "10"
+    },
+    {
+      "ms": 13508,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "48",
+      "round": "10"
+    },
+    {
+      "ms": 13680,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "48",
+      "round": "10"
+    },
+    {
+      "ms": 13851,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "48",
+      "round": "11"
+    },
+    {
+      "ms": 14020,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "48",
+      "round": "11"
+    },
+    {
+      "ms": 14191,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "48",
+      "round": "11"
+    },
+    {
+      "ms": 14362,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "48",
+      "round": "11"
+    },
+    {
+      "ms": 14532,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "47",
+      "round": "11"
+    },
+    {
+      "ms": 14702,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "47",
+      "round": "11"
+    },
+    {
+      "ms": 14872,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "47",
+      "round": "11"
+    },
+    {
+      "ms": 15044,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "47",
+      "round": "12"
+    },
+    {
+      "ms": 15215,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "47",
+      "round": "12"
+    },
+    {
+      "ms": 15384,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "47",
+      "round": "12"
+    },
+    {
+      "ms": 15555,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "46",
+      "round": "12"
+    },
+    {
+      "ms": 15728,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "46",
+      "round": "12"
+    },
+    {
+      "ms": 15898,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "46",
+      "round": "12"
+    },
+    {
+      "ms": 16070,
+      "button": "次も回す",
+      "choice": "",
+      "focus": "start",
+      "remaining": "46",
+      "round": "13"
+    },
+    {
+      "ms": 16239,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "46",
+      "round": "13"
+    },
+    {
+      "ms": 16412,
+      "button": "予約済み",
+      "choice": "",
+      "focus": "start",
+      "remaining": "46",
+      "round": "13"
+    },
+    {
+      "ms": 16582,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "45",
+      "round": "13"
+    },
+    {
+      "ms": 16751,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "45",
+      "round": "13"
+    },
+    {
+      "ms": 16922,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "45",
+      "round": "13"
+    },
+    {
+      "ms": 17094,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "45",
+      "round": "13"
+    },
+    {
+      "ms": 17265,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "45",
+      "round": "14"
+    },
+    {
+      "ms": 17436,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "45",
+      "round": "14"
+    },
+    {
+      "ms": 17605,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "44",
+      "round": "14"
+    },
+    {
+      "ms": 17775,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "44",
+      "round": "14"
+    },
+    {
+      "ms": 17945,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "44",
+      "round": "14"
+    },
+    {
+      "ms": 18115,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "44",
+      "round": "14"
+    },
+    {
+      "ms": 18284,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "44",
+      "round": "15"
+    },
+    {
+      "ms": 18454,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "44",
+      "round": "15"
+    },
+    {
+      "ms": 18625,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "43",
+      "round": "15"
+    },
+    {
+      "ms": 18797,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "43",
+      "round": "15"
+    },
+    {
+      "ms": 18968,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "43",
+      "round": "15"
+    },
+    {
+      "ms": 19138,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "43",
+      "round": "15"
+    },
+    {
+      "ms": 19312,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "43",
+      "round": "15"
+    },
+    {
+      "ms": 19482,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "42",
+      "round": "16"
+    },
+    {
+      "ms": 19653,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "42",
+      "round": "16"
+    },
+    {
+      "ms": 19824,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "42",
+      "round": "16"
+    },
+    {
+      "ms": 19996,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "42",
+      "round": "16"
+    },
+    {
+      "ms": 20167,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "42",
+      "round": "16"
+    },
+    {
+      "ms": 20336,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "42",
+      "round": "16"
+    },
+    {
+      "ms": 20507,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "41",
+      "round": "17"
+    },
+    {
+      "ms": 20676,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "41",
+      "round": "17"
+    },
+    {
+      "ms": 20849,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "41",
+      "round": "17"
+    },
+    {
+      "ms": 21018,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "41",
+      "round": "17"
+    },
+    {
+      "ms": 21186,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "41",
+      "round": "17"
+    },
+    {
+      "ms": 21357,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "41",
+      "round": "17"
+    },
+    {
+      "ms": 21528,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "40",
+      "round": "17"
+    },
+    {
+      "ms": 21700,
+      "button": "次も回す",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "40",
+      "round": "18"
+    },
+    {
+      "ms": 21870,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "40",
+      "round": "18"
+    },
+    {
+      "ms": 22040,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "40",
+      "round": "18"
+    },
+    {
+      "ms": 22210,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "40",
+      "round": "18"
+    },
+    {
+      "ms": 22382,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "40",
+      "round": "18"
+    },
+    {
+      "ms": 22552,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "39",
+      "round": "18"
+    }
+  ],
+  "selected": {
+    "choice": "選択済み: 大勝負",
+    "focus": "upgradeChoice",
+    "pressed": [
+      {
+        "id": "steady",
+        "selected": "false"
+      },
+      {
+        "id": "jackpot",
+        "selected": "true"
+      }
+    ]
+  },
+  "errors": []
+}
