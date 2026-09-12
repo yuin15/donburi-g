@@ -68,7 +68,8 @@ export function mountVisualReview(port: ReviewPort): void {
     let peakCalls = 0, peakTriangles = 0;
     const measure = (now: number) => {
       if (!active) return;
-      if (document.querySelector<HTMLElement>('#stageArt')?.dataset.spinning === 'true') timings.push(now - previous);
+      const state = document.querySelector<HTMLElement>('#stageArt')?.dataset;
+      if (state?.spinning === 'true' || state?.win === 'true') timings.push(now - previous);
       previous = now;
       const current = port.scene.stats();
       peakCalls = Math.max(peakCalls, current.calls);
@@ -99,7 +100,7 @@ export function mountVisualReview(port: ReviewPort): void {
     video.src = URL.createObjectURL(blob);
     }
     timings.sort((a, b) => a - b);
-    stats.textContent = JSON.stringify({ recording: record, samples: timings.length, p95FrameMs: timings[Math.floor(timings.length * .95)], medianFrameMs: timings[Math.floor(timings.length * .5)], peakCalls, peakTriangles, bytes: blob.size, ...port.scene.stats() });
+    stats.textContent = JSON.stringify({ recording: record, scope: 'spin-and-win', samples: timings.length, p95FrameMs: timings[Math.floor(timings.length * .95)], medianFrameMs: timings[Math.floor(timings.length * .5)], peakCalls, peakTriangles, bytes: blob.size, ...port.scene.stats() });
     button.disabled = false;
   };
   find('recordMotion').onclick = () => { void run(true); };
