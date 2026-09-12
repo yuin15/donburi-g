@@ -19,7 +19,7 @@
 - 参考画像を基に筐体・操作台・専用絵柄・架空の成人ライバル4表情を制作。1つのThree.js描画へ集約し、HTMLで文字・操作を重ねる。
 - リールは同じ絵柄が上から下へ連続して流れ、左→中→右に停止。両得点・台詞・結果は確定した停止フレームの後に更新する。相手の小リールは正方形の絵柄を保ち、縦潰れを修正した。
 - #43でスマホ用の縦配置・縮小UI・背景切り出しを削除。狭いウィンドウは最小幅1280pxと横スクロールでPC構図を維持する。スマホ用UI・タッチ最適化は対象外。
-- 静止/非表示では連続描画せず、素材4点・概算20.4MiB。任意LiveClient/LiveKitはCPU入口で読み込まない。MVVM版の主JSは141.06KB gzip、CSSは5.48KB gzip。新しいフレームワークは追加していない。
+- 静止/非表示では連続描画せず、素材4点・概算20.4MiB。任意LiveClient/LiveKitはCPU入口で読み込まない。現在の主JSは141.25KB gzip、CSSは5.67KB gzip。新しいフレームワークは追加していない。
 
 ## 確認した範囲
 
@@ -36,10 +36,11 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `2e749af13e13c526f7cb2dfcaef75b4fbdbf4350`（PR #73）。手動回転、両者の改造リール、結果音声分離も含むMVVM版。
-- Vercel READY: `dpl_Ft8atN2hnqA8ChSJY2mgJtuoTPjN`
-- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34684527781 （success）
-- #63/#64/#68/#70/#72をクローズ。主JS `index-DR4oln0M.js`、CSS `index-BgFTt2wz.css`。公開Chromeで37回転、1,200対2,160の結果・内訳・最終停止・再戦初期化を確認。外部/API通信0、JavaScriptエラー0。[MVVMの公開確認](mvvm-verification.md)。
+- 公開コード: `0f197b1860b4295394df0163b49ea2a94170b944`（PR #76）。MVVM版に開始カウントダウンの操作修正を加えた。
+- Vercel READY: `dpl_BwRgH7EhkLvb2LuUynJzzN1jBbZV`
+- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34685548391 （success）
+- #75の公開Chrome確認で、Space先行入力・開始後の両者回転・クリック/Tab/Enter取消が成功。主JS `index-CS9XBjIE.js`、CSS `index-aE-Q_cR0.css`。外部/API要求と任意Liveクライアントの読み込みなし。[開始操作の公開確認](countdown-start.md)。
+- #63/#64/#68/#70/#72をクローズ。PR #73の公開Chromeでは37回転、1,200対2,160の結果・内訳・最終停止・再戦初期化を確認。外部/API通信0、JavaScriptエラー0。[MVVMの公開確認](mvvm-verification.md)。
 - PR #71の公開ChromeでもSpace連打中の改造は未選択で、2キーで大勝負を選べた。[改造フォーカスの修正](upgrade-spin-focus.md)。
 - PR #69の公開Chromeでは35回転、1,440対1,920。相手の加点保持・改造通知・再戦時の初期化、外部/API通信0・JavaScriptエラー0を確認。[公開記録](rival-feedback.md)。この操作で発見した改造フォーカスの問題はPR #71で修正した。
 - 公開Chromeで32回転、840対1,080の敗北。残り0秒で31回転目の表示を保持して最終停止を待ち、32回転目の確定後に結果を表示した。再戦で0点・0回・基本構成に戻り、Space＋予約で2回転。外部/API通信0、JavaScriptエラー0、公開HTTP 401 / WebSocket1008を確認。[手動回転の公開記録](manual-spin.md)。
