@@ -13,7 +13,7 @@
 - 参考画像を基に筐体・操作台・専用絵柄・架空の成人ライバル4表情を制作。1つのThree.js描画へ集約し、HTMLで文字・操作を重ねる。
 - リールは同じ絵柄が上から下へ連続して流れ、左→中→右に停止。両得点・台詞・結果は確定した停止フレームの後に更新する。相手の小リールは正方形の絵柄を保ち、縦潰れを修正した。
 - #43でスマホ用の縦配置・縮小UI・背景切り出しを削除。狭いウィンドウは最小幅1280pxと横スクロールでPC構図を維持する。スマホ用UI・タッチ最適化は対象外。
-- 静止/非表示では連続描画せず、素材4点・概算20.4MiB。任意LiveClient/LiveKitはCPU入口で読み込まない。勝敗・改造の表示改善後の主JSは135.59KB gzip、CSSは4.99KB gzip。
+- 静止/非表示では連続描画せず、素材4点・概算20.4MiB。任意LiveClient/LiveKitはCPU入口で読み込まない。勝敗・改造の表示改善後の主JSは135.58KB gzip、CSSは4.99KB gzip。
 
 ## 確認した範囲
 
@@ -29,10 +29,11 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `cb5db8988f8a672786069e71a1cfad7488eb2406`（PR #56）。画面コードはPR #53と同一。
-- Vercel READY: `dpl_B8dsGkr9F8CTv8hoJzVwJJ889FtE`
-- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34675723578 （success）
-- #43/#46〜#48/#50〜#52/#54/#55はクローズ。主JS `index-4lmf2JgO.js`。PC専用の入口、改造プレビュー、結果の内訳を公開済み。
+- 公開コード: `1d1ac8d10020cf8c86f0d37e0f86704be8f16949`（PR #61）。PR #59の結果音声分離も含む。
+- Vercel READY: `dpl_FiK4BZ2BrttDeiZrqM8heKant336`
+- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34677582813 （success）
+- #43/#46〜#48/#50〜#52/#54/#55/#58/#60はクローズ。主JS `index--xLC7qNX.js`。PC専用の入口、改造プレビュー、勝敗別カード、開閉する内訳を公開済み。
+- PR #61の公開Chromeでは安定型→大勝負をキー1→2で選び、60秒で480対2,880。配当内訳・点差・改造順が一致、内訳の開閉で再戦ボタンが隠れず、再戦で0点・60秒・内訳0行・閉じた状態に戻る。外部/API通信0、JavaScriptエラー0。公開HTTP 401 / WebSocket1008も確認。詳しくは [勝敗・改造の検証](duel-polish-verification.md)。
 - 公開Chromeで大勝負→安定型を数字キー2→1で選び、60秒で360対720の敗北。両者の配当内訳・合計点・改造順が一致した。再戦は0対0・60秒・未改造・内訳0行、Enter取消も確認。外部/API通信0、JavaScriptエラー0。認証なしHTTP 401 / WebSocket拒否1008も再確認。
 - PR #56では画面のJS/CSSハッシュが変わらないことを確認し、公開入口と結果表、JSエラー0、HTTP 401 / WebSocket1008を再確認した。実Liveの有料接続は行っていない。
 - Git連動の自動デプロイは未接続。接続済みVercel APIで公開する。

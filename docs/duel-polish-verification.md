@@ -15,4 +15,12 @@
 
 60秒後は720対240の勝利。プレイヤーはチェリー480点＋ベル240点、ライバルはチェリー240点で表示合計と一致。内訳を開いたパネル下端760.7px、再戦ボタン上端787.4pxで重なりなし。[結果の内訳](evidence/duel-polish/local-details-1920.webp)。再戦で0点・60秒・内訳0行・折りたたみ初期化、Enterでカウントダウン取消を確認。[操作記録](evidence/duel-polish/local-flow.json)。JavaScriptエラー0。
 
-この変更で新しい自動テストは作っていない。既存190テスト、型検査、lint、本番ビルドは成功。主JS135.59KB gzip、CSS4.99KB gzip。500KB超の既存ビルド警告は残る。
+この変更で新しい自動テストは作っていない。既存190テスト、型検査、lint、本番ビルドは成功。主JS135.58KB gzip、CSS4.99KB gzip。500KB超の既存ビルド警告は残る。
+
+## 公開反映
+
+PR #61をマージし、コード `1d1ac8d10020cf8c86f0d37e0f86704be8f16949` を https://slot-chan.vercel.app に公開。Vercel `dpl_FiK4BZ2BrttDeiZrqM8heKant336` READY、[マージ後CI成功](https://github.com/yuin15/donburi-g/actions/runs/34677582813)。#60はクローズ。
+
+公開Chromeの1280×720で安定型→大勝負をキー1→2で選び、480対2,880の敗北まで確認。内訳合計・改造順・点差が一致した。内訳を開いてもパネル下端510.6pxと再戦ボタン上端525.3pxの間に余白があり、Enterで閉じられる。再戦で0点・60秒・内訳0行・折りたたみ初期化を確認。外部/API通信0、JavaScriptエラー0。公開の任意Liveは無効のまま、HTTP 401 / WebSocket拒否1008も確認した。
+
+[公開の選択状態](evidence/duel-polish/public-selected-1280.webp)、[公開の結果](evidence/duel-polish/public-result-1280.webp)、[操作・表示・読み込み記録](evidence/duel-polish/public-flow.json)。公開JS `index--xLC7qNX.js`、CSS `index-D_x-kPYE.css` が検証版と一致する。
