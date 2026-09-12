@@ -155,7 +155,30 @@ export class GameView implements GamePresentation {
     this.q('#machineTitle').dataset.win = String(!!state.payout?.player);
     this.q('#playerScore').dataset.win = String(!!state.payout?.player);
     this.q('#rivalScore').dataset.win = String(!!state.payout?.rival);
-    this.q('#eventCue').hidden = !state.cue;
+    const reward = state.payout?.player ?? 0;
+    const burst = this.q('#winBurst');
+    burst.hidden = !reward || !!state.result;
+    burst.dataset.jackpot = String(reward >= PAYOUT.seven);
+    this.text('#winBurstAmount', '+' + reward.toLocaleString());
+    this.text('#winBurstLabel', reward >= PAYOUT.seven ? 'BIG WIN' : reward >= PAYOUT.bell ? 'BELL WIN' : 'CHERRY WIN');
+    this.q('#scoreGap').hidden = !burst.hidden;
+    if (previous && !state.result && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (const side of ['player', 'rival'] as const) {
+        const spin = state.lastSpin?.[side];
+        if (!spin?.payout || spin.round === previous.lastSpin?.[side]?.round) continue;
+        this.q(side === 'player' ? '#ps' : '#rs').animate([
+          { transform: 'scale(1)', color: '#fff' },
+          { transform: 'scale(1.12)', color: '#fff' , offset: .22 },
+          { transform: 'scale(1)', color: '#fff1be' },
+        ], { duration: 480, easing: 'cubic-bezier(.2,.8,.3,1)' });
+        if (side === 'player') burst.animate([
+          { transform: 'translateY(12px) scale(.65) rotate(-5deg)', opacity: 0 },
+          { transform: 'translateY(-3px) scale(1.08) rotate(-2deg)', opacity: 1, offset: .45 },
+          { transform: 'translateY(0) scale(1) rotate(-2deg)', opacity: 1 },
+        ], { duration: 420, easing: 'cubic-bezier(.18,.8,.28,1)' });
+      }
+    }
+    this.q('#eventCue').hidden = !state.cue || state.cue.kind === 'jackpot';
     if (state.cue) {
       this.text('#eventCue', state.cue.text);
       this.q('#eventCue').dataset.kind = state.cue.kind;
