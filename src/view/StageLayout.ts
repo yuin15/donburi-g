@@ -17,6 +17,7 @@ export const OVERLAYS: Record<string, Rect> = {
   machineTitle: { x: 336, y: 179, w: 435, h: 49 },
   scoreGap: { x: 343, y: 589, w: 400, h: 43 },
   eventCue: { x: 275, y: 249, w: 528, h: 87 },
+  winBurst: { x: 254, y: 574, w: 570, h: 101 },
   line: { x: 1030, y: 500, w: 510, h: 72 },
   heard: { x: 1030, y: 580, w: 510, h: 31 },
   rivalMood: { x: 1030, y: 181, w: 530, h: 35 },
