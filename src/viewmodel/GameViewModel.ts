@@ -48,6 +48,8 @@ export class GameViewModel implements GameCommands {
   private heard = '';
   private lastHeardAt = 0;
   private assistantText = '';
+  private conversation: GameViewState['conversation'] = 'idle';
+  private conversationTimer: number | undefined;
   private expression: GameExpression = 'neutral';
   private reactionUntil = 0;
   private warnedTime = false;
@@ -163,6 +165,7 @@ export class GameViewModel implements GameCommands {
     this.micMuted = !this.micMuted;
     this.micLevel = 0;
     this.liveSession?.setMicMuted(this.micMuted);
+    if (this.micMuted && this.conversation === 'listening') this.setConversation('idle');
     this.emit();
   }
 
@@ -224,7 +227,7 @@ export class GameViewModel implements GameCommands {
     for (const [id, resolve] of this.waits) { this.deps.clock.clearTimeout(id); resolve(false); }
     this.waits.clear();
     this.practiceTimer = this.spinQueueTimer = this.spinRequestTimer = undefined;
-    this.cueTimer = this.assistantTimer = undefined;
+    this.cueTimer = this.assistantTimer = this.conversationTimer = undefined;
     this.payoutTimers = {};
   }
 
@@ -268,6 +271,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.assistantText = '';
+    this.conversation = 'idle';
     const previous = this.liveSession;
     this.liveSession = null;
     void previous?.disconnect().catch(() => undefined);
@@ -288,6 +292,7 @@ export class GameViewModel implements GameCommands {
     this.cue = null;
     this.line = INITIAL_LINE;
     this.heard = this.assistantText = '';
+    this.conversation = 'idle';
     this.expression = 'neutral';
     this.reactionUntil = 0;
     this.warnedTime = false;
@@ -474,6 +479,7 @@ export class GameViewModel implements GameCommands {
     if (snapshot.status !== 'result' || (this.liveSnapshot?.status === 'result' && this.liveSnapshot.matchId === snapshot.matchId)) return;
     this.cancelTimer(this.assistantTimer);
     this.assistantText = this.heard = '';
+    this.setConversation('idle');
     if (this.voiceReady) { this.line = '…'; this.connectionText = 'Mic off · Waiting for the final reaction'; }
   }
 
@@ -549,7 +555,7 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'voice_status') {
       this.connectionText = message.status === 'ready' ? 'VOICE READY' : message.status === 'connecting' ? 'Connecting voice…' : message.status === 'closed' ? 'Voice closed' : message.message ?? 'Voice unavailable';
       this.voiceReady = message.status === 'ready';
-      if (message.status === 'closed' || message.status === 'error') { this.micActive = false; this.micLevel = 0; }
+      if (message.status === 'closed' || message.status === 'error') { this.micActive = false; this.micLevel = 0; this.setConversation('idle'); }
       if (this.voiceReady) this.gameConnected = true;
       if (!this.voiceReady && this.gameConnected) {
         this.heard = this.assistantText = '';
@@ -576,8 +582,20 @@ export class GameViewModel implements GameCommands {
       this.handleSpin(message.spin, this.liveReelUpgrades);
     } else if (message.type === 'rival_line') {
       if (!this.voiceReady) this.line = message.text;
+    } else if (message.type === 'voice_interrupt') {
+      this.cancelTimer(this.assistantTimer);
+      this.assistantText = this.heard = '';
+      // The same transport event also clears playback before the final reaction.
+      if (this.voiceReady && this.liveSnapshot?.status !== 'result') {
+        this.line = 'Listening…';
+        this.setConversation('listening');
+      }
     } else if (message.type === 'transcript') {
       if (message.role === 'user') {
+        this.cancelTimer(this.assistantTimer);
+        this.assistantText = '';
+        this.line = 'Listening…';
+        this.setConversation('listening');
         const now = this.deps.clock.now();
         const previous = now - this.lastHeardAt < 2500 ? this.heard.replace(/^YOU: /, '') : '';
         this.heard = `YOU: ${`${previous}${message.delta}`.slice(-120)}`;
@@ -587,6 +605,7 @@ export class GameViewModel implements GameCommands {
         this.cancelTimer(this.assistantTimer);
         this.assistantText = `${this.assistantText}${message.delta}`.slice(-120);
         this.line = this.assistantText;
+        this.setConversation('replying');
         if (this.liveSnapshot?.status === 'result') this.connectionText = 'Mic off · Final reaction';
         this.assistantTimer = this.schedule(() => { this.assistantText = ''; }, 2500);
       }
@@ -603,6 +622,20 @@ export class GameViewModel implements GameCommands {
       }
     }
     this.emit();
+  }
+
+  private setConversation(phase: GameViewState['conversation']): void {
+    this.cancelTimer(this.conversationTimer);
+    this.conversation = phase;
+    if (phase === 'idle') {
+      if (this.line === 'Listening…') this.line = '…';
+      return;
+    }
+    this.conversationTimer = this.schedule(() => {
+      this.conversation = 'idle';
+      if (this.line === 'Listening…') this.line = '…';
+      this.emit();
+    }, 3000);
   }
 
   private buildState(): GameViewState {
@@ -628,7 +661,7 @@ export class GameViewModel implements GameCommands {
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },
-      line: this.line, heard: this.heard, voiceMuted: this.voiceMuted, effectsMuted: this.effectsMuted,
+      line: this.line, heard: this.heard, conversation: this.conversation, voiceMuted: this.voiceMuted, effectsMuted: this.effectsMuted,
     };
   }
 

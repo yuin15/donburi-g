@@ -118,6 +118,9 @@ export class LiveClient extends EventTarget {
               }));
             }
           }
+          if (message.type === 'voice_interrupt' && !this.voiceStopped) {
+            this.dispatchEvent(new CustomEvent<ServerMessage>('message', { detail: message }));
+          }
           return;
         }
         if (message.type === 'avatar' && !this.voiceStopped && voiceMode === 'avatar') {

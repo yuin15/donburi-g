@@ -131,7 +131,7 @@ export class GptLiveBridge {
           return;
         }
         if (type === 'session.output_transcript.delta' && typeof event.delta === 'string') {
-          this.events.onTranscript('assistant', event.delta);
+          if (this.suppressedAt === null) this.events.onTranscript('assistant', event.delta);
           return;
         }
         if (type === 'error') {

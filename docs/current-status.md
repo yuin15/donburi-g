@@ -2,6 +2,8 @@
 
 2026-09-13。無料の60秒CPUスロット対戦が公開済み。**PC専用、横画面1280×720以上、マウス・キーボード**を対象にする。音声・映像は任意で、APIキー、招待、マイク、Upstashなしに遊べる。
 
+**ゲームソン向けのデモとして実装・公開・引き継ぎ資料を揃えた。** [メンバー向け引き継ぎ](demo-handoff.md)から、遊び方・変更する場所・3Dモデルの配布物・追加評価へ進める。未評価の実マイクでの会話体感を合格扱いにせず、デモ完成とは分けて下に記録する。
+
 ## 最優先の方針
 
 **ゲームソン向けのデモとして、見栄えと面白さを優先する。** 2026-09-12のユーザー指示により、多少のバグは許容し、追加の試合同期検証や網羅的な検証を完成条件から外した。#7は対象外としてクローズ。今後も実画面を見て、遊んだときに分かる改善を進める。[演出の改善](game-jam-demo.md)。
@@ -24,13 +26,14 @@
 - #96で残り10秒のライトとカウント音、自己ベスト・連勝表示を追加。再戦中にも自己ベストを表示し、結果・詳細と再戦ボタンの余白を確認。[終盤と再戦](final-spins-and-records.md)。
 - #99でHoudini Apprentice製の立体コインを追加。面取りした両面の7、二重の縁、刻みのある側面を持ち、24枚で同じ形状・反射マップを共有する。[制作元と実画面](houdini-coin.md)。
 - #102でベル・チェリーのHoudiniモデルをWIN表示へ追加。PR #104で、次の回転を予約しても獲得表示と同じ通常650msの間はマークを残すよう調整。形状を両者で共有し、3つのOBJ合計を約1.42MBから約0.57MBへ削減。[モデルと実画面](houdini-symbols.md)。
-- 主JSは284.43KB gzip、CSSは6.06KB gzip。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
+- #8 / PR #105で、割り込みを音声のみ・映像付きの両方からViewModelへ届け、古い字幕の混在を修正。聞き取りと返事の状態を画面に表示した。[画面と確認範囲](conversation-feedback.md)。
+- 主JSは284.68KB gzip、CSSは6.22KB gzip。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
 
 ## 確認した範囲
 
 - #97で終盤と記録表示を公開。実装CI https://github.com/yuin15/donburi-g/actions/runs/34698527606 は成功。公開JS `index-CVA3pq4y.js` / CSS `index-DkOVTpg4.css` と入口を照合。[今回の画面](final-spins-and-records.md)。
 - #95で演出を公開。実装CI https://github.com/yuin15/donburi-g/actions/runs/34697547485 は成功。公開JS `index-CtdUnf6D.js` / CSS `index-V1iSba7e.css` と実画面を照合。[今回の画面と変更](game-jam-demo.md)。
-- 型検査・lint・234テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
+- 型検査・lint・235テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
 - ローカルChromeの無操作60秒はプレイヤー0回/0点、ライバル30回/600点で決着。再戦後のSpace操作で、片側のみ・両側同時の回転を確認。[今回の画面検証](independent-duel.md)。
 - 開始カウントダウンの先行Space取消防止、結果の字幕保持など、過去の修正は引き続き有効。[開始操作](countdown-start.md)、[MVVM移行](mvvm-verification.md)。
 - 過去の改造や両者同時回転の検証資料は、その当時の履歴。現在の操作・規則は[ゲーム規則](game-rules.md)を正とする。
@@ -41,8 +44,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開した実装: `ff51002e71077b8ef0c846700ff418c2e0761537`（PR #104の実装コミット）。PR #103のベル・チェリーを追加し、連打しても獲得表示と同じ時間だけ立体マークを残す。[制作・公開画面](houdini-symbols.md)。
-- Vercel READY: `dpl_SBKGNPtERB8aRafgPgZQZfcTpeFk`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開した実装: `5dcdd5e510dca6945e1a23423c6b51b823700fc7`（PR #105の実装コミット）。Houdiniの3モデルと連打中の立体演出を維持し、会話の割り込みと字幕を仕上げた。[今回の変更](conversation-feedback.md)。
+- Vercel READY: `dpl_HF5AGihuBt7Uns7bzELRAmDapD9H`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #105の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34709592578 （success）。公開JS `index-B1FQWJZ3.js` / CSS `index-Cc9CF3BY.css` を照合し、JSは本番ビルドとSHA-256が一致。公開Chromeで6回/0点対30回/960点の60秒完走、結果・再戦の初期化を確認。今回の修正確認に音声・映像APIは使っていない。[公開画面](conversation-feedback.md#公開確認)。
 - #103のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34707898918 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34708068099 （success）。Issue #102はクローズ済み。
 - #104の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34708461372 （success）。公開JS `index-DXFoCrfB.js` / CSS `index-BmcVU8Sl.css` を照合し、JSは本番ビルドとSHA-256が一致。公開Chromeで28回/120点対30回/1,680点の60秒完走、結果・再戦、連打中のベルとチェリーの立体表示を確認。音声・映像APIは使用していない。[公開画面と記録](houdini-symbols.md#公開反映)。
 - #100のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34705628961 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34705785354 （success）。公開JS `index-B8Kmeiv_.js` は確認した本番ビルドとSHA-256が一致。制作・公開確認に音声や映像APIは使用していない。
@@ -66,12 +70,12 @@
 
 ## 任意機能の追加確認
 
-以下は実施済みの範囲と、まだ確認していない範囲の記録。**ゲームソン向けデモの公開条件にはしない。** #3 / #11 / #12 の追加検証は、最新のユーザー方針に合わせて対象外として整理する。会話の体感は #8 に集約する。 音声・映像は引き続き任意で、無料CPU対戦は独立して遊べる。
+以下は実施済みの範囲と、まだ確認していない範囲の記録。**ゲームソン向けデモの公開条件にはしない。** #3 / #11 / #12 の追加検証と #8 の人による会話評価は、最新のユーザー方針に合わせて今回の範囲外とする。実装済み・確認済みの内容と混同せず、メンバーへ追加評価事項として引き継ぐ。音声・映像は引き続き任意で、無料CPU対戦は独立して遊べる。
 
 | Issue | 実装・確認済み | 残る確認 |
 | --- | --- | --- |
 | #3 | ローカル実API動画・人による音声再生、公開97秒接続と完走、match/resultのusage確定 | 公開ブラウザでの3回の開始/終了、実音声・映像・割り込み・遅延 |
-| #8 | 実況候補の選別、会話優先、文脈更新の集約、PCM発話区切り、音声消去ACK、字幕断片の連結、結果音声の世代分離 | 実際の発声内容と遅延、聞こえる割り込み、既にブラウザへ到達した再生音声の扱い |
+| #8 | 実況候補の選別、会話優先、文脈更新の集約、PCM発話区切り、音声消去ACK、割り込み時の字幕区切り、聞き取り・返事の表示、結果音声の世代分離 | 修正版の実際の発声内容と遅延、聞こえる割り込み、映像側ですでにブラウザへ到達した再生音声の扱い |
 | #11 | 秘密保護、認証、停止スイッチ、入力制限、120秒以内の音声終了開始、両世代GPTのusage確定、LiveAvatarの終了履歴と残存0件、映像トークンの120秒上限要求、無料Sandboxの自動終了・残存0件、後始末テスト | 映像の120秒上限の実満了確認、一般開放する場合の全体上限 |
 | #12 | 実Chromeの通し対戦とPC描画 | 実Edge、初見の方の遊びやすさ・音質評価、実マイク拒否 |
 

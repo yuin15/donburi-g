@@ -72,6 +72,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       machineNotice: '3 MATCHING SYMBOLS · CENTER LINE',
       result: null, payout: null, cue: null, expression: 'neutral',
       rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',
+      conversation: 'idle',
     };
     render();
   };
@@ -196,7 +197,9 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
         mode: 'live', modeBadge: { text: 'DEV · MIC PREVIEW', tone: 'live' },
         connection: { text: 'DEV fixture · No microphone or API connected', voiceReady: true, showVideo: false, showVoiceControls: true },
         microphone: { visible: true, active: true, muted: example === 'mic-muted', level: example === 'mic-live' ? 4 : 0 },
-        line: "I'm right here. Keep spinning!", heard: example === 'mic-live' ? 'YOU: Can you catch up?' : '',
+        conversation: example === 'mic-live' ? 'listening' : example === 'mic-reply' ? 'replying' : 'idle',
+        line: example === 'mic-live' ? 'Listening…' : example === 'mic-reply' ? 'まだ追いつけるよ。次は私の番！' : "I'm right here. Keep spinning!",
+        heard: example === 'mic-live' || example === 'mic-reply' ? 'YOU: まだ追いつけそう？' : '',
       });
     }
     if (example.startsWith('live-') || example === 'rematch-ready') {
