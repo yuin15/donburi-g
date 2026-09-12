@@ -46,7 +46,7 @@ export class MatchSession {
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
     if (!this.voiceReady || this.closed) return;
-    this.pushContext('発話直前の確定情報');
+    this.pushContext();
     this.gpt?.requestReaction(text);
   });
   private warnedTime = false;
@@ -67,6 +67,7 @@ export class MatchSession {
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
   private recentUserText = '';
+  private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
 
   constructor(
@@ -119,7 +120,7 @@ export class MatchSession {
       });
       if (!(await this.gpt.connect())) throw new Error('gpt_not_ready');
       if (this.closed) return;
-      this.pushContext('対戦開始前');
+      this.pushContext();
     } catch {
       if (this.closed) return;
       this.emit({ type: 'voice_status', status: 'error', message: 'AIキャラクターへ接続できませんでした。' });
@@ -213,7 +214,12 @@ export class MatchSession {
     if (message.type === 'mic') {
       this.audioInWindow += message.audio.length;
       if (this.audioInWindow > 192_000) { void this.shutdown('audio_rate_exceeded'); return; }
-      if (this.voiceReady) this.gpt?.sendMic(message.audio);
+      if (this.voiceReady) {
+        // Catch up a delayed timer before the model can answer this audio.
+        this.tick();
+        this.pushContext();
+        this.gpt?.sendMic(message.audio);
+      }
       return;
     }
     if (message.type === 'voice_close') {
@@ -252,6 +258,7 @@ export class MatchSession {
     if (this.state.status !== 'ready') return;
     startMatch(this.state);
     this.startedAt = Date.now();
+    this.pushContext();
     this.emitSnapshot();
     this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
     this.timer = setInterval(() => this.tick(), 100);
@@ -261,6 +268,8 @@ export class MatchSession {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
     const events = advanceMatch(this.state, elapsed);
+    // Ordinary wins and the clock matter to user-led conversation as well as reactions.
+    this.pushContext();
     for (const event of events) this.handleGameEvent(event);
     if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing') {
       this.warnedTime = true;
@@ -279,7 +288,6 @@ export class MatchSession {
       return;
     }
     if (event.type === 'leader_change') {
-      this.pushContext('首位交代');
       if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', Math.floor(event.at / 2));
       if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', Math.floor(event.at / 2));
       return;
@@ -296,14 +304,12 @@ export class MatchSession {
         player: event.player,
         rival: event.rival,
       });
-      this.pushContext('改造確定');
       this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing');
       return;
     }
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
-      this.pushContext('試合終了');
       const direction = event.snapshot.winner === 'player'
         ? 'あなたは負けた。試合中の流れを踏まえて短く悔しがって。'
         : event.snapshot.winner === 'rival'
@@ -335,7 +341,6 @@ export class MatchSession {
 
   private react(reason: string, instruction: string, round: number): void {
     if (round !== this.state.round) return;
-    this.pushContext(reason);
     this.reactions.offer(`${reason}:${round}`, instruction, reason.includes('jackpot') ? 80 : 60, () => {
       if (this.state.status !== 'playing' || this.state.round !== round) return false;
       if (reason === 'player_leads') return this.state.scores.player > this.state.scores.rival;
@@ -344,11 +349,15 @@ export class MatchSession {
     });
   }
 
-  private pushContext(reason: string): void {
+  private pushContext(): void {
+    if (!this.voiceReady || this.voiceDisabled || this.closed || !this.gpt) return;
     const snapshot = getSnapshot(this.state);
-    this.gpt?.updateGameContext(
-      `ゲーム確定情報(${reason}): 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}],状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。`,
-    );
+    // Whole seconds keep the 100ms match tick and incoming mic chunks from resending
+    // identical context. A score, upgrade or final-result change still updates immediately.
+    const context = `ゲーム確定情報: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}],状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。`;
+    if (context === this.lastGameContext) return;
+    this.gpt.updateGameContext(context);
+    this.lastGameContext = context;
   }
 
   private emitSnapshot(): void {

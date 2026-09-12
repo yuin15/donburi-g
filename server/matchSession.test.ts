@@ -7,7 +7,10 @@ import { parseServerEnvelope } from '../shared/wire';
 const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
+  context: vi.fn(), reaction: vi.fn(), mic: vi.fn(),
 }));
+// A reproducible normal bell win at 14s, without a new leader or jackpot reaction.
+vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from([1, 0, 0, 0]) }));
 vi.mock('./liveavatar', () => ({ startAvatarSession: provider.start, stopAvatarSession: provider.stop }));
 vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   start = provider.mediaStart;
@@ -19,9 +22,9 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   constructor(events: LiveEvents) { provider.events = events; provider.bridges.push(events); }
   connect = provider.gptConnect;
   close = provider.gptClose;
-  updateGameContext = vi.fn();
-  requestReaction = vi.fn();
-  sendMic = vi.fn();
+  updateGameContext = provider.context;
+  requestReaction = provider.reaction;
+  sendMic = provider.mic;
 } }));
 vi.mock('./rivalBrain', () => ({ chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })) }));
 import { MatchSession } from './matchSession';
@@ -54,6 +57,123 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('live match cleanup', () => {
+  it('shares ready and playing context once, deduplicating unchanged clock ticks and microphone chunks', async () => {
+    const connecting = deferred<boolean>();
+    provider.gptConnect.mockReturnValue(connecting.promise);
+    const { session } = setup();
+    const initialized = session.initialize();
+    await vi.waitFor(() => expect(provider.gptConnect).toHaveBeenCalled());
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    expect(provider.context).not.toHaveBeenCalled();
+    expect(provider.mic).not.toHaveBeenCalled();
+    provider.events?.onReady();
+    connecting.resolve(true);
+    await initialized;
+    expect(provider.context).toHaveBeenCalledTimes(1);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=ready,勝者=未確定'));
+    await vi.advanceTimersByTimeAsync(5000);
+    for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    session.handleRaw('{"type":"snapshot"}');
+    expect(provider.context).toHaveBeenCalledTimes(1);
+    session.handleRaw('{"type":"start"}');
+    expect(provider.context).toHaveBeenCalledTimes(2);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り60秒'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=playing,勝者=未確定'));
+    await vi.advanceTimersByTimeAsync(900);
+    for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    expect(provider.context).toHaveBeenCalledTimes(2);
+    expect(provider.reaction).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenCalledTimes(3);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り59秒'));
+    await session.shutdown('test_finished');
+  });
+
+  it('updates ordinary wins and time even when no new spontaneous reaction is requested', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(13000);
+    const reactionsBefore = provider.reaction.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(2000);
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.filter(m => m.type === 'spin').at(-1)).toMatchObject({ player: { round: 7, payout: 240, total: 1680 }, rival: { total: 0 } });
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー1680点、あなた0点'));
+    expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
+    // Ready + start + one changed context per elapsed second, not every 100ms tick.
+    expect(provider.context).toHaveBeenCalledTimes(17);
+    await session.shutdown('test_finished');
+  });
+
+  it('catches up a stalled tick and sends current scores and applied upgrades before microphone audio', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(20000);
+    session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'test-match', commandId: 'context-upgrade', offerIndex: 0, upgradeId: 'jackpot' }));
+    const previousContextCount = provider.context.mock.calls.length;
+    vi.setSystemTime(Date.now() + 4100);
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    const latest = messages.filter(m => m.type === 'snapshot').at(-1);
+    expect(latest).toMatchObject({ snapshot: { elapsed: 24.1, round: 12, upgrades: { player: ['jackpot'], rival: ['steady'] } } });
+    if (latest?.type !== 'snapshot') throw new Error('missing caught-up snapshot');
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り36秒、プレイヤー${latest.snapshot.scores.player}点、あなた${latest.snapshot.scores.rival}点`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー改造[jackpot],あなた改造[steady]'));
+    expect(provider.mic).toHaveBeenCalledExactlyOnceWith('AAAA');
+    expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    await session.shutdown('test_finished');
+  });
+
+  it('shares a caught-up final result before audio without repeating it or exceeding the reaction limit', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(59000);
+    expect(provider.reaction.mock.calls.length).toBeLessThanOrEqual(5);
+    const previousContextCount = provider.context.mock.calls.length;
+    const priorReactions = provider.reaction.mock.calls.length;
+    vi.setSystemTime(Date.now() + 1500);
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    const final = messages.find(m => m.type === 'match_ended');
+    if (final?.type !== 'match_ended') throw new Error('missing final result');
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り0秒、プレイヤー${final.snapshot.scores.player}点、あなた${final.snapshot.scores.rival}点`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`状態=result,勝者=${final.snapshot.winner}`));
+    expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.reaction).toHaveBeenCalledTimes(priorReactions + 1);
+    expect(provider.reaction.mock.calls.length).toBeLessThanOrEqual(6);
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    await session.shutdown('test_finished');
+    const sentMic = provider.mic.mock.calls.length;
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    expect(provider.mic).toHaveBeenCalledTimes(sentMic);
+  });
+
+  it('stops context and microphone sends when optional voice is disabled while the match continues', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(5000);
+    session.handleRaw('{"type":"voice_close"}');
+    const contextCount = provider.context.mock.calls.length;
+    const reactionCount = provider.reaction.mock.calls.length;
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    await vi.advanceTimersByTimeAsync(55000);
+    expect(messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', round: 30 } });
+    expect(provider.context).toHaveBeenCalledTimes(contextCount);
+    expect(provider.reaction).toHaveBeenCalledTimes(reactionCount);
+    expect(provider.mic).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
   it('keeps two sessions, duplicate commands, transcripts and teardown isolated for a full match', async () => {
     provider.start.mockResolvedValueOnce({ ...avatar, sessionId: 'avatar-a', livekitToken: 'token-a' }).mockResolvedValueOnce({ ...avatar, sessionId: 'avatar-b', livekitToken: 'token-b' });
     const a = setup('match-a'), b = setup('match-b');
