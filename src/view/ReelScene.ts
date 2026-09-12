@@ -89,12 +89,12 @@ export class ReelScene {
     host.dataset.artReady = 'false';
     this.camera.position.z = 200;
     this.scene.background = new THREE.Color(0x08090d);
-    this.cabinet = new CabinetArt();
+    const background = this.load('/art/casino-stage.webp');
+    this.cabinet = new CabinetArt(background);
     this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xffe8be, 2.2));
     const light = new THREE.PointLight(0xffe8c2, 160000);
     light.position.set(330, 800, 160);
     this.scene.add(light);
-    const background = this.load('/art/casino-stage.webp');
     this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
     this.portraitTexture = this.load('/art/rival-expressions.webp');
     this.portraitTexture.repeat.set(.5, .5);
@@ -194,6 +194,7 @@ export class ReelScene {
     if (this.disposed || spin.round <= this.lastRound[side]) return;
     this.lastRound[side] = spin.round;
     if (side === 'player') {
+      this.cabinet.press(performance.now());
       if (this.winUntil === Infinity) this.cabinet.stop('player');
       this.clearPlayerWin();
     } else this.clearRivalWin();

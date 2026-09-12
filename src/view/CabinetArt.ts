@@ -5,6 +5,7 @@ import { createGoldCoinEnvironment, createGoldCoinGeometry, createGoldCoinMateri
 import { PAYOUT } from '../domain/game';
 import { WinSymbols } from './WinSymbols';
 import type { WinSymbol } from './SymbolModels';
+import { CabinetModel } from './CabinetModel';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null });
@@ -16,6 +17,7 @@ export class CabinetArt {
   private coinGeometry = createGoldCoinGeometry();
   private coinEnvironment = createGoldCoinEnvironment();
   private winSymbols = new WinSymbols(this.coinEnvironment);
+  private body: CabinetModel;
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
   private coinMaterials: Record<Side, THREE.MeshStandardMaterial>;
   private coins: THREE.Mesh[];
@@ -33,7 +35,11 @@ export class CabinetArt {
   private resultStarted = 0;
   private resultUntil = 0;
 
-  constructor() {
+  constructor(frontTexture?: THREE.Texture) {
+    this.body = new CabinetModel(this.coinEnvironment, { reels: false, frontTexture });
+    this.body.group.scale.setScalar(100);
+    this.body.group.position.set(530, STAGE_HEIGHT - 870, 0);
+    this.group.add(this.body.group);
     this.coinMaterials = {
       player: createGoldCoinMaterial(this.coinEnvironment),
       rival: createGoldCoinMaterial(this.coinEnvironment),
@@ -52,6 +58,7 @@ export class CabinetArt {
   }
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
+  press(now: number): void { this.body.press(now); }
 
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
     const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
@@ -145,7 +152,7 @@ export class CabinetArt {
     this.resultUntil = 0;
     this.bursts[side] = {
       started: now, until: payout > 0 ? now + duration : 0, jackpot: payout >= PAYOUT.seven, still: still && payout > 0,
-      symbol: payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null,
+      symbol: payout >= PAYOUT.seven ? 'seven' : payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null,
     };
   }
 
@@ -174,7 +181,7 @@ export class CabinetArt {
       }
       if (this.timerLights.instanceColor) this.timerLights.instanceColor.needsUpdate = true;
     }
-    let animating = result || finale && !reducedMotion;
+    let animating = this.body.update(now, reducedMotion) || result || finale && !reducedMotion;
     for (const side of sides) {
       const burst = this.bursts[side];
       const time = burst.still ? burst.started + (burst.until - burst.started) * .36 : now;
@@ -261,6 +268,7 @@ export class CabinetArt {
     this.stop();
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
+    this.body.dispose();
     this.coinEnvironment.dispose();
     this.bulbGeometry.dispose();
     this.sparkleGeometry.dispose();

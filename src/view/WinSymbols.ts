@@ -32,7 +32,7 @@ export class WinSymbols {
         this.group.add(group);
         return group;
       };
-      const models = { bell: copy('bell'), cherry: copy('cherry') };
+      const models = { bell: copy('bell'), cherry: copy('cherry'), seven: copy('seven') };
       return { models, materials: [...materials.values()] };
     };
     const player = copies('player'), rival = copies('rival');
@@ -44,6 +44,7 @@ export class WinSymbols {
     const models = this.models[side];
     models.bell.visible = kind === 'bell';
     models.cherry.visible = kind === 'cherry';
+    models.seven.visible = kind === 'seven';
     if (!kind) return;
     const model = models[kind];
     const player = side === 'player';
