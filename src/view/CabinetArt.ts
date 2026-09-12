@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import type { Side } from '../../shared/protocol';
 import { STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
 import { createGoldCoinEnvironment, createGoldCoinGeometry, createGoldCoinMaterial } from './GoldCoin';
+import { PAYOUT } from '../domain/game';
+import { WinSymbols } from './WinSymbols';
+import type { WinSymbol } from './SymbolModels';
 
-type Burst = { started: number; until: number; jackpot: boolean; still: boolean };
-const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false });
+type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null };
+const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null });
 const sides: Side[] = ['player', 'rival'];
 
 /** Two independent win lanes, sharing one renderer and 24 reusable 3D coins. */
@@ -12,6 +15,7 @@ export class CabinetArt {
   readonly group = new THREE.Group();
   private coinGeometry = createGoldCoinGeometry();
   private coinEnvironment = createGoldCoinEnvironment();
+  private winSymbols = new WinSymbols(this.coinEnvironment);
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
   private coinMaterials: Record<Side, THREE.MeshStandardMaterial>;
   private coins: THREE.Mesh[];
@@ -44,10 +48,12 @@ export class CabinetArt {
     this.sparkles = { player: this.makeSparkles('player'), rival: this.makeSparkles('rival') };
     this.timerLights = this.makeTimerLights();
     this.finalGlow = this.makeFinalGlow();
-    this.group.add(this.timerLights, this.finalGlow, this.glows.player, this.glows.rival, this.bulbs.player, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...this.coins);
+    this.group.add(this.timerLights, this.finalGlow, this.glows.player, this.glows.rival, this.bulbs.player, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, this.winSymbols.group, ...this.coins);
   }
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
+
+  hideWinSymbol(side: Side): void { this.bursts[side].symbol = null; }
 
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
     const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
@@ -139,7 +145,10 @@ export class CabinetArt {
 
   flash(payout: number, now: number, duration: number, still = false, side: Side = 'player'): void {
     this.resultUntil = 0;
-    this.bursts[side] = { started: now, until: payout > 0 ? now + duration : 0, jackpot: payout >= 1200, still: still && payout > 0 };
+    this.bursts[side] = {
+      started: now, until: payout > 0 ? now + duration : 0, jackpot: payout >= PAYOUT.seven, still: still && payout > 0,
+      symbol: payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null,
+    };
   }
 
   celebrateResult(now: number): void {
@@ -190,6 +199,7 @@ export class CabinetArt {
       animating ||= winning && !burst.still;
       const duration = burst.until - burst.started;
       const progress = duration > 0 ? Math.max(0, (time - burst.started) / duration) : 1;
+      this.winSymbols.update(side, winning ? burst.symbol : null, progress, fade, reducedMotion);
       this.glows[side].material.uniforms.progress.value = progress;
       const sparkle = this.sparkles[side];
       sparkle.visible = winning && !reducedMotion;
@@ -252,6 +262,7 @@ export class CabinetArt {
   dispose(): void {
     this.stop();
     this.coinGeometry.dispose();
+    this.winSymbols.dispose();
     this.coinEnvironment.dispose();
     this.bulbGeometry.dispose();
     this.sparkleGeometry.dispose();

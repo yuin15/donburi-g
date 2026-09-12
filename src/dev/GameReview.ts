@@ -167,10 +167,12 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       view.scene.show(['seven', 'seven', 'seven']);
       showResult(snapshot);
     }
-    if (['small', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
+    if (['small', 'bell-cherry', 'cherry-bell', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
       const jackpot = example === 'jackpot' || example === 'both-jackpot';
       const player: SpinView = { side: 'player', round: 20, symbols: jackpot ? ['seven', 'seven', 'seven'] : ['bell', 'bell', 'bell'], payout: jackpot ? 1200 : 240, total: jackpot ? 2640 : 1440 };
       const rival: SpinView = { side: 'rival', round: 11, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 2400 : 1320 };
+      if (example === 'bell-cherry') { rival.symbols = ['cherry', 'cherry', 'cherry']; rival.payout = PAYOUT.cherry; }
+      if (example === 'cherry-bell') { player.symbols = ['cherry', 'cherry', 'cherry']; player.payout = PAYOUT.cherry; rival.symbols = ['bell', 'bell', 'bell']; rival.payout = PAYOUT.bell; }
       if (example === 'rival-jackpot' || example === 'both-jackpot') { rival.symbols = ['seven', 'seven', 'seven']; rival.payout = 1200; rival.total = 3240; }
       if (example === 'rival-jackpot' || example === 'quiet') { player.symbols = ['cherry', 'bell', 'seven']; player.payout = 0; }
       previousLeader = example === 'jackpot' ? 'rival' : null;

@@ -197,6 +197,8 @@ export class ReelScene {
       if (this.winUntil === Infinity) this.cabinet.stop('player');
       this.clearPlayerWin();
     } else this.clearRivalWin();
+    // A new spin clears its reward badge while the previous coins finish flying.
+    this.cabinet.hideWinSymbol(side);
     this.applyStagedStrips(side);
     const start = side === 'player' ? 0 : 3;
     this.pending[side] = {

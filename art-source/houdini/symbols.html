@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Slot-chan · Symbol studies</title>
+<style>
+  *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 68%,#292013,#090c13 72%);color:#ffe7b6;font-family:Georgia,serif;height:100vh;overflow:hidden}
+  header{position:absolute;top:6%;left:6%;z-index:1}small{font:11px/1.8 system-ui,sans-serif;letter-spacing:.24em;color:#bf985b}h1{font-size:44px;font-weight:400;margin:9px 0}
+  #stage{height:100%;width:100%}canvas{display:block}.labels{position:absolute;top:76%;left:7%;right:7%;display:flex;justify-content:space-around;text-align:center;pointer-events:none}.labels div{width:33%}.labels b{display:block;font-size:25px;font-weight:400;margin-bottom:9px}.labels span{font:10px/1.6 system-ui;letter-spacing:.16em;color:#bda581}
+  footer{position:absolute;bottom:5%;left:6%;right:6%;display:flex;align-items:center;justify-content:space-between}footer p{font:11px/1.8 system-ui;letter-spacing:.12em;color:#ae9c83}button{border:1px solid #836941;border-radius:99px;padding:12px 22px;background:#17130d;color:#ffe5ac;cursor:pointer}button:hover{background:#352514}
+</style>
+<header><small>SLOT-CHAN / HOUDINI COLLECTION</small><h1>Little symbols. Big wins.</h1></header>
+<div id="stage" aria-label="Gold coin, hollow bell and a pair of cherries rendered in 3D"></div>
+<div class="labels"><div><b>Lucky seven</b><span>DOUBLE-SIDED GOLD RELIEF</span></div><div><b>Golden bell</b><span>HOLLOW BODY · GOLD CLAPPER</span></div><div><b>Cherry pair</b><span>GLOSSY FRUIT · FOLDED LEAF</span></div></div>
+<footer><p>PROCEDURAL HOUDINI MODELS &nbsp; / &nbsp; THREE.JS MATERIALS</p><div><button id="front">Front view</button> <button id="motion">Pause rotation</button></div></footer>
+<script type="module">
+  import * as THREE from 'three';
+  import { createGoldCoinGeometry, createGoldCoinEnvironment, createGoldCoinMaterial } from '../../src/view/GoldCoin.ts';
+  import { createSymbolModels } from '../../src/view/SymbolModels.ts';
+  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+  renderer.outputColorSpace=THREE.SRGBColorSpace;
+  document.querySelector('#stage').append(renderer.domElement);
+  const scene=new THREE.Scene();
+  const camera=new THREE.OrthographicCamera(-5,5,2.8125,-2.8125,.1,100);
+  camera.position.z=20;
+  const environment=createGoldCoinEnvironment();
+  const models=createSymbolModels(environment);
+  const coin=new THREE.Mesh(createGoldCoinGeometry(),createGoldCoinMaterial(environment));
+  coin.scale.setScalar(.044);coin.position.set(-2.87,-.10,0);coin.rotation.set(.16,-.33,-.12);
+  models.bell.position.set(0,-.12,0);models.bell.scale.setScalar(1.16);models.bell.rotation.set(-.36,-.30,.13);
+  models.cherry.position.set(2.87,-.15,0);models.cherry.scale.setScalar(1.05);models.cherry.rotation.set(-.10,-.24,-.12);
+  scene.add(coin,models.bell,models.cherry,new THREE.AmbientLight(0xffe8ce,1.4));
+  const key=new THREE.DirectionalLight(0xffeed8,2.1);key.position.set(-5,6,10);scene.add(key);
+  const rim=new THREE.DirectionalLight(0xc0d8ff,1.2);rim.position.set(5,3,-4);scene.add(rim);
+  let moving=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let angle=0,last=performance.now();
+  const button=document.querySelector('#motion');
+  const label=()=>button.textContent=moving?'Pause rotation':'Rotate models';
+  button.onclick=()=>{moving=!moving;label();};label();
+  document.querySelector('#front').onclick=()=>{moving=false;angle=0;label();coin.rotation.y=-.33;models.bell.rotation.y=-.30;models.cherry.rotation.y=-.24;renderer.render(scene,camera);};
+  function resize(){renderer.setSize(innerWidth,innerHeight);camera.left=-2.8125*innerWidth/innerHeight;camera.right=-camera.left;camera.updateProjectionMatrix();renderer.render(scene,camera);}
+  addEventListener('resize',resize);resize();
+  renderer.setAnimationLoop(now=>{const dt=Math.min(.05,(now-last)/1000);last=now;if(!moving||document.hidden)return;
+    angle+=dt*.42;coin.rotation.y=-.33+angle;models.bell.rotation.y=-.30+angle;models.cherry.rotation.y=-.24+Math.sin(angle)*.5;renderer.render(scene,camera);
+  });
+</script>
+</html>
