@@ -26,3 +26,11 @@
 割り込み後の字幕の再連結、音声と字幕の同時抑制、通知の転送、状態の期限・終了処理を対象の既存テストと1件の回帰テストで確認した。型検査・lint・本番ビルドも成功。
 
 過去の実API接続・返答・利用終了の記録は [voice-spike.md](voice-spike.md) を参照。今回の修正後の実マイクでの聞こえ方・会話の体感遅延は、人による追加評価として残る。試合同期の追加検証・商用向け基盤とともに、ゲームソン向けデモの完成条件には含めない。
+
+## 公開確認
+
+PR #105の実装 `5dcdd5e510dca6945e1a23423c6b51b823700fc7` を公開し、Vercel READYを確認。実装CIは [34709592578](https://github.com/yuin15/donburi-g/actions/runs/34709592578) が成功した。公開JS `index-B1FQWJZ3.js` は本番ビルドとSHA-256が一致し、CSSは `index-Cc9CF3BY.css`。
+
+公開ChromeでPLAY NOWから手動6回・0点、独立したライバル30回・960点の60秒対戦を完了し、REMATCHで双方の得点・回転数が0に戻ることを確認した。音声・映像APIは使用していない。
+
+![公開版での60秒対戦の結果](evidence/conversation-feedback/public-result-1280.webp)
