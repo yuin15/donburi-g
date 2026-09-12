@@ -29,4 +29,14 @@
 
 ![自然抽選の結果](evidence/match-feedback/local-result-1920.webp)
 
-主JS 134.69KB gzip、CSS 4.13KB gzip。検収ツール・固定出目・代替字幕の文字列は本番JSに含まれない。公開記録は検証後に追記する。実プロバイダーの旧音声中断は #8 に残し、`LIVE_MODE_ENABLED=false`を維持する。
+主JS 134.69KB gzip、CSS 4.13KB gzip。検収ツール・固定出目・代替字幕の文字列は本番JSに含まれない。実プロバイダーの旧音声中断は #8 に残し、`LIVE_MODE_ENABLED=false`を維持する。
+
+## 公開確認
+
+PR #53 / `f1d2bd0a4f1c2fcbbb2e8ee31818196b89ff74f8`、[マージ後CI成功](https://github.com/yuin15/donburi-g/actions/runs/34675287649)。Vercel `dpl_BohLshizH34VyCho4krxms8cBQsG` READY。公開主JS `index-4lmf2JgO.js` を確認。
+
+Chromeで大勝負→安定型を数字キー2→1で選択し、60秒で360対720の敗北。あなたはチェリー120点＋ベル240点、相手はチェリー480点＋ベル240点で、内訳合計が一致した。改造順も一致。再戦は0対0・60秒・未改造・内訳0行に戻り、Enterで取消した。[公開DOM記録](evidence/match-feedback/public-flow.json)。
+
+公開CPU対戦の外部/API通信0、JavaScriptエラー0。HTTP 401 / WebSocket拒否1008も確認。これは実Liveの認証後接続や実発声を確認した結果ではない。
+
+![公開版の敗北と内訳](evidence/match-feedback/public-result-1920.webp)
