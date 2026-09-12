@@ -176,6 +176,8 @@ export class MatchSession {
       return;
     }
     if (message.type === 'upgrade') {
+      // Arrival time, not the previous interval tick, decides the deadline.
+      this.tick();
       if (this.commands.has(message.commandId)) return;
       this.commands.add(message.commandId);
       const accepted = submitUpgrade(

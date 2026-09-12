@@ -51,6 +51,17 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('live match cleanup', () => {
+  it('rejects upgrades arriving after the deadline while the interval tick is delayed', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(20_000);
+    vi.setSystemTime(Date.now() + 4_100);
+    session.handleRaw(JSON.stringify({ type: 'upgrade', commandId: crypto.randomUUID(), offerIndex: 0, upgradeId: 'jackpot' }));
+    expect(messages.some(m => m.type === 'error' && m.code === 'upgrade_rejected')).toBe(true);
+    expect(messages.find(m => m.type === 'upgrade_applied' && m.offerIndex === 0)).toMatchObject({ player: 'steady' });
+    await session.shutdown('test_finished');
+  });
   it('stops an avatar returned after the browser has disconnected', async () => {
     const late = deferred<typeof avatar>();
     provider.start.mockReturnValue(late.promise);
