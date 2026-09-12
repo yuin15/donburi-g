@@ -85,6 +85,7 @@ See [SECURITY.md](./SECURITY.md) and [docs/operations.md](./docs/operations.md).
 
 ## Documentation
 
+- [MVVM architecture and change locations](./docs/architecture.md)
 - [Game rules](./docs/game-rules.md)
 - [Balance measurements](./docs/game-balance.md)
 - [Wire protocol](./docs/protocol.md)

@@ -2,10 +2,10 @@ import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import type { ReelScene } from './ReelScene';
 import { cloneMatchStats, createMatchStats, recordSpin } from '../domain/matchStats';
 
-type Example = 'normal' | 'small' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'upgrade' | 'upgrade-preview' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
+export type ReviewExample = 'normal' | 'small' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'upgrade' | 'upgrade-preview' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
 interface ReviewPort {
   scene: ReelScene;
-  preview: (example: Example) => void;
+  preview: (example: ReviewExample) => void;
   reset: () => void;
   spin: (player: SpinView, rival: SpinView) => void;
   snapshot: (snapshot: MatchSnapshot) => void;
@@ -24,7 +24,7 @@ export function mountVisualReview(port: ReviewPort): void {
   document.body.append(controls);
   const find = <T extends HTMLElement>(id: string) => controls.querySelector<T>('#' + id)!;
   const stats = find<HTMLOutputElement>('reviewStats');
-  controls.querySelectorAll<HTMLButtonElement>('[data-example]').forEach(button => { button.onclick = () => port.preview(button.dataset.example as Example); });
+  controls.querySelectorAll<HTMLButtonElement>('[data-example]').forEach(button => { button.onclick = () => port.preview(button.dataset.example as ReviewExample); });
   find('cleanFrame').onclick = () => { controls.hidden = true; };
   addEventListener('keydown', event => { if (event.key === 'Escape') controls.hidden = !controls.hidden; });
   find('idleStats').onclick = () => {
@@ -71,7 +71,7 @@ export function mountVisualReview(port: ReviewPort): void {
     const measure = (now: number) => {
       if (!active) return;
       const state = document.querySelector<HTMLElement>('#stageArt')?.dataset;
-      if (state?.spinning === 'true' || state?.win === 'true') timings.push(now - previous);
+      if (state?.spinning === 'true' || state?.win === 'true' || state?.rivalWin === 'true') timings.push(now - previous);
       previous = now;
       const current = port.scene.stats();
       peakCalls = Math.max(peakCalls, current.calls);

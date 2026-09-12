@@ -1,0 +1,1468 @@
+{
+  "observations": [
+    {
+      "ms": 26,
+      "button": "回す",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "37",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 208,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "37",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 378,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "37",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 552,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "36",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 721,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "36",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 894,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "36",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 1062,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "36",
+      "round": "0",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 1234,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "36",
+      "round": "1",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 1404,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "35",
+      "round": "1",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 1574,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "35",
+      "round": "1",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 1743,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "35",
+      "round": "1",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 1915,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "35",
+      "round": "1",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 2087,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "35",
+      "round": "1",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 2255,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "35",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 2425,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "34",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 2596,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "34",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 2767,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "34",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 2936,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "34",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 3105,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "34",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 3277,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "34",
+      "round": "2",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 3449,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "33",
+      "round": "3",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 3617,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "33",
+      "round": "3",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 3788,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "33",
+      "round": "3",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 3961,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "33",
+      "round": "3",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 4129,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "33",
+      "round": "3",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 4302,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "33",
+      "round": "3",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 4473,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "32",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 4643,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "32",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 4813,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "32",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 4983,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "32",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 5152,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "32",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 5324,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "32",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 5492,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "31",
+      "round": "4",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 5662,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "31",
+      "round": "5",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 5834,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "31",
+      "round": "5",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 6003,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "31",
+      "round": "5",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 6172,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "31",
+      "round": "5",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 6345,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "31",
+      "round": "5",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 6514,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "30",
+      "round": "5",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 6686,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "30",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 6856,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "30",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 7026,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "30",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 7198,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "30",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 7370,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "29",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 7539,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "29",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 7710,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "29",
+      "round": "6",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 7882,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "29",
+      "round": "7",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 8052,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "29",
+      "round": "7",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 8224,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "29",
+      "round": "7",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 8396,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "28",
+      "round": "7",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 8567,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "28",
+      "round": "7",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 8738,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "28",
+      "round": "7",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 8910,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "28",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 9080,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "28",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 9249,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "28",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 9421,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "27",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 9590,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "27",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 9761,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "27",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 9932,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "27",
+      "round": "8",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 10103,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "27",
+      "round": "9",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 10273,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "27",
+      "round": "9",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 10444,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "26",
+      "round": "9",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 10616,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "26",
+      "round": "9",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 10786,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "26",
+      "round": "9",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 10959,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "26",
+      "round": "9",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 11127,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "26",
+      "round": "10",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 11299,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "26",
+      "round": "10",
+      "upgradeNo": "UPGRADE 1 / 2"
+    },
+    {
+      "ms": 11469,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "25",
+      "round": "10",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 11638,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "25",
+      "round": "10",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 11806,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "25",
+      "round": "10",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 11978,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "25",
+      "round": "10",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 12148,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "25",
+      "round": "10",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 12319,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "25",
+      "round": "11",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 12490,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "11",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 12660,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "11",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 12832,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "11",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 13002,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "11",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 13175,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "11",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 13348,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 13518,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 13689,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 13861,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 14032,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 14202,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 14371,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "12",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 14544,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "13",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 14714,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "13",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 14884,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "13",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 15057,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "13",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 15228,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "13",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 15398,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "13",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 15569,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 15742,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 15914,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 16085,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 16257,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 16426,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 16612,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "20",
+      "round": "14",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 16784,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "20",
+      "round": "15",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 16954,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "20",
+      "round": "15",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 17123,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "20",
+      "round": "15",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 17296,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "20",
+      "round": "15",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 17466,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "19",
+      "round": "15",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 17637,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "19",
+      "round": "15",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 17810,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "19",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 17979,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "19",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 18150,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "19",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 18321,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "19",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 18490,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "18",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 18662,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "18",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 18836,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "18",
+      "round": "16",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 19006,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "18",
+      "round": "17",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 19175,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "18",
+      "round": "17",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 19346,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "18",
+      "round": "17",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 19516,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "17",
+      "round": "17",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 19688,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "17",
+      "round": "17",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 19861,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "17",
+      "round": "17",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 20031,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "17",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 20201,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "17",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 20373,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "16",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 20542,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "16",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 20714,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "16",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 20884,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "16",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 21053,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "16",
+      "round": "18",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 21225,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "16",
+      "round": "19",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 21396,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "15",
+      "round": "19",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 21565,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "15",
+      "round": "19",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 21735,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "15",
+      "round": "19",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 21907,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "15",
+      "round": "19",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 22076,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "15",
+      "round": "19",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 22247,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "15",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 22416,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "14",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 22587,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "14",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 22759,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "14",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 22928,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "14",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 23098,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "14",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 23271,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "14",
+      "round": "20",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 23440,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "13",
+      "round": "21",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 23613,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "13",
+      "round": "21",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 23783,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "13",
+      "round": "21",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 23950,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "13",
+      "round": "21",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 24122,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "13",
+      "round": "21",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 24294,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "13",
+      "round": "21",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 24463,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "12",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 24633,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "12",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 24803,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "12",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 24975,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "12",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 25147,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "12",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 25316,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "12",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 25486,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "11",
+      "round": "22",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 25656,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "11",
+      "round": "23",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 25826,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "11",
+      "round": "23",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 25998,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "11",
+      "round": "23",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 26172,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "11",
+      "round": "23",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 26341,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "11",
+      "round": "23",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 26514,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "10",
+      "round": "23",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 26686,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "10",
+      "round": "24",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 26859,
+      "button": "次も回す",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "10",
+      "round": "24",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 27027,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "10",
+      "round": "24",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 27199,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "10",
+      "round": "24",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 27370,
+      "button": "予約済み",
+      "choice": "選択済み: 大勝負",
+      "focus": "start",
+      "remaining": "10",
+      "round": "24",
+      "upgradeNo": "UPGRADE 2 / 2"
+    },
+    {
+      "ms": 51142,
+      "button": "再戦する",
+      "remaining": "00",
+      "resultHidden": false,
+      "round": "26",
+      "spinning": "false"
+    }
+  ],
+  "result": {
+    "playerBuild": "大勝負 / 大勝負",
+    "rivalBuild": "安定型 / 大勝負",
+    "round": "26",
+    "text": "\n      60 SECONDS · 26 SPINS\n      NEXT TIME敗北\n      あなたのコイン720VSライバルのコイン1,200\n      480コイン差。次こそ、逆転を。\n      コインと改造の内訳 ＋獲得コインの内訳あなたライバルチェリー2回 · 240点10回 · 1,200点ベル2回 · 480点0回 · 0点70回 · 0点0回 · 0点最高の一回240点（7回転目）120点（3回転目）改造の順番大勝負 → 大勝負安定型 → 大勝負\n      改造を変えて、もう一度。\n    "
+  },
+  "errors": []
+}
