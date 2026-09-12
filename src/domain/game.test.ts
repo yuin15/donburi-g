@@ -4,6 +4,7 @@ import {
   createMatch,
   getPoolCounts,
   getSnapshot,
+  PAYOUT,
   startMatch,
   submitUpgrade,
 } from './game';
@@ -92,6 +93,50 @@ describe('authoritative match domain', () => {
     const spins = [...first, ...second, ...final].filter((event) => event.type === 'spin');
     expect(spins).toHaveLength(30);
     expect(new Set(spins.map((event) => event.player.round)).size).toBe(30);
+  });
+
+  it('retains all 30 rounds of statistics when the consumer only renders the final spin', () => {
+    const state = createMatch(123, 'catchup-stats');
+    startMatch(state);
+    const events = advanceMatch(state, 60);
+    const spins = events.filter(event => event.type === 'spin');
+    const snapshot = getSnapshot(state);
+    expect(snapshot.round).toBe(30);
+    for (const side of ['player', 'rival'] as const) {
+      const history = spins.map(event => event[side]);
+      for (const symbol of ['cherry', 'bell', 'seven'] as const) {
+        expect(snapshot.stats[side].wins[symbol]).toBe(history.filter(spin => spin.payout === PAYOUT[symbol]).length);
+      }
+      const total = snapshot.stats[side].wins.cherry * PAYOUT.cherry + snapshot.stats[side].wins.bell * PAYOUT.bell + snapshot.stats[side].wins.seven * PAYOUT.seven;
+      expect(total).toBe(snapshot.scores[side]);
+    }
+    const ended = events.find(event => event.type === 'match_end');
+    expect(ended?.snapshot.stats).toEqual(snapshot.stats);
+    expect(advanceMatch(state, 60)).toEqual([]);
+    expect(getSnapshot(state).stats).toEqual(snapshot.stats);
+  });
+
+  it('deeply isolates snapshot statistics from later spins, consumer edits, and another match', () => {
+    const state = createMatch(123, 'stats-snapshot');
+    startMatch(state);
+    advanceMatch(state, 30);
+    const earlier = getSnapshot(state);
+    const frozenEarlier = structuredClone(earlier);
+    advanceMatch(state, 60);
+    expect(earlier).toEqual(frozenEarlier);
+
+    const snapshot = getSnapshot(state);
+    const expected = structuredClone(state.stats);
+    snapshot.stats.player.wins.cherry += 10;
+    snapshot.stats.rival.wins.seven += 5;
+    if (snapshot.stats.player.bestSpin) snapshot.stats.player.bestSpin.round = 30;
+    if (snapshot.stats.rival.bestSpin) snapshot.stats.rival.bestSpin.payout = 0;
+    expect(state.stats).toEqual(expected);
+    expect(getSnapshot(state).stats).toEqual(expected);
+    expect(getSnapshot(createMatch(123, 'next')).stats).toEqual({
+      player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null },
+      rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null },
+    });
   });
 
   it('returns a client-safe snapshot without hidden reel or rng state', () => {

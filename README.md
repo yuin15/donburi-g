@@ -16,6 +16,8 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 
 Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. The scoreboard shows the point difference, while the rival panel shows both upgrade histories. The cabinet shows when the next upgrade becomes available. The result panel appears after the final reels have stopped and both scores have been confirmed.
 
+The result also compares symbol payouts, each side's upgrade order, and the first highest-paying spin. CPU dialogue responds to both sides' confirmed outcomes, including simultaneous jackpots and close finishes. It does not interrupt live speech captions.
+
 The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
 
 ## Modes

@@ -17,6 +17,7 @@ import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
 import { GameAudio } from './view/GameAudio';
 import { RoundPresentation } from './view/RoundPresentation';
+import { RivalReactions } from './view/RivalReactions';
 import { OVERLAYS, STAGE_HEIGHT, STAGE_WIDTH } from './view/StageLayout';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -59,7 +60,12 @@ app.innerHTML = `
     <button data-up="jackpot" aria-pressed="false"><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><span class="upgrade-odds" id="jackpotOdds"></span><small class="upgrade-target">7が3つで1,200点</small><kbd>2</kbd></button>
   </div>
   <footer>
-    <div class="result" id="result" role="status" hidden><small>DUEL FINISHED</small><strong id="resultTitle"></strong><span id="resultScore"></span><p>改造を変えて、もう一度。</p></div>
+    <section class="result" id="result" aria-labelledby="resultTitle" hidden>
+      <small>DUEL FINISHED · 30 SPINS</small>
+      <div class="result-heading" role="status" aria-atomic="true"><h2 id="resultTitle"></h2><span id="resultScore"></span></div>
+      <table aria-label="対戦の配当と改造の内訳"><thead><tr><th scope="col">獲得コインの内訳</th><th scope="col">あなた</th><th scope="col">ライバル</th></tr></thead><tbody id="resultStats"></tbody></table>
+      <p>改造を変えて、もう一度。</p>
+    </section>
     <button id="start" disabled>勝負する</button>
     <div id="paytable" aria-label="3つそろうとチェリー120、ベル240、7は1200点"><span><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><i class="symbol-icon seven"></i>1,200</span></div>
     <div id="upgradeProgress">⚙ リール改造<small>20秒・40秒で選択</small></div>
@@ -135,6 +141,7 @@ let starting = false;
 let effectsMuted = false;
 let warnedTime = false;
 let previousLeader: 'player' | 'rival' | null = null;
+const rivalReactions = new RivalReactions();
 let cueTimer = 0;
 let beforeUpgradeFocus: HTMLElement | null = null;
 const battleTimers = new Set<number>();
@@ -330,6 +337,37 @@ function showResult(snapshot: MatchSnapshot): void {
   resultPanel.hidden = false;
   q('#resultTitle').textContent = snapshot.winner === 'player' ? '勝利！' : snapshot.winner === 'rival' ? '敗北' : '引き分け';
   q('#resultScore').textContent = `${scores.player.toLocaleString()}  vs  ${scores.rival.toLocaleString()}`;
+  const rows = q<HTMLTableSectionElement>('#resultStats');
+  rows.replaceChildren();
+  const addRow = (label: string, player: string, rival: string, symbol?: string) => {
+    const row = rows.insertRow();
+    const title = document.createElement('th');
+    title.scope = 'row';
+    if (symbol) {
+      const icon = document.createElement('i');
+      icon.className = `symbol-icon ${symbol}`;
+      icon.setAttribute('aria-hidden', 'true');
+      title.append(icon);
+    }
+    title.append(document.createTextNode(label));
+    row.append(title);
+    row.insertCell().textContent = player;
+    row.insertCell().textContent = rival;
+  };
+  for (const [symbol, label] of [['cherry', 'チェリー'], ['bell', 'ベル'], ['seven', '7']] as const) {
+    const value = (side: 'player' | 'rival') => {
+      const count = snapshot.stats[side].wins[symbol];
+      return `${count}回 · ${(count * PAYOUT[symbol]).toLocaleString()}点`;
+    };
+    addRow(label, value('player'), value('rival'), symbol);
+  }
+  const best = (side: 'player' | 'rival') => {
+    const spin = snapshot.stats[side].bestSpin;
+    return spin ? `${spin.payout.toLocaleString()}点（${spin.round}回転目）` : '当たりなし';
+  };
+  addRow('最高の一回', best('player'), best('rival'));
+  const build = (side: 'player' | 'rival') => snapshot.upgrades[side].map(id => UPGRADE_DEFINITIONS[id].label).join(' → ') || '未改造';
+  addRow('改造の順番', build('player'), build('rival'));
   startButton.disabled = false;
   startButton.textContent = '再戦する';
   startButton.focus();
@@ -345,12 +383,14 @@ function resetBattleUi(): void {
   effects.stop();
   warnedTime = false;
   previousLeader = null;
+  rivalReactions.reset();
   clearTimeout(cueTimer);
   q('#eventCue').hidden = true;
   battleTimers.forEach(clearTimeout);
   battleTimers.clear();
   clearTimeout(assistantResetTimer);
   resultPanel.hidden = true;
+  q('#resultStats').replaceChildren();
   hideUpgrade();
   q('#pay').textContent = '';
   q('#lastSpin').textContent = 'チェリー・ベル・7';
@@ -359,6 +399,7 @@ function resetBattleUi(): void {
   q('#line').textContent = '「60秒。私に勝てる？」';
   q('#heard').textContent = '';
   assistantText = '';
+  renderSnapshot(getSnapshot(createMatch(1, 'preview')));
 }
 
 function handleSpin(player: SpinView, rival: SpinView): void {
@@ -383,23 +424,15 @@ function revealRound(player: SpinView, rival: SpinView, celebrate: boolean): voi
   q('#pay').dataset.jackpot = String(player.payout >= PAYOUT.seven);
   if (player.payout) later(() => { q('#pay').textContent = ''; }, player.payout >= PAYOUT.seven ? 1200 : 650);
   reactionUntil = performance.now() + 1600;
+  const reaction = rivalReactions.next(player, rival, latestSnapshot?.remaining ?? 60, comeback ? leader : null);
+  scene.setExpression(reaction.expression);
+  if (!voiceReady) q('#line').textContent = `「${reaction.text}」`;
   if (player.payout >= PAYOUT.seven) {
-    scene.setExpression('surprised');
-    q('#line').textContent = '「ちょっと待って、今のは聞いてない！」';
     announce(comeback && leader === 'player' ? '逆転！' : '7揃い！', 'jackpot');
   } else if (comeback) {
-    scene.setExpression(leader === 'player' ? 'surprised' : 'confident');
-    q('#line').textContent = leader === 'player' ? '「えっ、そこで逆転する！？」' : '「ほら、まだまだ勝負はこれから。」';
     announce(leader === 'player' ? '逆転！' : 'ライバルが逆転！', 'lead');
   } else if (player.payout) {
-    scene.setExpression('surprised');
-    q('#line').textContent = '「えっ、そこで当てる！？」';
     effects.play('win');
-  } else if (rival.payout) {
-    scene.setExpression('confident');
-    q('#line').textContent = '「いい感じ。このまま行くよ。」';
-  } else {
-    scene.setExpression('neutral');
   }
 }
 
@@ -413,7 +446,7 @@ function finishPresentation(snapshot: MatchSnapshot): void {
   q('#eventCue').hidden = true;
   scene.setExpression(snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral');
   reactionUntil = performance.now() + 3600000;
-  q('#line').textContent = snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
+  if (!voiceReady) q('#line').textContent = snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
 }
 
 function handlePracticeEvent(event: GameEvent): void {
@@ -506,7 +539,7 @@ function onLiveMessage(message: ServerMessage): void {
     return;
   }
   if (message.type === 'rival_line') {
-    q('#line').textContent = `「${message.text}」`;
+    if (!voiceReady) q('#line').textContent = `「${message.text}」`;
     return;
   }
   if (message.type === 'transcript') {
@@ -519,7 +552,6 @@ function onLiveMessage(message: ServerMessage): void {
     q('#line').textContent = `「${assistantText}」`;
     assistantResetTimer = window.setTimeout(() => {
       assistantText = '';
-      q('#line').textContent = '「次の一手、どうする？」';
     }, 2500);
     return;
   }
@@ -737,7 +769,8 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
     preview: example => {
       prepareCpuMatch();
       resetBattleUi();
-      const snapshot: MatchSnapshot = { matchId: 'visual-fixture', status: 'playing', elapsed: 42, remaining: 18, round: 21, scores: { player: 1440, rival: 1200 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, eventSeq: 1 };
+      const snapshot: MatchSnapshot = { ...getSnapshot(createMatch(1, 'visual-fixture')), status: 'playing', elapsed: 42, remaining: 18, round: 21, scores: { player: 1440, rival: 1200 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, eventSeq: 1 };
+      snapshot.stats = { player: { wins: { cherry: 2, bell: 0, seven: 1 }, bestSpin: { round: 5, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 8, payout: 1200 } } };
       if (example === 'upgrade') snapshot.upgrades = { player: ['steady'], rival: ['steady'] };
       if (example === 'upgrade-preview') {
         snapshot.elapsed = 15; snapshot.remaining = 45; snapshot.round = 7;
@@ -748,12 +781,16 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
       startButton.textContent = '自動回転中';
       startButton.disabled = true;
       if (example === 'normal') scene.show(['bell', 'seven', 'cherry']);
-      if (example === 'small' || example === 'jackpot') {
-        const jackpot = example === 'jackpot';
+      if (example === 'small' || example === 'jackpot' || example === 'rival-jackpot' || example === 'both-jackpot' || example === 'quiet') {
+        const jackpot = example === 'jackpot' || example === 'both-jackpot';
         const symbols: SpinView['symbols'] = jackpot ? ['seven', 'seven', 'seven'] : ['cherry', 'cherry', 'cherry'];
         const p: SpinView = { side: 'player', round: 21, symbols, payout: jackpot ? 1200 : 120, total: jackpot ? 3600 : 1440 };
         const r: SpinView = { side: 'rival', round: 21, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 3240 : 1200 };
-        previousLeader = jackpot ? 'rival' : 'player';
+        if (example === 'rival-jackpot' || example === 'both-jackpot') {
+          r.symbols = ['seven', 'seven', 'seven']; r.payout = 1200; r.total = 3600;
+        }
+        if (example === 'quiet') { p.symbols = ['cherry', 'bell', 'seven']; p.payout = 0; }
+        previousLeader = example === 'jackpot' ? 'rival' : null;
         presentation.scores = { player: p.total, rival: r.total };
         if (jackpot) { snapshot.remaining = 8; snapshot.elapsed = 52; }
         renderSnapshot(snapshot);
@@ -764,15 +801,26 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
         clearTimeout(cueTimer);
       }
       if (example === 'draw') {
-        snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;
+        snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30;
         snapshot.scores = { player: 1440, rival: 1440 }; snapshot.winner = 'draw';
+        snapshot.stats.rival.wins.cherry = 2;
         presentation.scores = { ...snapshot.scores };
         finishPresentation(snapshot);
+      }
+      if (example === 'live-caption' || example === 'rematch-ready') {
+        snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.winner = 'player';
+        voiceReady = true;
+        onLiveMessage({ type: 'transcript', role: 'assistant', delta: '検収字幕: いい勝負だったね。' });
+        onLiveMessage({ type: 'rival_line', text: '検収用の未発声作戦文', reason: 'visual-review' });
+        finishPresentation(snapshot);
+        modeBadge.textContent = 'DEV · 字幕検収';
+        if (example === 'rematch-ready') { resetBattleUi(); startButton.disabled = true; startButton.textContent = '準備中'; }
       }
       if (example === 'upgrade') showUpgrade(1, 44);
       if (example === 'final') {
         snapshot.status = 'result'; snapshot.round = 30; snapshot.remaining = 0; snapshot.elapsed = 60;
         snapshot.scores = { player: 3600, rival: 3240 }; snapshot.winner = 'player';
+        snapshot.stats = { player: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 5, payout: 1200 } }, rival: { wins: { cherry: 7, bell: 0, seven: 2 }, bestSpin: { round: 8, payout: 1200 } } };
         renderSnapshot(snapshot);
         handleSpin({ side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 3600 }, { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 3240 });
         presentation.end(snapshot);

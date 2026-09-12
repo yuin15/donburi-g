@@ -3,6 +3,13 @@ export type UpgradeId = 'steady' | 'jackpot';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
 export type UpgradeOfferIndex = 0 | 1;
 
+export type SideStats = {
+  wins: Record<SymbolId, number>;
+  bestSpin: { round: number; payout: number } | null;
+};
+
+export type MatchStats = Record<Side, SideStats>;
+
 export interface SpinView {
   round: number;
   side: Side;
@@ -18,6 +25,7 @@ export interface MatchSnapshot {
   remaining: number;
   round: number;
   scores: Record<Side, number>;
+  stats: MatchStats;
   upgrades: Record<Side, UpgradeId[]>;
   winner?: Side | 'draw';
   eventSeq: number;

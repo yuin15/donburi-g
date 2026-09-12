@@ -1,0 +1,17 @@
+{
+  "before": {
+    "line": "「検収字幕: いい勝負だったね。」",
+    "result": true
+  },
+  "after": {
+    "line": "「検収字幕: いい勝負だったね。」",
+    "result": true
+  },
+  "ready": {
+    "build": "未改造",
+    "player": "0",
+    "resultHidden": true,
+    "rival": "0",
+    "time": "60"
+  }
+}
