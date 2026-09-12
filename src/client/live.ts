@@ -1,4 +1,4 @@
-import { Room, RoomEvent } from 'livekit-client';
+import type { Room } from 'livekit-client';
 import type { ClientMessage, ServerMessage } from '../../shared/protocol';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -223,6 +223,8 @@ export class LiveClient extends EventTarget {
 
   private async attachAvatar(url: string, token: string): Promise<void> {
     await this.detachAvatar();
+    if (this.closed || this.voiceStopped) throw new Error('connection_cancelled');
+    const { Room, RoomEvent } = await import('livekit-client');
     if (this.closed || this.voiceStopped) throw new Error('connection_cancelled');
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;

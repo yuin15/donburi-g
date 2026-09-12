@@ -129,6 +129,7 @@ function cancelBattle(): void {
   battleTimers.forEach(clearTimeout);
   battleTimers.clear();
   effects.stop();
+  scene.stop();
   clearTimeout(cueTimer);
   q('#eventCue').hidden = true;
   clearTimeout(assistantResetTimer);
