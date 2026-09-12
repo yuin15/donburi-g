@@ -17,6 +17,10 @@ export class RoundPresentation {
 
   constructor(private readonly port: PresentationPort) {}
 
+  get isSettled(): boolean {
+    return this.revealed.player >= this.latest.player && this.revealed.rival >= this.latest.rival;
+  }
+
   reset(): void {
     this.revision += 1;
     this.latest = { player: 0, rival: 0 };

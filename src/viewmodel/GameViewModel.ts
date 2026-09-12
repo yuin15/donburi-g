@@ -10,9 +10,9 @@ import type {
   GameCommands, GameExpression, GameMode, GameViewModelDependencies, GameViewState,
 } from './GameViewState';
 
-const INITIAL_LINE = '「60秒。私に勝てる？」';
-const CPU_MESSAGE = 'クリック / SPACE · 回転中も次の1回を予約';
-const DEFAULT_NOTICE = '中央の1ラインで判定 · 60秒の獲得コインで勝負';
+const INITIAL_LINE = 'Think you can beat me?';
+const CPU_MESSAGE = 'CLICK / SPACE · PRESS AGAIN TO QUEUE';
+const DEFAULT_NOTICE = '3 MATCHING SYMBOLS · CENTER LINE';
 
 /** Application state and commands, independent of the browser and renderer. */
 export class GameViewModel implements GameCommands {
@@ -25,9 +25,9 @@ export class GameViewModel implements GameCommands {
   private liveReelUpgrades: MatchSnapshot['upgrades'] = { player: [], rival: [] };
   private lastInviteCode = '';
   private gateVisible = true;
-  private gateMessage = '通常のCPU対戦では外部AIサービスに接続しません。';
+  private gateMessage = 'CPU play needs no external AI service.';
   private connecting = false;
-  private connectionText = '接続していません';
+  private connectionText = 'Ready to play';
   private voiceReady = false;
   private gameConnected = false;
   private voiceMuted = false;
@@ -99,7 +99,7 @@ export class GameViewModel implements GameCommands {
     }
     const current = this.revision;
     if (this.mode === 'live' && !this.gameConnected) {
-      this.prepareCpu('音声・映像つき対戦を開始できませんでした。CPU対戦を開始できます。');
+      this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
       return;
     }
     this.resetBattle();
@@ -113,7 +113,7 @@ export class GameViewModel implements GameCommands {
         this.liveSession.send({ type: 'start' });
       }
     } catch {
-      if (this.isCurrent(current)) this.prepareCpu('音声・映像つき対戦を開始できませんでした。CPU対戦を開始できます。');
+      if (this.isCurrent(current)) this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
     } finally {
       if (this.isCurrent(current)) { this.starting = false; this.emit(); }
     }
@@ -122,7 +122,7 @@ export class GameViewModel implements GameCommands {
   async connectLive(inviteCode: string): Promise<void> {
     if (this.disposed || this.connecting) return;
     const code = inviteCode.trim();
-    if (!code) { this.gateMessage = '招待コードを入力してください。'; this.emit(); return; }
+    if (!code) { this.gateMessage = 'Enter your invite code.'; this.emit(); return; }
     const connected = await this.establishLive(code);
     if (connected === null || !this.isCurrent(connected)) return;
     this.lastInviteCode = code;
@@ -145,7 +145,7 @@ export class GameViewModel implements GameCommands {
     this.cancelBattle();
     this.mode = 'idle';
     this.gateVisible = true;
-    this.gateMessage = '退出しました。マイクとAIの接続を終了しました。';
+    this.gateMessage = 'Match closed. Play again anytime.';
     this.lastInviteCode = '';
     this.emit();
     this.deps.presentation.focus('gate');
@@ -321,7 +321,7 @@ export class GameViewModel implements GameCommands {
     this.snapshot = snapshot;
     if (snapshot.status === 'playing' || snapshot.status === 'result' || snapshot.status === 'aborted') this.awaitingStart = false;
     if (snapshot.status === 'playing') {
-      if (!this.warnedTime && snapshot.remaining <= 10) { this.warnedTime = true; this.announce('残り10秒！ 最後まで勝負', 'warning'); }
+      if (!this.warnedTime && snapshot.remaining <= 10) { this.warnedTime = true; this.deps.presentation.playSound('warning'); }
     }
     if (snapshot.status === 'result' || snapshot.status === 'aborted') this.clearSpinInput();
   }
@@ -387,8 +387,9 @@ export class GameViewModel implements GameCommands {
     this.lastSpin = { ...this.lastSpin, [side]: spin };
     const scores = this.rounds.scores;
     const leader = scores.player > scores.rival ? 'player' : scores.player < scores.rival ? 'rival' : null;
-    const comeback = leader && this.previousLeader && leader !== this.previousLeader;
-    if (leader) this.previousLeader = leader;
+    const settled = this.rounds.isSettled;
+    const comeback = settled && leader && this.previousLeader && leader !== this.previousLeader;
+    if (settled && leader) this.previousLeader = leader;
     const stale = !celebrate || !this.deps.isVisible() || this.snapshot.rounds[side] > spin.round;
     this.clearPayout(side);
     if (!stale) {
@@ -396,13 +397,13 @@ export class GameViewModel implements GameCommands {
         this.payout = { player: 0, rival: 0, ...this.payout, [side]: spin.payout };
         this.payoutTimers[side] = this.schedule(() => { this.clearPayout(side); this.emit(); }, spin.payout >= PAYOUT.seven ? 1200 : 650);
       }
-      if (this.cue?.kind !== 'warning') { this.cancelTimer(this.cueTimer); this.cue = null; }
+      if (side === 'player' && this.cue?.kind !== 'warning') { this.cancelTimer(this.cueTimer); this.cue = null; }
       this.reactionUntil = this.deps.clock.now() + 1600;
       const reaction = this.rivalReactions.nextSpin(spin, scores, this.snapshot.remaining, comeback ? leader : null);
       this.expression = reaction.expression;
-      if (!this.voiceReady) this.line = `「${reaction.text}」`;
-      if (side === 'player' && spin.payout >= PAYOUT.seven) this.announce(comeback && leader === 'player' ? '逆転！' : '7揃い！', 'jackpot');
-      else if (comeback) this.announce(leader === 'player' ? '逆転！' : 'ライバルが逆転！', 'lead');
+      if (!this.voiceReady) this.line = reaction.text;
+      if (side === 'player' && spin.payout >= PAYOUT.seven) this.announce('BIG WIN', 'jackpot');
+      else if (comeback) this.deps.presentation.playSound('lead');
       else if (spin.payout) this.deps.presentation.playSound(side === 'player' ? 'win' : 'rivalWin');
     }
     this.emit();
@@ -443,14 +444,14 @@ export class GameViewModel implements GameCommands {
   }
 
   private showResultLine(snapshot: MatchSnapshot): void {
-    this.line = snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
+    this.line = snapshot.winner === 'player' ? 'You got me. Rematch?' : snapshot.winner === 'rival' ? 'That round is mine. Go again?' : 'A tie! Let\'s settle it next round.';
   }
 
   private prepareLiveResult(snapshot: MatchSnapshot): void {
     if (snapshot.status !== 'result' || (this.liveSnapshot?.status === 'result' && this.liveSnapshot.matchId === snapshot.matchId)) return;
     this.cancelTimer(this.assistantTimer);
     this.assistantText = this.heard = '';
-    if (this.voiceReady) { this.line = '「……」'; this.connectionText = 'マイク停止 / 結果の反応を待っています'; }
+    if (this.voiceReady) { this.line = '…'; this.connectionText = 'Mic off · Waiting for the final reaction'; }
   }
 
   private async establishLive(code: string): Promise<number | null> {
@@ -459,8 +460,8 @@ export class GameViewModel implements GameCommands {
     this.mode = 'live';
     this.resetBattle();
     this.connecting = true;
-    this.connectionText = 'マイク許可を確認中…';
-    this.gateMessage = 'マイク許可 → AIキャラクター接続の順に準備します…';
+    this.connectionText = 'Checking microphone permission…';
+    this.gateMessage = 'Allow your microphone to connect voice and video.';
     this.emit();
     let session: LiveSession | undefined;
     try {
@@ -477,7 +478,7 @@ export class GameViewModel implements GameCommands {
       this.emit();
       return current;
     } catch {
-      if (this.isCurrent(current)) this.prepareCpu('音声・映像を利用できないため、CPU対戦を準備しました。開始ボタンで遊べます。');
+      if (this.isCurrent(current)) this.prepareCpu('Voice is unavailable. Press PLAY for a CPU duel.');
       return null;
     }
   }
@@ -485,12 +486,12 @@ export class GameViewModel implements GameCommands {
   private onLiveDisconnect(): void {
     this.voiceReady = false;
     if (this.liveSnapshot?.status === 'result') {
-      this.connectionText = '会話接続終了 / 再戦できます';
+      this.connectionText = 'Voice closed · Ready for a rematch';
       this.liveSession = null;
       this.emit();
     } else if (!this.liveSnapshot || this.liveSnapshot.status === 'ready') {
-      this.prepareCpu('音声・映像の接続が終了しました。CPU対戦を開始できます。');
-    } else this.returnToGate('対戦サーバーとの接続が終了しました。通常のCPU対戦を始められます。');
+      this.prepareCpu('Voice closed. Ready for a CPU duel.');
+    } else this.returnToGate('Game connection closed. Start a CPU duel to play again.');
   }
 
   private returnToGate(message: string): void {
@@ -514,13 +515,13 @@ export class GameViewModel implements GameCommands {
         this.flushSpinQueue();
       }
     } else if (message.type === 'voice_status') {
-      this.connectionText = message.status === 'ready' ? 'マイク接続中 / AI会話 READY' : message.status === 'connecting' ? 'AIキャラクター接続中…' : message.status === 'closed' ? '会話接続終了' : message.message ?? '会話エラー';
+      this.connectionText = message.status === 'ready' ? 'VOICE READY' : message.status === 'connecting' ? 'Connecting voice…' : message.status === 'closed' ? 'Voice closed' : message.message ?? 'Voice unavailable';
       this.voiceReady = message.status === 'ready';
       if (this.voiceReady) this.gameConnected = true;
       if (!this.voiceReady && this.gameConnected) {
         this.heard = this.assistantText = '';
         this.cancelTimer(this.assistantTimer);
-        if (this.liveSnapshot?.status === 'result' && (message.status === 'error' || this.line === '「……」')) this.showResultLine(this.liveSnapshot);
+        if (this.liveSnapshot?.status === 'result' && (message.status === 'error' || this.line === '…')) this.showResultLine(this.liveSnapshot);
       }
     } else if (message.type === 'snapshot') {
       const enteringPlay = this.liveSnapshot?.status !== 'playing' && message.snapshot.status === 'playing';
@@ -541,14 +542,14 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'side_spin') {
       this.handleSpin(message.spin, this.liveReelUpgrades);
     } else if (message.type === 'rival_line') {
-      if (!this.voiceReady) this.line = `「${message.text}」`;
+      if (!this.voiceReady) this.line = message.text;
     } else if (message.type === 'transcript') {
-      if (message.role === 'user') this.heard = `あなた: ${message.delta}`;
+      if (message.role === 'user') this.heard = `YOU: ${message.delta}`;
       else {
         this.cancelTimer(this.assistantTimer);
         this.assistantText = `${this.assistantText}${message.delta}`.slice(-120);
-        this.line = `「${this.assistantText}」`;
-        if (this.liveSnapshot?.status === 'result') this.connectionText = 'マイク停止 / 結果のひとこと';
+        this.line = this.assistantText;
+        if (this.liveSnapshot?.status === 'result') this.connectionText = 'Mic off · Final reaction';
         this.assistantTimer = this.schedule(() => { this.assistantText = ''; }, 2500);
       }
     } else if (message.type === 'match_ended') {
@@ -559,8 +560,8 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'error') {
       this.connectionText = message.message;
       if (!message.recoverable) {
-        if (!this.liveSnapshot || this.liveSnapshot.status === 'ready') this.prepareCpu('音声・映像を利用できないため、CPU対戦を準備しました。');
-        else this.returnToGate(`${message.message} 通常のCPU対戦を始められます。`);
+        if (!this.liveSnapshot || this.liveSnapshot.status === 'ready') this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
+        else this.returnToGate(`${message.message} Start a CPU duel to play again.`);
       }
     }
     this.emit();
@@ -573,20 +574,20 @@ export class GameViewModel implements GameCommands {
     const playing = this.isPlaying();
     const busy = this.spinPending || this.spinAnimating || now < this.spinNextAt;
     const spinState = playing ? this.spinQueued ? 'queued' : busy ? 'spinning' : 'ready' : null;
-    const hint = playing ? this.spinQueued ? '次の1回を予約しました' : busy ? 'もう一度押すと、次を予約' : 'クリック / SPACE で回す' : this.snapshot.status === 'result' ? `あなた ${this.snapshot.rounds.player}回転 · ライバル ${this.snapshot.rounds.rival}回転` : 'クリック / SPACE で回す';
+    const hint = playing ? this.spinQueued ? 'NEXT SPIN QUEUED' : busy ? 'PRESS AGAIN TO QUEUE' : 'CLICK / SPACE TO SPIN' : this.snapshot.status === 'result' ? `YOU ${this.snapshot.rounds.player} SPINS · RIVAL ${this.snapshot.rounds.rival} SPINS` : 'CLICK / SPACE TO SPIN';
     const finalStopping = this.snapshot.status === 'result' && !this.result;
     const disabled = playing ? false : this.mode === 'idle' || this.connecting || this.starting || this.awaitingStart || finalStopping || (this.mode === 'live' && !this.gameConnected);
-    const label = playing ? this.spinQueued ? '予約済み' : busy ? '次も回す' : '回す' : finalStopping ? '最終停止中' : this.result ? '再戦する' : this.connecting || this.starting || this.awaitingStart ? '準備中' : '勝負する';
+    const label = playing ? 'SPIN' : finalStopping ? 'LAST SPIN' : this.result ? 'REMATCH' : this.connecting || this.starting || this.awaitingStart ? 'READY…' : 'PLAY';
     return {
       mode: this.mode, snapshot: structuredClone(this.snapshot), scores, lastSpin: this.lastSpin ? structuredClone(this.lastSpin) : null,
       gate: { visible: this.gateVisible, message: this.gateMessage, connecting: this.connecting },
       connection: { text: this.connectionText, voiceReady: this.voiceReady, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
-      modeBadge: { text: this.mode === 'idle' ? '未接続' : this.voiceReady ? 'LIVE AI' : 'CPU対戦', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },
+      modeBadge: { text: this.mode === 'idle' ? 'CPU DUEL' : this.voiceReady ? 'LIVE AI' : 'CPU DUEL', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: DEFAULT_NOTICE,
       result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
-      rivalMood: this.snapshot.status === 'result' ? gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。' : gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。',
+      rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       line: this.line, heard: this.heard, voiceMuted: this.voiceMuted, effectsMuted: this.effectsMuted,
     };
   }

@@ -38,7 +38,7 @@ const fragmentShader = `
     if(mini>.5){
       float border = min(min(vUv.x,1.-vUv.x),min(vUv.y,1.-vUv.y));
       float rim = 1.-smoothstep(.025,.11,border);
-      gl_FragColor.rgb += (vec3(.02,.10,.20)*center+vec3(.12,.55,1.)*rim)*winning;
+      gl_FragColor.rgb += (vec3(.025,.02,.005)*center+vec3(.12,.55,1.)*rim)*winning;
     }else{
       gl_FragColor.rgb += vec3(.08,.045,.005)*center*winning;
       float line = (1.-smoothstep(.003,.014,abs(abs(row)-.51)))*winning;
@@ -190,7 +190,7 @@ export class ReelScene {
     if (this.disposed || spin.round <= this.lastRound[side]) return;
     this.lastRound[side] = spin.round;
     if (side === 'player') {
-      if (this.winUntil === Infinity) this.cabinet.stop();
+      if (this.winUntil === Infinity) this.cabinet.stop('player');
       this.clearPlayerWin();
     } else this.clearRivalWin();
     this.applyStagedStrips(side);
@@ -252,10 +252,11 @@ export class ReelScene {
     const now = performance.now();
     const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
     const until = payout > 0 ? still ? Infinity : now + duration : 0;
+    if (payout > 0) this.cabinet.flash(payout, now, duration, still, side);
     if (side === 'player') {
       this.winUntil = until;
       // A miss or rival stop cannot cut short an earlier player coin burst.
-      if (payout > 0) this.cabinet.flash(payout, now, duration, still);
+
       this.host.dataset.win = String(payout > 0);
       this.host.dataset.jackpot = String(payout >= 1200);
     } else {

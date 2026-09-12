@@ -15,14 +15,14 @@ describe('CPU rival reactions', () => {
     const reaction = new RivalReactions().next(spin('player', 120, 960), spin('rival', 1200, 1920), 10, 'rival');
     expect(reaction.kind).toBe('rival-jackpot');
     expect(reaction.expression).toBe('confident');
-    expect(reaction.text).toContain('7揃い');
+    expect(reaction.text).toContain('Sevens');
   });
 
   it('recognizes simultaneous jackpots before either individual jackpot', () => {
     const reaction = new RivalReactions().next(spin('player', 1200, 2400), spin('rival', 1200, 2160), 8, null);
     expect(reaction.kind).toBe('both-jackpot');
     expect(reaction.expression).toBe('surprised');
-    expect(reaction.text).toContain('ふたりとも');
+    expect(reaction.text).toContain('Both');
   });
 
   it.each(['player', 'rival'] as const)('uses the supplied confirmed %s lead change before small payouts', leader => {
@@ -81,7 +81,7 @@ describe('CPU rival reactions', () => {
       const reaction = reactions.next(playerSpin, rivalSpin, remaining, comeback);
       expect(reaction.kind).toBe(kind);
       expect(reaction.text).not.toBe(previous);
-      expect(reaction.text).not.toMatch(/私の勝ち|勝利|勝った|負けた|決着/);
+      expect(reaction.text).not.toMatch(/I win|I won|you lost|victory|game over/i);
       previous = reaction.text;
     }
     expect([playerSpin, rivalSpin]).toEqual(inputsBefore);

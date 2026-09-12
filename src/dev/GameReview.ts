@@ -14,23 +14,23 @@ function fixtureStats(scores: MatchSnapshot['scores']): MatchSnapshot['stats'] {
 }
 
 function fixtureSnapshot(): MatchSnapshot {
-  const scores = { player: 1440, rival: 1200 };
+  const scores = { player: 1440, rival: 1320 };
   return {
     ...getSnapshot(createMatch(1, 'visual-fixture')),
-    status: 'playing', elapsed: 46, remaining: 14, round: 21, rounds: { player: 21, rival: 21 }, scores,
+    status: 'playing', elapsed: 22, remaining: 38, round: 20, rounds: { player: 20, rival: 11 }, scores,
     upgrades: { player: [], rival: [] },
     stats: fixtureStats(scores), eventSeq: 1,
   };
 }
 
 function resultLine(snapshot: MatchSnapshot): string {
-  return snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
+  return snapshot.winner === 'player' ? 'You got me. Rematch?' : snapshot.winner === 'rival' ? 'That round is mine. Go again?' : 'A tie! One more round?';
 }
 
 function rivalMood(scores: GameViewState['scores'], result = false): string {
   const gap = scores.player - scores.rival;
-  if (result) return gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。';
-  return gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。';
+  if (result) return gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.';
+  return gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.';
 }
 
 /** Explicit DEV fixtures; this module never receives or changes a production VM. */
@@ -67,11 +67,11 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       ...baseline, mode: 'practice', snapshot, scores: { ...snapshot.scores }, lastSpin: null,
       gate: { visible: false, connecting: false, message: '' },
       connection: { text: 'DEV · 表示検収（API接続なし）', voiceReady: false, showVoiceControls: false },
-      modeBadge: { text: 'CPU対戦', tone: 'practice' }, countdown: null,
-      startControl: { disabled: true, label: '回転プレビュー', spinState: null, hint: 'クリック / SPACE で回す' },
-      machineNotice: '中央の1ラインで判定 · 60秒の獲得コインで勝負',
+      modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
+      startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: 'CLICK / SPACE TO SPIN' },
+      machineNotice: '3 MATCHING SYMBOLS · CENTER LINE',
       result: null, payout: null, cue: null, expression: 'neutral',
-      rivalMood: '正々堂々、60秒。', line: '「60秒。私に勝てる？」', heard: '',
+      rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',
     };
     render();
   };
@@ -92,14 +92,14 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     if (leader) previousLeader = leader;
     const reaction = reactions.next(player, rival, state.snapshot.remaining, comeback);
     const cue: GameViewState['cue'] = !celebrate ? null : player.payout >= PAYOUT.seven
-      ? { text: comeback === 'player' ? '逆転！' : '7揃い！', kind: 'jackpot' }
-      : comeback ? { text: comeback === 'player' ? '逆転！' : 'ライバルが逆転！', kind: 'lead' } : null;
+      ? { text: 'BIG WIN', kind: 'jackpot' }
+      : null;
     reactionUntil = performance.now() + 1600;
     render({
       scores: { player: player.total, rival: rival.total }, lastSpin: { player, rival },
       payout: celebrate && (player.payout || rival.payout) ? { player: player.payout, rival: rival.payout } : null,
       cue, expression: celebrate ? reaction.expression : state.expression,
-      line: celebrate ? `「${reaction.text}」` : state.line,
+      line: celebrate ? reaction.text : state.line,
       rivalMood: rivalMood({ player: player.total, rival: rival.total }, state.snapshot.status === 'result'),
     });
     if (celebrate) {
@@ -123,9 +123,9 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     render({
       snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
       expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
-      rivalMood: snapshot.winner === 'player' ? '次こそ、負けない。' : snapshot.winner === 'rival' ? 'もう一度、挑む？' : '決着は、次の勝負で。',
+      rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
       line: resultLine(snapshot), heard: '',
-      startControl: { disabled: false, label: '再戦する', spinState: null, hint: `${snapshot.round}回転の勝負` },
+      startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
     });
     view.celebrateResult(snapshot.winner ?? 'draw');
     view.playSound('result');
@@ -151,14 +151,15 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     if (example === 'normal') view.scene.show(['bell', 'seven', 'cherry']);
     if (['small', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
       const jackpot = example === 'jackpot' || example === 'both-jackpot';
-      const player: SpinView = { side: 'player', round: 21, symbols: jackpot ? ['seven', 'seven', 'seven'] : ['cherry', 'cherry', 'cherry'], payout: jackpot ? 1200 : 120, total: jackpot ? 3600 : 1440 };
-      const rival: SpinView = { side: 'rival', round: 21, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 3240 : 1200 };
-      if (example === 'rival-jackpot' || example === 'both-jackpot') { rival.symbols = ['seven', 'seven', 'seven']; rival.payout = 1200; rival.total = 3600; }
+      const player: SpinView = { side: 'player', round: 20, symbols: jackpot ? ['seven', 'seven', 'seven'] : ['bell', 'bell', 'bell'], payout: jackpot ? 1200 : 240, total: jackpot ? 2640 : 1440 };
+      const rival: SpinView = { side: 'rival', round: 11, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 2400 : 1320 };
+      if (example === 'rival-jackpot' || example === 'both-jackpot') { rival.symbols = ['seven', 'seven', 'seven']; rival.payout = 1200; rival.total = 3240; }
       if (example === 'rival-jackpot' || example === 'quiet') { player.symbols = ['cherry', 'bell', 'seven']; player.payout = 0; }
       previousLeader = example === 'jackpot' ? 'rival' : null;
       snapshot.scores = { player: player.total, rival: rival.total };
       snapshot.stats = fixtureStats(snapshot.scores);
-      if (jackpot) { snapshot.remaining = 8; snapshot.elapsed = 52; }
+      if (jackpot) { snapshot.remaining = 21; snapshot.elapsed = 39; }
+      if (example === 'rival-jackpot') { player.total = 1920; snapshot.scores.player = 1920; snapshot.remaining = 12; snapshot.elapsed = 48; snapshot.stats = fixtureStats(snapshot.scores); }
       showSnapshot(snapshot);
       view.scene.show(player.symbols, player.payout, rival.symbols, true, rival.payout);
       settle(player, rival, true, true);
@@ -192,7 +193,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       snapshot.status = 'result'; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 }; snapshot.remaining = 0; snapshot.elapsed = 60;
       snapshot.scores = { player: 3600, rival: 3240 }; snapshot.winner = 'player'; snapshot.stats = fixtureStats(snapshot.scores);
       showSnapshot(snapshot);
-      render({ startControl: { disabled: true, label: '最終停止中', spinState: null, hint: `${snapshot.round}回転の勝負` } });
+      render({ startControl: { disabled: true, label: 'LAST SPIN', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` } });
       play(
         { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 3600 },
         { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 3240 }, snapshot,
