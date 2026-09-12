@@ -6,7 +6,7 @@ The core game is a free, local CPU slot battle. OpenAI voice and LiveAvatar vide
 
 ## Verified locally (2026-09-12)
 
-- TypeScript, ESLint, unit/integration tests, and the production build are required for every change. The default CPU flow adds synthesized game sounds with independent mute and resource-cleanup tests.
+- TypeScript, ESLint, all 63 unit/integration tests, production build, and emitted Node ESM startup checks pass. The build has a bundle-size warning. The default CPU flow adds original synthesized game sounds with independent mute and resource-cleanup tests.
 - `npm run check:server-runtime` compiles server code with NodeNext and starts the emitted HTTP/WebSocket APIs directly. It verifies disabled-live rejection without contacting providers; CI runs this check to catch ESM import failures hidden by Vitest.
 - Six lifecycle regressions were reproduced before the fix: disconnects during avatar/media/OpenAI startup, result cleanup, fatal voice errors, and repeated initialization.
 - A real loopback WebSocket test verifies that a disconnect during quota allocation returns the lease without starting providers.
@@ -23,12 +23,14 @@ The core game is a free, local CPU slot battle. OpenAI voice and LiveAvatar vide
 
 ## Still required for the core game
 
-- Complete the default CPU entry, gameplay feedback, desktop layout verification, and optional-media failure isolation tracked in #5, #23, and #24.
+- The default CPU entry and optional-media isolation are implemented under #23 and #24. Browser verification covered both keyboard upgrade choices, a 60-second result (1,320 vs 480), and rematch. Throughout that match, network observation recorded zero external/API requests with no buffer truncation.
+- Mocked provider and browser-client regressions verify that optional media failure stops the microphone and providers, cancels AI reasoning, and preserves the same match through 30 spins and the second upgrade. Initial failure prepares CPU play. Losing the game WebSocket itself remains a separately reported termination.
+- 1280×720 was checked visually, including all three reels and replay. At 1920×1080, DOM bounds fit; the browser tool clipped its screenshot, so full visual verification remains pending. Reduced-motion, Edge and human sound-quality checks remain under #5 / #12.
 - Complete first-time playtests and record the observations required by Issue #12.
 
 ## Optional voice/video verification
 
-- Verify browser microphone-denial and live disconnect recovery against the deployed service, and check Edge/mobile layout. Local provider mocks are not a real live-session test.
+- Microphone-denial is verified in browser-client unit tests. Real-browser permission-denial and live-provider recovery remain pending; provider mocks are not a real live-session test.
 - Git-based automatic deployment remains unconnected. Manual deployments through the connected Vercel API are available; server-only environment configuration and deployed API rejection have been verified.
 - Verify three complete real-provider matches, 90-second connection survival, interruptions, teardown, latency, and measured usage. Local mocked tests are not evidence for these items.
 - Real-provider verification is required before enabling optional live access, not before playing CPU battles.
@@ -36,7 +38,7 @@ The core game is a free, local CPU slot battle. OpenAI voice and LiveAvatar vide
 ## Deployment state
 
 - Production deployment `dpl_HdqEAbJxgZv96oChYPagkNtRGb4z` reached READY at `https://slot-chan.vercel.app`, including PR #22's provider cleanup. A public smoke check confirmed `/api/access` returns HTTP 401 with `invalid_access`; `/api/ws` completes the WebSocket handshake, returns `session_rejected`, and closes with code 1008 while live mode is disabled. These checks do not start provider sessions.
-- PR #17 through #20 are merged; deployed main commit `fadcf71d938c41f598f0788b07f7893b4f39713e` passed post-merge CI (run `34662021563`). The preceding deployment's HTTP 500 was traced to extensionless server imports; emitted JavaScript startup is now covered in CI. Git-based automatic deployment is not connected; the GitHub account-selection popup did not respond to browser automation. Deployments can still be created using the connected Vercel API.
+- PR #17 through #22 are merged; deployed main commit `43161ce18309e1fc9f7c59523d25b8feb1d175bc` passed post-merge CI (run `34662616401`). The CPU-default and optional-media changes require a new deployment, recorded in their PR after publishing. Git-based automatic deployment is not connected; deployment through the connected Vercel API is available.
 - OpenAI/LiveAvatar keys, signing key, and invite code are saved as Vercel Secrets for Production and Preview. Live mode is explicitly disabled, allowed origin is the public Slot-chan URL, and per-process demo limits are configured. Actual API use is awaiting confirmation of the bounded test budget.
 - A free Upstash database was created during setup; it is not connected to this game and is not required by the current code. No paid plan was selected. No Vercel Firewall rule has been added by these changes.
 

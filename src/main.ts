@@ -96,6 +96,7 @@ let practiceStartedAt = 0;
 let liveClient: LiveClient | null = null;
 let liveSnapshot: MatchSnapshot | null = null;
 let voiceReady = false;
+let gameConnected = false;
 let lastInviteCode = '';
 let muted = false;
 let activeOffer: { index: 0 | 1; closesAt: number } | null = null;
@@ -132,6 +133,7 @@ function cancelBattle(): void {
   hideUpgrade();
   practiceState = null;
   voiceReady = false;
+  gameConnected = false;
   const previous = liveClient;
   liveClient = null;
   void previous?.disconnect();
@@ -227,6 +229,8 @@ function resetBattleUi(): void {
   q('#pay').textContent = '';
   q('#lastSpin').textContent = '🍒　🔔　7';
   q('#rivalReels').textContent = '🍒　🔔　7';
+  scene.show(['cherry', 'bell', 'seven']);
+  q('#line').textContent = '「60秒。私に勝てる？」';
   q('#heard').textContent = '';
   assistantText = '';
 }
@@ -297,7 +301,17 @@ function onLiveMessage(message: ServerMessage): void {
   if (message.type === 'voice_status') {
     q('#connection').textContent = message.status === 'ready' ? 'マイク接続中 / AI会話 READY' : message.status === 'connecting' ? 'AIキャラクター接続中…' : message.status === 'closed' ? '会話接続終了' : message.message ?? '会話エラー';
     voiceReady = message.status === 'ready';
-    if (voiceReady && !starting && (!liveSnapshot || liveSnapshot.status === 'ready')) {
+    if (voiceReady) gameConnected = true;
+    if (!voiceReady && gameConnected) {
+      modeBadge.textContent = 'CPU対戦';
+      modeBadge.className = 'practice';
+      q('#mockFace').hidden = false;
+      q('#sound').hidden = true;
+      q('#heard').textContent = '';
+      clearTimeout(assistantResetTimer);
+      assistantText = '';
+    }
+    if (gameConnected && !starting && (!liveSnapshot || liveSnapshot.status === 'ready')) {
       startButton.disabled = false;
       startButton.textContent = '60秒で勝ちきれ！';
     }
@@ -382,9 +396,9 @@ async function connectLive(code: string): Promise<void> {
   });
   await client.connect(code);
   if (current !== revision || liveClient !== client) throw new Error('connection_cancelled');
-  modeBadge.textContent = 'LIVE AI';
-  modeBadge.className = 'live';
-  q('#mockFace').hidden = true;
+  modeBadge.textContent = voiceReady ? 'LIVE AI' : 'CPU対戦';
+  modeBadge.className = voiceReady ? 'live' : 'practice';
+  q('#mockFace').hidden = voiceReady;
 }
 
 async function countdownThen(action: () => void): Promise<void> {
@@ -411,7 +425,7 @@ async function startLiveOrRematch(): Promise<void> {
     q('#connection').textContent = '再戦のAIキャラクターを準備中…';
     await connectLive(lastInviteCode);
   }
-  if (!voiceReady) throw new Error('voice_not_ready');
+  if (!gameConnected) throw new Error('game_not_ready');
   starting = true;
   resetBattleUi();
   startButton.disabled = true;

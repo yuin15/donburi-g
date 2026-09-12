@@ -28,17 +28,19 @@ export async function chooseRivalUpgrade(
   snapshot: MatchSnapshot,
   offerIndex: number,
   recentUserText: string,
+  signal?: AbortSignal,
 ): Promise<ChoiceResult> {
   const fallback: ChoiceResult = {
     upgradeId: snapshot.scores.rival < snapshot.scores.player ? 'jackpot' : 'steady',
     source: 'fallback',
   };
+  if (signal?.aborted) return fallback;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 2500);
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
       headers: {
         Authorization: `Bearer ${env.openaiKey}`,
         'Content-Type': 'application/json',

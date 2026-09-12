@@ -78,6 +78,58 @@ async function socket() {
 }
 
 describe('browser live connection lifecycle', () => {
+  it('does not request a ticket or open a socket after microphone denial', async () => {
+    getUserMedia.mockRejectedValue(new Error('permission_denied'));
+    await expect(client().connect('test')).rejects.toThrow('permission_denied');
+    expect(request).not.toHaveBeenCalled();
+    expect(Socket.instances).toHaveLength(0);
+  });
+
+  it.each(['avatar', 'server'])('keeps game messages and upgrades working after %s voice failure', async (source) => {
+    const instance = client();
+    const disconnected = vi.fn();
+    const received: unknown[] = [];
+    instance.addEventListener('disconnect', disconnected);
+    instance.addEventListener('message', event => received.push((event as CustomEvent).detail));
+    const connection = instance.connect('test');
+    const ws = await socket();
+    ws.open();
+    ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+    ws.message({ type: 'voice_status', status: 'ready' });
+    await connection;
+    if (source === 'avatar') media.rooms[0].handlers.get('disconnected')?.();
+    else ws.message({ type: 'voice_status', status: 'error' });
+    await vi.waitFor(() => expect(stopTrack).toHaveBeenCalledOnce());
+    expect(closeAudio).toHaveBeenCalledOnce();
+    expect(media.disconnect).toHaveBeenCalledOnce();
+    expect(disconnected).not.toHaveBeenCalled();
+    expect(ws.close).not.toHaveBeenCalled();
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'voice_close' }));
+    instance.send({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot' });
+    expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot' }));
+    ws.message({ type: 'match_ended', snapshot: { status: 'result', round: 30 } });
+    expect(received).toContainEqual({ type: 'match_ended', snapshot: { status: 'result', round: 30 } });
+    await instance.disconnect();
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(media.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it('rejects startup promptly when the avatar disconnects before readiness', async () => {
+    const avatar = deferred<void>();
+    media.connect.mockReturnValue(avatar.promise);
+    const instance = client();
+    const connection = instance.connect('test').catch((error: Error) => error.message);
+    const ws = await socket();
+    ws.open();
+    ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+    await vi.waitFor(() => expect(media.rooms).toHaveLength(1));
+    media.rooms[0].handlers.get('disconnected')?.();
+    expect(await connection).toBe('avatar_connect_failed');
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(ws.close).toHaveBeenCalled();
+    avatar.resolve();
+  });
+
   it('stops a microphone permission result arriving after cancellation', async () => {
     const permission = deferred<MediaStream>();
     getUserMedia.mockReturnValue(permission.promise);

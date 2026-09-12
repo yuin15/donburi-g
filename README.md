@@ -27,7 +27,7 @@ npm run dev
 
 ### Optional voice and video
 
-Open **音声・映像もつける（任意）** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. In-progress voice isolation is tracked in #24. The core game's completion does not depend on real-provider voice/video validation.
+Open **音声・映像もつける（任意）** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. Once connected, a voice/video failure closes the media and microphone, cancels pending AI reasoning, and keeps the same match running with CPU upgrade choices. The core game's completion does not depend on real-provider voice/video validation.
 
 Live mode requires server-side environment variables. Copy `.env.example` to a local ignored environment file and fill it locally, or configure the variables in Vercel. **Never commit real values.**
 
@@ -55,7 +55,7 @@ Live path:
 
 `browser mic → /api/ws → GPT-Live → LiveAvatar media server → LiveKit → browser`
 
-The same WebSocket owns the authoritative match and the voice/avatar session. If it drops, the MVP aborts that match instead of trying to resume it.
+The game WebSocket carries authoritative match updates independently of optional voice/video health. Losing that game transport itself aborts the match with a visible explanation; the app never silently substitutes a new match or seed. Optional media failure preserves the existing timer, score, upgrades, and result.
 
 ## Commands
 
