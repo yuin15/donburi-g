@@ -222,7 +222,7 @@ describe('stage rendering and cleanup', () => {
     const coins: Mesh[] = [];
     scene().traverse(n => { if (n instanceof Mesh && n.name === 'win-coin') coins.push(n); });
     expect(coins).toHaveLength(24);
-    expect(coins.every(c => c.visible)).toBe(true);
+    expect(coins.filter(c => c.visible)).toHaveLength(12);
     frame(1200);
     expect(coins.every(c => !c.visible)).toBe(true);
     expect(frames.size).toBe(0);
@@ -242,7 +242,7 @@ describe('stage rendering and cleanup', () => {
     expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]);
     expect(reelWins()).toEqual([playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0]);
     expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= 1200) });
-    expect(coins().some(coin => coin.visible)).toBe(playerPayout >= 1200);
+    expect(coins().filter(coin => coin.visible)).toHaveLength((playerPayout >= 1200 ? 12 : playerPayout > 0 ? 4 : 0) + (rivalPayout >= 1200 ? 12 : rivalPayout > 0 ? 4 : 0));
     frame(650);
     if (playerPayout === 120) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
     if (rivalPayout > 0) expect(reelWins().slice(3)).toEqual([1, 1, 1]);
@@ -281,7 +281,7 @@ describe('stage rendering and cleanup', () => {
     view.show(symbols, 0, symbols, false, 240);
     frame();
     expect(reelWins()).toEqual([0, 0, 0, 1, 1, 1]);
-    expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(coins().filter(coin => coin.visible)).toHaveLength(4);
     frame(650);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(frames.size).toBe(0);
@@ -304,6 +304,22 @@ describe('stage rendering and cleanup', () => {
     view.show(symbols, 0, symbols, true, 240);
     view.dispose();
     expect(host.dataset).toMatchObject({ rivalWin: 'false', rivalJackpot: 'false' });
+    expect(frames.size).toBe(0);
+  });
+  it('routes the rival coins up its own outer edges without touching the face or player payline', () => {
+    const { view } = setup();
+    view.show(['cherry', 'bell', 'seven'], 0, ['seven', 'seven', 'seven'], false, 1200);
+    frame(300);
+    const active = coins().filter(coin => coin.visible);
+    expect(active).toHaveLength(12);
+    const before = active.map(coin => coin.position.clone());
+    frame(400);
+    active.forEach((coin, i) => {
+      expect(coin.position.y).toBeGreaterThan(before[i].y);
+      expect(coin.position.x < 1045 || coin.position.x > 1500).toBe(true);
+    });
+    frame(500);
+    expect(coins().every(coin => !coin.visible)).toBe(true);
     expect(frames.size).toBe(0);
   });
   it('disposes all shared resources once, without a late callback or revived loop', () => {

@@ -98,17 +98,18 @@ export class GameView implements GamePresentation {
     this.video.hidden = !state.connection.voiceReady;
     this.q('#mockFace').hidden = state.connection.voiceReady;
     this.q('#sound').hidden = !state.connection.showVoiceControls;
-    this.text('#sound', state.voiceMuted ? 'AI音声 OFF' : 'AI音声 ON');
-    this.q('#sound').setAttribute('aria-label', state.voiceMuted ? 'AI音声のミュートを解除' : 'AI音声をミュート');
+    this.text('#sound', state.voiceMuted ? 'VOICE OFF' : 'VOICE ON');
+    this.q('#sound').setAttribute('aria-label', state.voiceMuted ? 'Unmute AI voice' : 'Mute AI voice');
     this.q('#sound').setAttribute('aria-pressed', String(state.voiceMuted));
-    this.text('#effects', state.effectsMuted ? '効果音 OFF' : '効果音 ON');
-    this.q('#effects').setAttribute('aria-label', state.effectsMuted ? '効果音のミュートを解除' : '効果音をミュート');
+    this.text('#effects', state.effectsMuted ? 'SOUND OFF' : 'SOUND ON');
+    this.q('#effects').setAttribute('aria-label', state.effectsMuted ? 'Unmute sound effects' : 'Mute sound effects');
     this.q('#effects').setAttribute('aria-pressed', String(state.effectsMuted));
 
     const snapshot = state.snapshot;
     this.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
     this.scene.setExpression(state.expression);
-    this.text('#time', String(Math.max(0, Math.ceil(snapshot.remaining))).padStart(2, '0'));
+    const seconds = Math.max(0, Math.ceil(snapshot.remaining));
+    this.text('#time', `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
     this.q('#timer').classList.toggle('urgent', snapshot.status === 'playing' && snapshot.remaining <= 10);
     this.text('#ps', state.scores.player.toLocaleString());
     this.text('#rs', state.scores.rival.toLocaleString());
@@ -116,7 +117,7 @@ export class GameView implements GamePresentation {
     const gap = state.scores.player - state.scores.rival;
     this.q('#playerMeter').style.width = `${total ? state.scores.player / total * 100 : 50}%`;
     this.q('#rivalMeter').style.width = `${total ? state.scores.rival / total * 100 : 50}%`;
-    this.text('#scoreGap', gap === 0 ? '互角の勝負' : `${Math.abs(gap).toLocaleString()}点 ${gap > 0 ? 'リード' : 'ビハインド'}`);
+    this.text('#scoreGap', gap === 0 ? 'EVEN' : `${Math.abs(gap).toLocaleString()} ${gap > 0 ? 'AHEAD' : 'BEHIND'}`);
     this.q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
     this.text('#rivalMood', state.rivalMood);
     this.text('#line', state.line);
@@ -124,14 +125,20 @@ export class GameView implements GamePresentation {
     this.text('#machineTrim', state.machineNotice);
     this.text('#roundCount', String(snapshot.rounds.player).padStart(2, '0'));
     this.text('#rivalRoundCount', String(snapshot.rounds.rival).padStart(2, '0'));
-    this.text('#lastSpin', state.lastSpin?.player ? this.glyphs(state.lastSpin.player) : 'チェリー・ベル・7');
-    this.text('#rivalReels', state.lastSpin?.rival ? this.glyphs(state.lastSpin.rival) : 'チェリー・ベル・7');
+    this.text('#lastSpin', state.lastSpin?.player ? this.glyphs(state.lastSpin.player) : 'Cherry, Bell, Seven');
+    this.text('#rivalReels', state.lastSpin?.rival ? this.glyphs(state.lastSpin.rival) : 'Cherry, Bell, Seven');
 
-    this.text('#pay', state.payout?.player ? `+${state.payout.player.toLocaleString()}` : '');
+    this.text('#pay', state.payout?.player ? `+${state.payout.player.toLocaleString()}` : '0');
     this.q('#pay').dataset.jackpot = String((state.payout?.player ?? 0) >= PAYOUT.seven);
     this.text('#rivalPay', state.payout?.rival ? `+${state.payout.rival.toLocaleString()}` : '');
     this.q('#rivalPay').dataset.jackpot = String((state.payout?.rival ?? 0) >= PAYOUT.seven);
     this.q('#rivalPay').hidden = !state.payout?.rival;
+    this.text('#rivalWinLabel', (state.payout?.rival ?? 0) >= PAYOUT.seven ? 'BIG WIN' : state.payout?.rival ? 'WIN' : 'RIVAL REELS');
+    this.q('#miniLabel').dataset.win = String(!!state.payout?.rival);
+    this.q('#miniLabel').dataset.jackpot = String((state.payout?.rival ?? 0) >= PAYOUT.seven);
+    this.q('#machineTitle').dataset.win = String(!!state.payout?.player);
+    this.q('#playerScore').dataset.win = String(!!state.payout?.player);
+    this.q('#rivalScore').dataset.win = String(!!state.payout?.rival);
     this.q('#eventCue').hidden = !state.cue;
     if (state.cue) {
       this.text('#eventCue', state.cue.text);
@@ -143,6 +150,9 @@ export class GameView implements GamePresentation {
     if (state.startControl.spinState) start.dataset.spin = state.startControl.spinState;
     else delete start.dataset.spin;
     this.text('#spinHint', state.startControl.hint);
+    this.text('#queueStatus', state.startControl.spinState === 'queued' ? 'NEXT SPIN QUEUED ✓' : state.result ? 'START A NEW ROUND' : 'CLICK TO SPIN');
+    this.q('#roundStatus').dataset.queued = String(state.startControl.spinState === 'queued');
+    this.q('#connection').hidden = state.mode !== 'live';
     this.renderResult(state.result);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
@@ -153,8 +163,8 @@ export class GameView implements GamePresentation {
   }
 
   private glyphs(spin: SpinView): string {
-    const glyph = { cherry: 'チェリー', bell: 'ベル', seven: '7' };
-    return spin.symbols.map(symbol => glyph[symbol]).join('　');
+    const glyph = { cherry: 'Cherry', bell: 'Bell', seven: 'Seven' };
+    return spin.symbols.map(symbol => glyph[symbol]).join(', ');
   }
 
   private renderResult(snapshot: MatchSnapshot | null): void {
@@ -174,13 +184,13 @@ export class GameView implements GamePresentation {
     panel.dataset.outcome = snapshot.winner ?? 'draw';
     this.text('#resultRounds', '60 SECOND DUEL');
     this.q<HTMLDetailsElement>('#resultDetails').open = false;
-    this.text('#resultEnglish', snapshot.winner === 'player' ? 'VICTORY' : snapshot.winner === 'rival' ? 'NEXT TIME' : 'DRAW');
-    this.text('#resultTitle', snapshot.winner === 'player' ? '勝利！' : snapshot.winner === 'rival' ? '敗北' : '引き分け');
+    this.text('#resultEnglish', 'ROUND COMPLETE');
+    this.text('#resultTitle', snapshot.winner === 'player' ? 'YOU WIN!' : snapshot.winner === 'rival' ? 'RIVAL WINS' : 'DRAW');
     this.text('#resultPlayer', snapshot.scores.player.toLocaleString());
     this.text('#resultRival', snapshot.scores.rival.toLocaleString());
     const margin = Math.abs(snapshot.scores.player - snapshot.scores.rival).toLocaleString();
-    this.text('#resultGap', snapshot.winner === 'player' ? `${margin}コイン差で、ライバルを超えた。` : snapshot.winner === 'rival' ? `${margin}コイン差。次こそ、逆転を。` : '同じコイン数。決着は、次の60秒。');
-    this.text('#resultAgain', snapshot.winner === 'player' ? 'もう一勝、狙いにいこう。' : 'もう一度、60秒の勝負。');
+    this.text('#resultGap', snapshot.winner === 'player' ? `You won by ${margin} coins.` : snapshot.winner === 'rival' ? `Just ${margin} coins apart. Go again?` : 'Same coins. One more round to settle it.');
+    this.text('#resultAgain', snapshot.winner === 'player' ? 'Keep the streak going.' : 'Your next big win could change everything.');
     const rows = this.q<HTMLTableSectionElement>('#resultStats');
     rows.replaceChildren();
     const addRow = (label: string, player: string, rival: string, symbol?: string) => {
@@ -198,19 +208,19 @@ export class GameView implements GamePresentation {
       row.insertCell().textContent = player;
       row.insertCell().textContent = rival;
     };
-    addRow('回転数', `${snapshot.rounds.player}回`, `${snapshot.rounds.rival}回`);
-    for (const [symbol, label] of [['cherry', 'チェリー'], ['bell', 'ベル'], ['seven', '7']] as const) {
+    addRow('SPINS', String(snapshot.rounds.player), String(snapshot.rounds.rival));
+    for (const [symbol, label] of [['cherry', 'CHERRY'], ['bell', 'BELL'], ['seven', 'SEVEN']] as const) {
       const value = (side: 'player' | 'rival') => {
         const count = snapshot.stats[side].wins[symbol];
-        return `${count}回 · ${(count * PAYOUT[symbol]).toLocaleString()}点`;
+        return `${count} ${count === 1 ? 'HIT' : 'HITS'} · ${(count * PAYOUT[symbol]).toLocaleString()}`;
       };
       addRow(label, value('player'), value('rival'), symbol);
     }
     const best = (side: 'player' | 'rival') => {
       const spin = snapshot.stats[side].bestSpin;
-      return spin ? `${spin.payout.toLocaleString()}点（${spin.round}回転目）` : '当たりなし';
+      return spin ? `${spin.payout.toLocaleString()} · SPIN ${spin.round}` : 'NO WIN';
     };
-    addRow('最高の一回', best('player'), best('rival'));
+    addRow('BEST SPIN', best('player'), best('rival'));
   }
 
   playSpin(spin: SpinView, stopped: (celebrate?: boolean) => void): void {

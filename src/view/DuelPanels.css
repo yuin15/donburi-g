@@ -14,7 +14,7 @@
 .result>small { font: 600 .62cqw/1.4 system-ui; letter-spacing: .28em; color: #c5ae7f; }
 .result-heading { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 1cqw; }
 .result-heading #resultEnglish { display: block; margin-bottom: .2cqw; color: var(--result-accent); font: 700 .78cqw/1 Georgia; letter-spacing: .3em; }
-.result-heading h2 { margin: 0; color: var(--result-accent); font: 800 3.8cqw/1.1 "Yu Mincho",serif; letter-spacing: .05em; text-shadow: 0 2px 1px #67350a,0 0 25px #eab94835; }
+.result-heading h2 { margin: 0; color: var(--result-accent); font: 800 3.8cqw/1.1 Georgia,serif; letter-spacing: .05em; text-shadow: 0 2px 1px #67350a,0 0 25px #eab94835; }
 .result[data-outcome=rival] h2 { text-shadow: 0 2px 1px #182533; }
 .result .result-emblem { display: block; width: 4.8cqw; height: 4.8cqw; margin-right: .4cqw; background: url('/art/coin.webp') center/contain no-repeat; filter: drop-shadow(0 0 12px #d3953266); transform: rotate(-13deg); }
 .result[data-outcome=rival] .result-emblem { filter: grayscale(.85) brightness(.8); transform: rotate(13deg); }

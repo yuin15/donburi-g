@@ -19,4 +19,12 @@
 
 WebSocket結合試験は実localhost通信で、認証・外部AI・音声プロバイダーは代替している。実音声や有料API接続の確認を意味しない。
 
-公開版での確認はデプロイ後に追記する。
+## 公開版の確認
+
+PR #80、公開コード `4399179ef8f3269ff3b54156d29fb8386c1da973`。Vercel `dpl_5vFMufXiVczFTyNywcqa5KCpGYyU` がREADY。マージ後CI [34687651779](https://github.com/yuin15/donburi-g/actions/runs/34687651779) は成功した。
+
+公開Chromeの1280×720で4回だけ手動回転し、その後は無操作。プレイヤー4回/0点、ライバル30回/840点で60秒を完了した。主JSは `index-Cm7dUhe2.js`、CSSは `index-BQwZb7LF.css`。読み込んだリソースは同一オリジンだけで、任意Live/API要求はなかった。#78/#79は完了、ユーザーが撤去したAI改造の#9は対象外として閉じた。
+
+![公開版の独立した回転数と結果](evidence/independent-duel/public-result-1280.webp)
+
+この画像は英語UIへ変更する前の公開記録。現在の英語画面は [当たり演出の検証](english-win-presentation.md) を参照。

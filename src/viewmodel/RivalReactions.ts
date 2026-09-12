@@ -18,51 +18,51 @@ const SCENES: Record<RivalReactionKind, {
 }> = {
   'both-jackpot': {
     expression: 'surprised',
-    lines: ['ふたりとも7揃い！？ こんなことある？', '1,200点ずつ！ お互い、引かないね。', '同時に大当たり。これは熱いね！'],
+    lines: ["Both of us hit sevens?!","1,200 each! What a round!","Two big wins at once!"],
   },
   'player-jackpot': {
     expression: 'surprised',
-    lines: ['えっ、そこで7揃い！？', '1,200点！？ その一発は大きい！', 'ちょっと待って、その7揃いは強い！'],
+    lines: ["Whoa! Three sevens?!","1,200! That changes things.","Now THAT is a big win!"],
   },
   'rival-jackpot': {
     expression: 'confident',
-    lines: ['来た、7揃い！ 1,200点いただき。', '私にも7揃い。うれしい！', 'この大当たりは大きいね！'],
+    lines: ["Sevens! 1,200 for me.","Big win! I'll take that.","Three sevens. Nice!"],
   },
   'player-lead': {
     expression: 'frustrated',
-    lines: ['抜かれた！ その当たりは効くね。', 'そっちが前に出たね。手強いな。', '逆転された！ いい勝負だね。'],
+    lines: ["You took the lead!","You're ahead now. Game on!","That hit put you in front."],
   },
   'rival-lead': {
     expression: 'confident',
-    lines: ['よし、私が前に出た！', 'ここで逆転！ この当たりはうれしい。'],
+    lines: ["I'm in the lead!","That hit put me ahead."],
   },
   'both-win': {
     expression: 'surprised',
-    lines: ['ふたりとも当たり！', 'お互いにコイン獲得。いい勝負だね。'],
+    lines: ["Coins for both of us!","We both hit. What a race!"],
   },
   'player-win': {
     expression: 'surprised',
-    lines: ['当てたね。そのコイン、見逃してないよ。', 'そっちに当たり！ なかなかやるね。'],
+    lines: ["Nice hit. I saw that!","Coins for you! Well played."],
   },
   'rival-win': {
     expression: 'confident',
-    lines: ['私に当たり！ コインを積めた。', 'よし、こっちもコイン獲得。'],
+    lines: ["A hit! Coins for me.","Nice. I'll take those coins."],
   },
   'close-finish': {
     expression: 'neutral',
-    lines: ['この点差、最後まで分からないね。', '接戦だね。一回の当たりも見逃せない。', '僅差の終盤。思わず見ちゃうね。'],
+    lines: ["Still close. Every spin counts.","This could go either way.","A tight finish. Keep going!"],
   },
   quiet: {
     expression: 'neutral',
-    lines: ['今回は、お互い空振りだね。', 'ふたりともおあずけ。この間も緊張するね。'],
+    lines: ["No hits that time. Next spin!","Nothing yet. Still time!"],
   },
   'player-miss': {
     expression: 'neutral',
-    lines: ['惜しいね。次はどうかな？', 'そろわなかったね。まだ勝負はこれから。'],
+    lines: ["So close. Try another!","Not this time. Keep spinning."],
   },
   'rival-miss': {
     expression: 'neutral',
-    lines: ['ああ、惜しい！ 次こそ。', '私も、もう一回いくよ。'],
+    lines: ["Ah, just missed it!","I'm going again. Watch me."],
   },
 };
 

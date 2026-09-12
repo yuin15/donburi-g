@@ -1,6 +1,6 @@
 # Slot-chan
 
-**回して、そろえて。CPUライバルに60秒で勝ちきれ。**
+**Spin fast. Beat your rival in 60 seconds.**
 
 Game jam project by team **donburi**. The core game uses Vite, TypeScript and Three.js. GPT voice and LiveAvatar video are optional additions.
 
@@ -8,8 +8,8 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 
 ## Play loop
 
-1. Click **CPUライバルと対戦**. No key, invitation, microphone, or external AI service is needed.
-2. Click **回す** or press **Space** to spin your reels. Press during a spin to queue the next one; repeated presses keep at most one reservation. Player spins are accepted at least 1.1 seconds apart.
+1. Click **PLAY NOW**. No key, invitation, microphone, or external AI service is needed.
+2. Click **SPIN** or press **Space** to spin your reels. Press during a spin to queue the next one; repeated presses keep at most one reservation. Player spins are accepted at least 1.1 seconds apart.
 3. The rival automatically spins every 2 seconds, even when you do nothing. Your input never triggers or delays its spins.
 4. Highest confirmed coin total at 60 seconds wins. Both final animations settle before the result appears.
 
@@ -17,13 +17,15 @@ Only the highlighted **middle line** pays. Both sides keep the same base reel co
 
 The rival completes 30 spins; the player can complete 0–55 depending on input. CPU dialogue reacts to the side that just stopped without repeating the other side's previous payout. See [independent duel verification](./docs/independent-duel.md).
 
+The English game screen puts **YOU / RIVAL** scores first and keeps the title out of the visible play area. Wins use gold lights, separate payout amounts and coins traveling toward the winning side’s score. **BIG WIN** is reserved for three sevens; lead changes wait for both pending spins to settle. See [win presentation and screen checks](./docs/english-win-presentation.md).
+
 The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
 
 ## Modes
 
 ### Normal CPU match (no external APIs)
 
-Runs fully in the browser without API calls. It is the normal game, including independent rival spins, results and rematch. Short synthesized effects distinguish spins, wins, jackpots, lead changes and the last ten seconds; **効果音 ON/OFF** controls them separately from optional AI speech.
+Runs fully in the browser without API calls. It is the normal game, including independent rival spins, results and rematch. Short synthesized effects distinguish spins, wins, jackpots, lead changes and the last ten seconds; **SOUND ON/OFF** controls them separately from optional AI speech.
 
 ```bash
 npm ci
@@ -32,7 +34,7 @@ npm run dev
 
 ### Optional voice and video
 
-Open **音声・映像もつける（任意）** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. Once connected, a voice/video failure closes the media and microphone, cancels pending AI reasoning, and keeps the same match running with the independent CPU rival. The core game's completion does not depend on real-provider voice/video validation.
+Open **ADD VOICE & VIDEO** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. Once connected, a voice/video failure closes the media and microphone, cancels pending AI reasoning, and keeps the same match running with the independent CPU rival. The core game's completion does not depend on real-provider voice/video validation.
 
 Live mode requires server-side environment variables. Copy `.env.example` to a local ignored environment file and fill it locally, or configure the variables in Vercel. **Never commit real values.**
 

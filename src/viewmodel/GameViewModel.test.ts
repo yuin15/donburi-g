@@ -119,11 +119,11 @@ describe('game view model', () => {
     const unsubscribe = h.vm.subscribe(observed);
     expect(observed).toHaveBeenCalledOnce();
     await beginCpu(h);
-    expect(h.vm.state.startControl).toMatchObject({ disabled: false, label: '回す' });
+    expect(h.vm.state.startControl).toMatchObject({ disabled: false, label: 'SPIN' });
     await h.clock.advance(60000);
     expect(h.rounds).toHaveLength(0);
     expect(h.rivalRounds).toHaveLength(30);
-    expect(h.vm.state.startControl.label).toBe('最終停止中');
+    expect(h.vm.state.startControl.label).toBe('LAST SPIN');
     expect(h.vm.state.result).toBeNull();
     h.rivalRounds.at(-1)!.stopped();
     expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 30 }, scores: { player: 0, rival: h.rivalRounds.at(-1)!.spin.total } });
@@ -198,8 +198,8 @@ describe('game view model', () => {
     const final = playingSnapshot(last, true);
     session.emit({ type: 'snapshot', snapshot: final, lastSpin: last });
     expect(h.vm.state.result).toBeNull();
-    expect(h.vm.state.line).toBe('「……」');
-    expect(h.vm.state.startControl.label).toBe('最終停止中');
+    expect(h.vm.state.line).toBe('…');
+    expect(h.vm.state.startControl.label).toBe('LAST SPIN');
     session.emit({ type: 'transcript', role: 'assistant', delta: 'いい' });
     session.emit({ type: 'match_ended', snapshot: final });
     session.emit({ type: 'snapshot', snapshot: final, lastSpin: last });
@@ -209,12 +209,12 @@ describe('game view model', () => {
     h.rivalRounds[0].stopped();
     expect(h.vm.state.scores).toEqual(final.scores);
     expect(h.vm.state.result).toEqual(final);
-    expect(h.vm.state.line).toBe('「いい勝負だったね。」');
+    expect(h.vm.state.line).toBe('いい勝負だったね。');
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
     await h.clock.advance(3000);
-    expect(h.vm.state.line).toBe('「いい勝負だったね。」');
+    expect(h.vm.state.line).toBe('いい勝負だったね。');
     session.emit({ type: 'voice_status', status: 'closed' });
-    expect(h.vm.state.line).toBe('「いい勝負だったね。」');
+    expect(h.vm.state.line).toBe('いい勝負だったね。');
     h.vm.dispose();
     expect(session.disconnect).toHaveBeenCalledOnce();
   });
@@ -265,7 +265,31 @@ describe('game view model', () => {
     session.emit({ type: 'side_spin', spin: { ...pair(2).rival, payout: 0, total: 120, symbols: ['cherry', 'bell', 'seven'] } });
     h.rivalRounds[1].stopped();
     expect(h.vm.state.payout).toEqual({ player: 1200, rival: 0 });
-    expect(h.vm.state.line).not.toContain('7揃い');
+    expect(h.vm.state.line).not.toContain('BIG WIN');
+    h.vm.dispose();
+  });
+
+  it('does not announce a false comeback while the other winning spin is still stopping', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({ type: 'voice_status', status: 'error' });
+    const rival = { ...pair().rival, payout: 120, total: 120 };
+    session.emit({ type: 'side_spin', spin: rival });
+    h.rivalRounds[0].stopped();
+    const player = { ...pair().player, symbols: ['bell', 'bell', 'bell'] as SpinView['symbols'], payout: 240, total: 240 };
+    session.emit({ type: 'side_spin', spin: player });
+    session.emit({ type: 'side_spin', spin: { ...rival, round: 2, payout: 240, total: 360 } });
+    h.rounds[0].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 240, rival: 120 });
+    expect(h.presentation.playSound).not.toHaveBeenCalledWith('lead');
+    h.rivalRounds[1].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 240, rival: 360 });
+    expect(h.presentation.playSound).not.toHaveBeenCalledWith('lead');
+    session.emit({ type: 'side_spin', spin: { ...player, round: 2, total: 480 } });
+    h.rounds[1].stopped();
+    expect(h.presentation.playSound).toHaveBeenCalledWith('lead');
+    expect(h.vm.state.cue).toBeNull();
+    expect(h.vm.state.line).toContain('lead');
     h.vm.dispose();
   });
 

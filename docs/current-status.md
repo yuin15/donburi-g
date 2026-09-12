@@ -7,16 +7,17 @@
 - MVVMを維持。Modelが抽選と時計、ViewModelが進行・予約・表示状態、ViewがDOMとThree.jsを担当する。[構成](architecture.md)。
 - #79でライバルを独立した自動回転へ変更。相手は2秒ごと、60秒で30回。こちらが押さなくても進む。
 - プレイヤーはクリック・Space、1.1秒以上の間隔で0–55回。連打中は次の1回だけ予約し、相手の停止で予約を消化しない。
-- #78で改造をいったん撤去。20/40秒の選択・予告・既定適用・構成変更・AI判断は発生せず、同じ基本リールで最後まで遊ぶ。#9のAI改造は対象外へ変更する。
+- #78で改造をいったん撤去。20/40秒の選択・予告・既定適用・構成変更・AI判断は発生せず、同じ基本リールで最後まで遊ぶ。#9のAI改造は対象外として閉じた。
 - 中央1ライン、配当120/240/1200。左右の回転・加点・発光・得点反映を分け、60秒終了時は両者の最終停止を待つ。
 - 結果に左右それぞれの回転数、絵柄別配当、最高の一回を表示。再戦で初期化し、詳細を開いても再戦ボタンを隠さない。
 - 金色の筐体・4表情の架空ライバル・下向きリールを維持。Three.js描画は1つ、共有WebPは4点。小リールの絵柄は正方形を保つ。
 - PCの1280×720以上が対象。通常CPU対戦にAPI・マイク・DBは不要。任意Liveの失敗で同じ試合は止まらない。
-- 主JSは138.91KB gzip、CSSは4.59KB gzip。CPU入口では任意Live/LiveKitを読み込まない。
+- #81で画面内タイトルを非表示にし、英語UIと大型の左右得点を採用。BIG WIN・電球・コインは当たった側だけを強調し、逆転判定は両者の停止を待つ。[画面検証](english-win-presentation.md)。
+- 主JSは139.48KB gzip、CSSは4.75KB gzip。CPU入口では任意Live/LiveKitを読み込まない。
 
 ## 確認した範囲
 
-- 型検査・lint・215テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
+- 型検査・lint・217テスト・本番ビルド成功。左右の独立した抽選・入力待ち・最終停止・snapshot復旧を確認。実localhost WebSocketの2ケースは外部プロバイダーを代替して検証。
 - ローカルChromeの無操作60秒はプレイヤー0回/0点、ライバル30回/600点で決着。再戦後のSpace操作で、片側のみ・両側同時の回転を確認。[今回の画面検証](independent-duel.md)。
 - 開始カウントダウンの先行Space取消防止、結果の字幕保持など、過去の修正は引き続き有効。[開始操作](countdown-start.md)、[MVVM移行](mvvm-verification.md)。
 - 過去の改造や両者同時回転の検証資料は、その当時の履歴。現在の操作・規則は[ゲーム規則](game-rules.md)を正とする。
@@ -26,9 +27,10 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `0f197b1860b4295394df0163b49ea2a94170b944`（PR #76）。MVVM版に開始カウントダウンの操作修正を加えた。
-- Vercel READY: `dpl_BwRgH7EhkLvb2LuUynJzzN1jBbZV`
-- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34685548391 （success）
+- 公開コード: `4399179ef8f3269ff3b54156d29fb8386c1da973`（PR #80）。ライバルの独立した自動回転と改造の撤去を含む。#81の英語UIは実装・ローカル確認済みで、公開後にこの記録を更新する。
+- Vercel READY: `dpl_5vFMufXiVczFTyNywcqa5KCpGYyU`
+- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34687651779 （success）
+- #80の公開Chromeで4回だけ手動回転後に無操作とし、プレイヤー4回/0点、ライバル30回/840点で決着。任意Live/API要求なし。[公開確認](independent-duel.md)。
 - #75の公開Chrome確認で、Space先行入力・開始後の両者回転・クリック/Tab/Enter取消が成功。主JS `index-CS9XBjIE.js`、CSS `index-aE-Q_cR0.css`。外部/API要求と任意Liveクライアントの読み込みなし。[開始操作の公開確認](countdown-start.md)。
 - #63/#64/#68/#70/#72をクローズ。PR #73の公開Chromeでは37回転、1,200対2,160の結果・内訳・最終停止・再戦初期化を確認。外部/API通信0、JavaScriptエラー0。[MVVMの公開確認](mvvm-verification.md)。
 - PR #71の公開ChromeでもSpace連打中の改造は未選択で、2キーで大勝負を選べた。[改造フォーカスの修正](upgrade-spin-focus.md)。
