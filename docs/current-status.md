@@ -15,21 +15,22 @@ The core game is a free, local 60-second CPU slot battle with two upgrades and r
 - Optional-media failures are isolated from an already connected game. Tests verify the same match completes 30 spins and its second upgrade after media shutdown. Initial connection failure prepares CPU play. Game-WebSocket loss is reported as a separate interruption (PR #25).
 - Tests cover token rejection, quota/replay, emitted Node ESM startup, WebSocket lifecycle, bounded provider cleanup, late microphone/SDK callbacks, sound resources and Three.js lifecycle. The current local suite has 75 passing tests; lint, TypeScript/build and emitted-server checks pass. The build retains a large-chunk warning.
 
-## Latest verified game publication
+## Recorded game publication
 
 - Public URL: https://slot-chan.vercel.app
-- main: `15dd8091113add0bebe5db6c43f811f9809dc431` (PR #31)
-- Vercel READY: `dpl_7SZytpFKzrNqpwgw7cDpcaMCTWjD`
-- Post-merge CI: https://github.com/yuin15/donburi-g/actions/runs/34666048223 (success)
+- main: `b43dc186c5e5a2ddabe2424e47a45a860c47d4f1` (PR #34)
+- Vercel READY: `dpl_6XdTqp9VizBKC7qxFC2u4tGsfoh7`
+- Post-merge CI: https://github.com/yuin15/donburi-g/actions/runs/34666695337 (success)
 - Public CPU start and Three.js graphics were checked. Disabled-live smoke returned HTTP 401 `invalid_access` and WebSocket `session_rejected` / close 1008, without starting providers.
 - Actual Windows Chrome 152 completed three consecutive published CPU matches: 600–3,480 loss, 600–120 win and 1,080–1,080 draw. Both upgrades were manually chosen in match two; default choices, rematch reset, effect mute and countdown cancellation were also checked. See `browser-release-check.md` for scope and remaining gaps.
+- PR #34 corrected keyboard focus at entry, upgrades and exit; public Tab/Enter cancellation was verified. A later audit of this publication added touch-emulation input, recovery after a 25-second frozen page, and fresh screenshots at both target sizes. See `completion-audit.md` for requirement-by-requirement evidence and limits.
 - Git-based automatic deployment is not connected; manual deployment through the connected Vercel API is available.
 
 ## Remaining core verification
 
 - Complete first-time play observations under #12: win condition, upgrade meaning, four-second choice time, sound quality and willingness to rematch. Do not collect names, emails or conversation content. Automated play is not a substitute for these observations.
 - Verify the main flow and failure states in actual Edge. In-app Chromium and domain/client tests do not establish Edge coverage.
-- Finish the requirement-by-requirement issue audit. Open optional-provider issues do not make CPU play dependent on their approval or services.
+- The requirement-by-requirement audit is recorded in `completion-audit.md`. Edge and human play/sound observations remain incomplete; no new implementation defect was found in that audit. Open optional-provider issues do not make CPU play dependent on their approval or services.
 
 ## Optional voice/video remains disabled
 
