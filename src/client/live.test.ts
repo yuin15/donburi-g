@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const pcm = vi.hoisted(() => ({ prepare: vi.fn(), close: vi.fn(), play: vi.fn(), interrupt: vi.fn(), setMuted: vi.fn() }));
+vi.mock('./LiveAudioPlayer', () => ({ LiveAudioPlayer: class {
+  prepare = pcm.prepare; close = pcm.close; play = pcm.play; interrupt = pcm.interrupt; setMuted = pcm.setMuted;
+} }));
+
 const media = vi.hoisted(() => ({ connect: vi.fn(), disconnect: vi.fn(), rooms: [] as Array<{
   handlers: Map<string, (...args: unknown[]) => void>;
 }> }));
@@ -50,6 +55,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   Socket.instances = [];
   media.rooms = [];
+  pcm.prepare.mockResolvedValue(undefined);
+  pcm.close.mockResolvedValue(undefined);
   media.connect.mockResolvedValue(undefined);
   media.disconnect.mockResolvedValue(undefined);
   getUserMedia.mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
@@ -350,4 +357,46 @@ describe('browser live connection lifecycle', () => {
     expect(ws.close).toHaveBeenCalled();
     expect(stopTrack).toHaveBeenCalledOnce();
   });
+});
+it('connects and plays voice without an avatar or a LiveKit room, with one playback route', async () => {
+  const instance = client();
+  const connecting = instance.connect('test', 'audio');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'voice_status', status: 'ready' });
+  await connecting;
+  expect(request).toHaveBeenCalledWith('/api/access', expect.objectContaining({
+    headers: { 'X-Invite-Code': 'test', 'X-Voice-Mode': 'audio' },
+  }));
+  expect(pcm.prepare).toHaveBeenCalledOnce();
+  expect(media.connect).not.toHaveBeenCalled();
+  const audio = Buffer.alloc(4800).toString('base64');
+  ws.message({ type: 'voice_audio', audio });
+  expect(pcm.play).toHaveBeenCalledExactlyOnceWith(audio);
+  ws.message({ type: 'voice_interrupt' });
+  expect(pcm.interrupt).toHaveBeenCalledOnce();
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  expect(media.connect).not.toHaveBeenCalled();
+  instance.setMuted(true);
+  expect(pcm.setMuted).toHaveBeenLastCalledWith(true);
+  await instance.disconnect();
+  ws.message({ type: 'voice_audio', audio });
+  expect(pcm.play).toHaveBeenCalledOnce();
+  expect(pcm.close).toHaveBeenCalledOnce();
+  expect(stopTrack).toHaveBeenCalledOnce();
+});
+
+it('does not open a paid connection when voice-only playback setup finishes after cancellation', async () => {
+  const pending = deferred<void>();
+  pcm.prepare.mockReturnValue(pending.promise);
+  const instance = client();
+  const connecting = instance.connect('test', 'audio');
+  const rejected = expect(connecting).rejects.toThrow('connection_cancelled');
+  await vi.waitFor(() => expect(pcm.prepare).toHaveBeenCalledOnce());
+  await instance.disconnect();
+  pending.resolve();
+  await rejected;
+  expect(request).not.toHaveBeenCalled();
+  expect(media.connect).not.toHaveBeenCalled();
+  expect(pcm.close).toHaveBeenCalledOnce();
 });

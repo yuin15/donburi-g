@@ -44,6 +44,8 @@ const snapshot = z.object({
 
 const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello'), live: z.literal(true), sessionId: id }),
+  z.object({ type: z.literal('voice_audio'), audio: z.string().min(4).max(64000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
+  z.object({ type: z.literal('voice_interrupt') }),
   z.object({ type: z.literal('avatar'), livekitUrl: z.string().min(1).max(2048), livekitToken: z.string().min(1).max(16000) }),
   z.object({ type: z.literal('voice_status'), status: z.enum(['connecting', 'ready', 'closed', 'error']), message: z.string().max(1000).optional() }),
   z.object({ type: z.literal('snapshot'), snapshot, lastSpin: pair.optional(), lastSpins: lastSpins.optional() }),

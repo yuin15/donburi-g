@@ -43,6 +43,7 @@ const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
 export class MatchSession {
   private readonly state: MatchState;
+  private readonly voiceMode: 'audio' | 'avatar';
   private readonly commands = new Set<string>();
   private streamSeq = 0;
   private lastSpin: { player: SpinView; rival: SpinView } | undefined;
@@ -85,11 +86,12 @@ export class MatchSession {
     private readonly frontend: WebSocket,
     private readonly sessionId: string,
     releaseQuota: () => Promise<void>,
-    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean } = {},
+    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean; voiceMode?: 'audio' | 'avatar' } = {},
   ) {
     const seed = randomBytes(4).readUInt32BE(0);
     this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual', { upgrades: deps.upgrades });
     this.releaseQuota = releaseQuota;
+    this.voiceMode = deps.voiceMode ?? 'avatar';
   }
 
   initialize(): Promise<void> {
@@ -104,15 +106,17 @@ export class MatchSession {
     this.sessionDeadline = Date.now() + MAX_SESSION_MS;
     this.hardStop = setTimeout(() => void this.shutdown('max_duration'), MAX_SESSION_MS);
     try {
-      this.avatar = await startAvatarSession();
-      if (this.closed) return;
-      this.emit({
-        type: 'avatar',
-        livekitUrl: this.avatar.livekitUrl,
-        livekitToken: this.avatar.livekitToken,
-      });
-      this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice());
-      if (!(await this.media.start())) throw new Error('media_not_ready');
+      if (this.voiceMode === 'avatar') {
+        this.avatar = await startAvatarSession();
+        if (this.closed) return;
+        this.emit({
+          type: 'avatar',
+          livekitUrl: this.avatar.livekitUrl,
+          livekitToken: this.avatar.livekitToken,
+        });
+        this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice());
+        if (!(await this.media.start())) throw new Error('media_not_ready');
+      }
       if (this.closed) return;
       this.gpt = this.createVoiceBridge();
       if (!(await this.gpt.connect())) throw new Error('gpt_not_ready');
@@ -140,7 +144,11 @@ export class MatchSession {
           this.emit({ type: 'voice_status', status: 'ready' });
         }
       },
-      onAudio: audio => { if (outputAllowed()) this.media?.speak(audio); },
+      onAudio: audio => {
+        if (!outputAllowed()) return;
+        if (this.voiceMode === 'avatar') this.media?.speak(audio);
+        else this.emit({ type: 'voice_audio', audio });
+      },
       onTranscript: (role, delta) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
         if (role === 'user') {
@@ -152,7 +160,8 @@ export class MatchSession {
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
         this.reactions.conversationActivity();
-        this.media?.interrupt();
+        if (this.voiceMode === 'avatar') this.media?.interrupt();
+        else this.emit({ type: 'voice_interrupt' });
       },
       onError: () => { if (current()) this.failVoice(); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -409,7 +418,7 @@ export class MatchSession {
   }
 
   private async restartResultVoice(direction: string, deadline: number): Promise<void> {
-    if (this.closed || this.voiceDisabled || !this.gpt || !this.media) return;
+    if (this.closed || this.voiceDisabled || !this.gpt) return;
     const oldBridge = this.gpt;
     const media = this.media;
     this.gpt = null;
@@ -419,7 +428,7 @@ export class MatchSession {
     const current = () => !this.closed && !this.voiceDisabled && generation === this.voiceGeneration && Date.now() < deadline;
     try {
       // Do not overlap GPT sessions or replay old output after the avatar buffer was cleared.
-      const [closed, cleared] = await Promise.all([this.closeBridge(oldBridge), media.interruptAndWait(Math.min(2000, Math.max(1, deadline - Date.now())))]);
+      const [closed, cleared] = await Promise.all([this.closeBridge(oldBridge), media ? media.interruptAndWait(Math.min(2000, Math.max(1, deadline - Date.now()))) : this.clearBrowserAudio()]);
       if (!current()) return;
       const connectBudget = Math.min(3000, deadline - Date.now() - 2000);
       if (!closed || !cleared || connectBudget <= 0) { this.failVoice(); return; }
@@ -443,6 +452,11 @@ export class MatchSession {
     } catch {
       this.failVoice();
     }
+  }
+
+  private clearBrowserAudio(): Promise<boolean> {
+    this.emit({ type: 'voice_interrupt' });
+    return Promise.resolve(true);
   }
 
   private async decideRivalUpgrade(offerIndex: 0 | 1): Promise<void> {

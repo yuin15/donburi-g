@@ -39,12 +39,12 @@ function deferred<T>() {
   return { promise, resolve };
 }
 // Automatic fixtures retain the old upgrade scenarios; real/manual sessions use base reels.
-function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic') {
+function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar') {
   const messages: ServerMessage[] = [];
   const close = vi.fn();
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
-  return { session: new MatchSession(socket, id, release, { spinMode, upgrades: spinMode === 'automatic' }), messages, release, close };
+  return { session: new MatchSession(socket, id, release, { spinMode, upgrades: spinMode === 'automatic', voiceMode }), messages, release, close };
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -625,4 +625,32 @@ describe('live match cleanup', () => {
     expect(provider.stop).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
   });
+});
+it('runs a complete voice-only duel and its final reply without creating any avatar session', async () => {
+  const { session, messages, release } = setup('audio-game', 'manual', 'audio');
+  await session.initialize();
+  expect(provider.start).not.toHaveBeenCalled();
+  expect(provider.mediaStart).not.toHaveBeenCalled();
+  expect(messages.some(m => m.type === 'avatar')).toBe(false);
+  const playBridge = provider.events!;
+  playBridge.onAudio('AAAA');
+  expect(messages.at(-1)).toMatchObject({ type: 'voice_audio', audio: 'AAAA' });
+  playBridge.onUserSpeech();
+  expect(messages.at(-1)).toMatchObject({ type: 'voice_interrupt' });
+  session.handleRaw('{"type":"start"}');
+  session.handleRaw('{"type":"spin","matchId":"audio-game","commandId":"press"}');
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(messages.find(m => m.type === 'match_ended')).toMatchObject({
+    snapshot: { status: 'result', rounds: { player: 1, rival: 30 } },
+  });
+  const count = messages.filter(m => m.type === 'voice_audio').length;
+  playBridge.onAudio('AAAA');
+  expect(messages.filter(m => m.type === 'voice_audio')).toHaveLength(count);
+  provider.events!.onAudio('AAAA');
+  expect(messages.filter(m => m.type === 'voice_audio')).toHaveLength(count + 1);
+  await vi.advanceTimersByTimeAsync(8000);
+  expect(provider.gptClose).toHaveBeenCalledTimes(2);
+  expect(provider.stop).not.toHaveBeenCalled();
+  expect(provider.mediaClose).not.toHaveBeenCalled();
+  expect(release).toHaveBeenCalledOnce();
 });

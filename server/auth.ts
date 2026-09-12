@@ -6,6 +6,7 @@ interface TicketPayload {
   origin: string;
   exp: number;
   nonce: string;
+  voiceMode?: 'audio' | 'avatar';
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -32,7 +33,7 @@ export function isAllowedOrigin(origin: string | undefined, host: string | undef
   }
 }
 
-export function issueTicket(inviteCode: string, origin: string): string {
+export function issueTicket(inviteCode: string, origin: string, voiceMode: 'audio' | 'avatar' = 'avatar'): string {
   if (!env.liveEnabled) throw new Error('live_mode_disabled');
   if (!env.inviteCode || !safeEqual(inviteCode, env.inviteCode)) throw new Error('invalid_invite_code');
   const payload: TicketPayload = {
@@ -40,6 +41,7 @@ export function issueTicket(inviteCode: string, origin: string): string {
     origin,
     exp: Date.now() + 60_000,
     nonce: randomUUID(),
+    voiceMode,
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${encoded}.${sign(encoded)}`;
@@ -51,6 +53,7 @@ export function verifyTicket(ticket: string, origin: string): TicketPayload {
   if (!encoded || !signature || extra) throw new Error('invalid_ticket');
   if (!safeEqual(signature, sign(encoded))) throw new Error('invalid_ticket_signature');
   const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as TicketPayload;
+  if (payload.voiceMode !== undefined && payload.voiceMode !== 'audio' && payload.voiceMode !== 'avatar') throw new Error('invalid_voice_mode');
   if (!payload.sid || !payload.nonce || !payload.origin || !payload.exp) throw new Error('invalid_ticket_payload');
   if (payload.exp <= Date.now()) throw new Error('expired_ticket');
   if (payload.origin !== origin) throw new Error('ticket_origin_mismatch');

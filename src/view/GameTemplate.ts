@@ -58,10 +58,11 @@ app.innerHTML = `
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>One more press?<br>Your next spin is queued.</span></div>
     <button id="practice" class="primary">PLAY NOW <span>→</span></button>
     <small>Free · No mic needed · Desktop 1280×720 or larger</small>
-    <details class="voice-options"><summary>ADD VOICE & VIDEO · OPTIONAL</summary>
-      <p>Your microphone audio is sent to external AI services. An invite is required. Connections close after the match; conversations are not stored.</p>
+    <details class="voice-options"><summary>ADD AI VOICE · OPTIONAL</summary>
+      <p>Talk to your rival while you play. Microphone audio is sent to OpenAI. An invite is required. Connections close after the match; conversations are not stored.</p>
       <label>Invite code<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
-      <button id="liveConnect">CONNECT VOICE & VIDEO</button>
+      <label class="voice-video-option"><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
+      <button id="liveConnect">CONNECT AI VOICE</button>
     </details>
     <small id="gateMessage" role="status">CPU play needs no external AI service.</small>
   </div>

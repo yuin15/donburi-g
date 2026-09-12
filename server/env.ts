@@ -25,11 +25,11 @@ export const env = {
   maxConcurrentSessions: intEnv('MAX_CONCURRENT_SESSIONS', 1),
 };
 
-export function assertLiveConfiguration(): void {
+export function assertLiveConfiguration(voiceMode: 'audio' | 'avatar' = 'avatar'): void {
   if (!env.liveEnabled) throw new Error('live_mode_disabled');
   const missing: string[] = [];
   if (!env.openaiKey) missing.push('OPENAI_API_KEY');
-  if (!env.liveAvatarKey) missing.push('LIVEAVATAR_API_KEY');
+  if (voiceMode === 'avatar' && !env.liveAvatarKey) missing.push('LIVEAVATAR_API_KEY');
   if (!env.signingKey) missing.push('SESSION_SIGNING_KEY');
   if (!env.inviteCode) missing.push('MVP_INVITE_CODE');
   if (missing.length) throw new Error(`missing_live_configuration:${missing.join(',')}`);

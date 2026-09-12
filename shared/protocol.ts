@@ -1,3 +1,4 @@
+export type VoiceMode = 'audio' | 'avatar';
 export type Side = 'player' | 'rival';
 export type UpgradeId = 'steady' | 'jackpot';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
@@ -49,6 +50,8 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'hello'; live: true; sessionId: string }
+  | { type: 'voice_audio'; audio: string }
+  | { type: 'voice_interrupt' }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
   | { type: 'snapshot'; snapshot: MatchSnapshot; lastSpin?: { player: SpinView; rival: SpinView }; lastSpins?: Partial<Record<Side, SpinView>> }

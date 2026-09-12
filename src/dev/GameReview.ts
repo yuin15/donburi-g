@@ -66,7 +66,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     state = {
       ...baseline, mode: 'practice', snapshot, scores: { ...snapshot.scores }, lastSpin: null,
       gate: { visible: false, connecting: false, message: '' },
-      connection: { text: 'DEV · 表示検収（API接続なし）', voiceReady: false, showVoiceControls: false },
+      connection: { text: 'DEV · 表示検収（API接続なし）', voiceReady: false, showVideo: false, showVoiceControls: false },
       modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
       startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: 'CLICK / SPACE TO SPIN' },
       machineNotice: '3 MATCHING SYMBOLS · CENTER LINE',
@@ -179,14 +179,14 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       render({
         mode: 'live', modeBadge: { text: 'DEV · 字幕検収', tone: ready ? 'live' : 'practice' },
         connection: {
-          voiceReady: ready, showVoiceControls: ready,
+          voiceReady: ready, showVideo: ready, showVoiceControls: ready,
           text: error ? '結果の音声を終了しました。対戦結果は確定しています。' : ready ? 'マイク停止 / 結果のひとこと' : '会話接続終了',
         },
         line: error ? resultLine(snapshot) : '「検収字幕: いい勝負だったね。」',
       });
       if (example === 'rematch-ready') {
         reset();
-        render({ mode: 'live', modeBadge: { text: 'DEV · 字幕検収', tone: 'live' }, startControl: { ...state.startControl, label: '準備中' }, connection: { text: '再戦のAIキャラクターを準備中…', voiceReady: false, showVoiceControls: false } });
+        render({ mode: 'live', modeBadge: { text: 'DEV · 字幕検収', tone: 'live' }, startControl: { ...state.startControl, label: '準備中' }, connection: { text: '再戦のAIキャラクターを準備中…', voiceReady: false, showVideo: false, showVoiceControls: false } });
       }
     }
     if (example === 'final') {

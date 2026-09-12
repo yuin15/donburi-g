@@ -59,7 +59,7 @@ export class GameView implements GamePresentation {
       unlock();
       const input = this.q<HTMLInputElement>('#invite');
       const code = input.value.trim();
-      void commands.connectLive(code).then(() => { if (!this.current?.gate.visible) input.value = ''; });
+      void commands.connectLive(code, this.q<HTMLInputElement>('#avatarVideo').checked).then(() => { if (!this.current?.gate.visible) input.value = ''; });
     }, options);
     this.q('#leave').addEventListener('click', () => commands.leave(), options);
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
@@ -95,8 +95,8 @@ export class GameView implements GamePresentation {
     this.text('#modeBadge', state.modeBadge.text);
     this.q('#modeBadge').className = state.modeBadge.tone === 'idle' ? '' : state.modeBadge.tone;
     this.text('#connection', state.connection.text);
-    this.video.hidden = !state.connection.voiceReady;
-    this.q('#mockFace').hidden = state.connection.voiceReady;
+    this.video.hidden = !state.connection.showVideo;
+    this.q('#mockFace').hidden = state.connection.showVideo;
     this.q('#sound').hidden = !state.connection.showVoiceControls;
     this.text('#sound', state.voiceMuted ? 'VOICE OFF' : 'VOICE ON');
     this.q('#sound').setAttribute('aria-label', state.voiceMuted ? 'Unmute AI voice' : 'Mute AI voice');

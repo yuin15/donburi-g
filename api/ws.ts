@@ -44,17 +44,17 @@ wss.on('connection', (ws, request) => {
       return;
     }
     try {
-      assertLiveConfiguration();
       const url = new URL(request.url ?? '/', `https://${request.headers.host ?? 'localhost'}`);
       const ticket = url.searchParams.get('ticket') ?? '';
       const payload = verifyTicket(ticket, origin);
+      assertLiveConfiguration(payload.voiceMode ?? 'avatar');
       const releaseQuota = await claimQuota(payload.sid, payload.exp);
       // A socket may close while its quota lease is being allocated.
       if (socketEnded || ws.readyState !== WebSocket.OPEN) {
         await releaseQuota();
         return;
       }
-      session = new MatchSession(ws, payload.sid, releaseQuota);
+      session = new MatchSession(ws, payload.sid, releaseQuota, { voiceMode: payload.voiceMode ?? 'avatar' });
       ws.on('message', (raw) => session?.handleRaw(raw.toString()));
       await session.initialize();
     } catch {

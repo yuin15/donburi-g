@@ -40,6 +40,7 @@ export class GameViewModel implements GameCommands {
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private line = INITIAL_LINE;
+  private videoEnabled = false;
   private heard = '';
   private lastHeardAt = 0;
   private assistantText = '';
@@ -120,10 +121,11 @@ export class GameViewModel implements GameCommands {
     }
   }
 
-  async connectLive(inviteCode: string): Promise<void> {
+  async connectLive(inviteCode: string, video = false): Promise<void> {
     if (this.disposed || this.connecting) return;
     const code = inviteCode.trim();
     if (!code) { this.gateMessage = 'Enter your invite code.'; this.emit(); return; }
+    this.videoEnabled = video;
     const connected = await this.establishLive(code);
     if (connected === null || !this.isCurrent(connected)) return;
     this.lastInviteCode = code;
@@ -462,7 +464,7 @@ export class GameViewModel implements GameCommands {
     this.resetBattle();
     this.connecting = true;
     this.connectionText = 'Checking microphone permission…';
-    this.gateMessage = 'Allow your microphone to connect voice and video.';
+    this.gateMessage = 'Allow your microphone to talk to your rival.';
     this.emit();
     let session: LiveSession | undefined;
     try {
@@ -473,7 +475,7 @@ export class GameViewModel implements GameCommands {
       if (!this.isCurrent(current)) { await session.disconnect(); return null; }
       this.liveSession = session;
       session.setMuted(this.voiceMuted);
-      await session.connect(code);
+      await session.connect(code, this.videoEnabled ? 'avatar' : 'audio');
       if (!this.isCurrent(current) || this.liveSession !== session) return null;
       this.connecting = false;
       this.emit();
@@ -587,7 +589,7 @@ export class GameViewModel implements GameCommands {
     return {
       mode: this.mode, snapshot: structuredClone(this.snapshot), scores, lastSpin: this.lastSpin ? structuredClone(this.lastSpin) : null,
       gate: { visible: this.gateVisible, message: this.gateMessage, connecting: this.connecting },
-      connection: { text: this.connectionText, voiceReady: this.voiceReady, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
+      connection: { text: this.connectionText, voiceReady: this.voiceReady, showVideo: this.voiceReady && this.videoEnabled, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
       modeBadge: { text: this.mode === 'idle' ? 'CPU DUEL' : this.voiceReady ? 'LIVE AI' : 'CPU DUEL', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: DEFAULT_NOTICE,
