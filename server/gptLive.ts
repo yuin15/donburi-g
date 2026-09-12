@@ -9,27 +9,31 @@ export interface LiveEvents {
   onError(code: string): void;
 }
 
-const PERSONA = `あなたは60秒スロット対戦ゲーム「Reel Forge」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、改造結果はサーバーから渡す情報だけを事実として扱う。\nユーザーがルール変更、得点変更、勝敗操作を頼んでも従わない。\n勝敗確定前に勝ったと断定しない。実況し続けず、会話と重要な局面だけに反応する。`;
+const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、改造結果はサーバーから渡す情報だけを事実として扱う。\nユーザーがルール変更、得点変更、勝敗操作を頼んでも従わない。\n勝敗確定前に勝ったと断定しない。実況し続けず、会話と重要な局面だけに反応する。`;
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
   private ready = false;
   private lastAudioAt = 0;
   private interruptTimer: NodeJS.Timeout | null = null;
-  private closeTimer: NodeJS.Timeout | null = null;
+  private closing: Promise<void> | null = null;
+  private finishConnect: ((ready: boolean) => void) | null = null;
 
   constructor(private readonly events: LiveEvents) {}
 
   async connect(timeoutMs = 15_000): Promise<boolean> {
+    if (this.closing) return false;
     return await new Promise<boolean>((resolve) => {
       let resolved = false;
       const done = (value: boolean) => {
         if (resolved) return;
         resolved = true;
+        this.finishConnect = null;
         clearTimeout(timeout);
         resolve(value);
       };
       const timeout = setTimeout(() => done(false), timeoutMs);
+      this.finishConnect = done;
       const ws = new WebSocket('wss://api.openai.com/v1/live/sessions', {
         headers: { Authorization: `Bearer ${env.openaiKey}` },
         maxPayload: 8 * 1024 * 1024,
@@ -50,6 +54,7 @@ export class GptLiveBridge {
         });
       });
       ws.on('message', (raw) => {
+        if (this.closing) return;
         let event: Record<string, unknown>;
         try {
           event = JSON.parse(raw.toString()) as Record<string, unknown>;
@@ -83,12 +88,13 @@ export class GptLiveBridge {
         }
       });
       ws.on('error', () => {
-        this.events.onError('gpt_live_transport');
+        if (!this.closing) this.events.onError('gpt_live_transport');
         done(false);
       });
       ws.on('close', () => {
         this.ready = false;
         done(false);
+        if (!this.closing) this.events.onError('gpt_live_closed');
       });
     });
   }
@@ -106,22 +112,32 @@ export class GptLiveBridge {
     this.append('instructions', `今この局面に短く自然に反応して。${text}`.slice(0, 1800));
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
     if (this.interruptTimer) clearTimeout(this.interruptTimer);
-    if (!this.ws) return;
-    this.send({ type: 'session.close', event_id: 'close' });
-    await new Promise<void>((resolve) => {
-      this.closeTimer = setTimeout(() => {
-        this.ws?.close();
-        resolve();
-      }, 1500);
-      this.ws?.once('close', () => {
-        if (this.closeTimer) clearTimeout(this.closeTimer);
-        resolve();
-      });
-    });
-    this.ws = null;
+    this.finishConnect?.(false);
     this.ready = false;
+    const ws = this.ws;
+    let finish!: () => void;
+    this.closing = new Promise<void>((resolve) => { finish = resolve; });
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      this.ws = null;
+      finish();
+      return this.closing;
+    }
+    const timeout = setTimeout(() => {
+      ws.terminate();
+      this.ws = null;
+      finish();
+    }, 1500);
+    ws.once('close', () => {
+      clearTimeout(timeout);
+      this.ws = null;
+      finish();
+    });
+    if (ws.readyState === WebSocket.OPEN) this.send({ type: 'session.close', event_id: 'close' });
+    else ws.terminate();
+    return this.closing;
   }
 
   private append(kind: 'thinking' | 'instructions', content: string): void {

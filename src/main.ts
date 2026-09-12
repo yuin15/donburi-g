@@ -18,9 +18,9 @@ if (!app) throw new Error('missing_app');
 app.innerHTML = `
 <section class="shell">
   <header class="topbar">
-    <h1>REEL FORGE</h1>
+    <h1>Slot-chan</h1>
     <div class="timer"><small>残り</small><b id="time">60</b><span>秒</span></div>
-    <div class="status-cluster"><span id="modeBadge">未接続</span><button id="sound" aria-label="音声をミュート">音声 ON</button></div>
+    <div class="status-cluster"><span id="modeBadge">未接続</span><button id="sound" aria-label="AI音声をミュート" aria-pressed="false">AI音声 ON</button><button id="leave">退出</button></div>
   </header>
   <div class="scores">
     <div class="you"><span>あなた</span><strong id="ps">0</strong></div>
@@ -28,7 +28,7 @@ app.innerHTML = `
   </div>
   <div class="arena">
     <section class="machine" aria-label="あなたのスロット">
-      <div class="machine-title">REEL FORGE</div>
+      <div class="machine-title">Slot-chan</div>
       <div id="reels"></div>
       <div class="pay" id="pay" aria-live="polite"></div>
       <div class="last-spin" id="lastSpin">🍒　🔔　7</div>
@@ -41,9 +41,9 @@ app.innerHTML = `
     </aside>
   </div>
   <div class="upgrade" id="upgrade" hidden>
-    <div><b>リール改造を選べ！</b><span id="upgradeNo"></span><small id="upgradeRemain"></small></div>
-    <button data-up="steady"><strong>🍒 安定型</strong><small>チェリーを2枚追加</small><kbd>1</kbd></button>
-    <button data-up="jackpot"><strong>7 大勝負</strong><small>7を2枚追加</small><kbd>2</kbd></button>
+    <div><b>リール改造を選べ！</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite"></small></div>
+    <button data-up="steady" aria-pressed="false"><strong>🍒 安定型</strong><small>チェリーを2枚追加</small><kbd>1</kbd></button>
+    <button data-up="jackpot" aria-pressed="false"><strong>7 大勝負</strong><small>7を2枚追加</small><kbd>2</kbd></button>
   </div>
   <div class="result" id="result" hidden><strong id="resultTitle"></strong><span id="resultScore"></span></div>
   <footer>
@@ -53,13 +53,13 @@ app.innerHTML = `
 </section>
 <div class="gate" id="gate">
   <div class="gate-card">
-    <div class="eyebrow">REEL FORGE / MVP</div>
+    <div class="eyebrow">Slot-chan</div>
     <h2>しゃべるライバルに<br><em>60秒で勝ちきれ。</em></h2>
     <p>ライブ対戦ではマイク音声をAIサービスへ送信します。試合終了後に接続を閉じ、会話本文はこのMVPでは保存しません。</p>
     <label>招待コード<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
     <button id="liveConnect" class="primary">AIライバルと対戦</button>
-    <button id="practice">APIを使わず練習</button>
-    <small id="gateMessage">マイクは「AIライバルと対戦」を押した後にだけ使用します。</small>
+    <button id="practice">ひとりで練習する</button>
+    <small id="gateMessage" role="status">マイクは「AIライバルと対戦」を押した後にだけ使用します。</small>
   </div>
 </div>
 <div class="countdown" id="countdown" hidden>3</div>
@@ -91,6 +91,46 @@ let muted = false;
 let activeOffer: { index: 0 | 1; closesAt: number } | null = null;
 let assistantText = '';
 let assistantResetTimer = 0;
+let revision = 0;
+let starting = false;
+const battleTimers = new Set<number>();
+
+function later(action: () => void, delay: number): void {
+  const current = revision;
+  const timer = window.setTimeout(() => {
+    battleTimers.delete(timer);
+    if (current === revision) action();
+  }, delay);
+  battleTimers.add(timer);
+}
+
+function cancelBattle(): void {
+  revision += 1;
+  starting = false;
+  stopPracticeTimer();
+  battleTimers.forEach(clearTimeout);
+  battleTimers.clear();
+  clearTimeout(assistantResetTimer);
+  q<HTMLDivElement>('#countdown').hidden = true;
+  hideUpgrade();
+  practiceState = null;
+  voiceReady = false;
+  const previous = liveClient;
+  liveClient = null;
+  void previous?.disconnect();
+}
+
+function returnToGate(message: string): void {
+  cancelBattle();
+  mode = 'idle';
+  modeBadge.textContent = '未接続';
+  modeBadge.className = '';
+  gate.hidden = false;
+  startButton.disabled = true;
+  q<HTMLButtonElement>('#liveConnect').disabled = false;
+  q('#gateMessage').textContent = message;
+  q('#mockFace').hidden = false;
+}
 
 function glyphs(spin: SpinView): string {
   const glyph = { cherry: '🍒', bell: '🔔', seven: '7' } as const;
@@ -111,6 +151,8 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
 function showUpgrade(index: 0 | 1, closesAt: number): void {
   activeOffer = { index, closesAt };
   q('#upgradeNo').textContent = `${index + 1}/2`;
+  q('#upgradeChoice').textContent = '時間内なら選び直せます';
+  upgradePanel.querySelectorAll('button').forEach((button) => button.setAttribute('aria-pressed', 'false'));
   upgradePanel.hidden = false;
 }
 
@@ -128,6 +170,9 @@ function showResult(snapshot: MatchSnapshot): void {
 }
 
 function resetBattleUi(): void {
+  battleTimers.forEach(clearTimeout);
+  battleTimers.clear();
+  clearTimeout(assistantResetTimer);
   resultPanel.hidden = true;
   hideUpgrade();
   q('#pay').textContent = '';
@@ -139,18 +184,18 @@ function resetBattleUi(): void {
 
 function handleSpin(player: SpinView, rival: SpinView): void {
   scene.spin();
-  window.setTimeout(() => scene.show(player.symbols, player.payout), 320);
+  later(() => scene.show(player.symbols, player.payout), 320);
   q('#lastSpin').textContent = glyphs(player);
   q('#rivalReels').textContent = glyphs(rival);
   q('#pay').textContent = player.payout ? `+${player.payout.toLocaleString()}` : '';
-  if (player.payout) window.setTimeout(() => (q('#pay').textContent = ''), 900);
+  if (player.payout) later(() => (q('#pay').textContent = ''), 900);
 }
 
 function handlePracticeEvent(event: GameEvent): void {
   if (event.type === 'spin') handleSpin(event.player, event.rival);
   if (event.type === 'upgrade_open') {
     showUpgrade(event.offerIndex, event.closesAt);
-    window.setTimeout(() => {
+    later(() => {
       if (!practiceState || practiceState.status !== 'playing') return;
       const pick: UpgradeId = practiceState.scores.rival < practiceState.scores.player ? 'jackpot' : Math.random() > 0.5 ? 'jackpot' : 'steady';
       submitUpgrade(practiceState, 'rival', event.offerIndex, pick, practiceState.elapsed);
@@ -172,6 +217,7 @@ function handlePracticeEvent(event: GameEvent): void {
 }
 
 function startPractice(): void {
+  stopPracticeTimer();
   resetBattleUi();
   practiceState = createMatch(Math.floor(Math.random() * 0xffff_ffff));
   startMatch(practiceState);
@@ -197,7 +243,7 @@ function onLiveMessage(message: ServerMessage): void {
   if (message.type === 'voice_status') {
     q('#connection').textContent = message.status === 'ready' ? 'マイク接続中 / AI会話 READY' : message.status === 'connecting' ? 'AIキャラクター接続中…' : message.status === 'closed' ? '会話接続終了' : message.message ?? '会話エラー';
     voiceReady = message.status === 'ready';
-    if (voiceReady && (!liveSnapshot || liveSnapshot.status === 'ready')) {
+    if (voiceReady && !starting && (!liveSnapshot || liveSnapshot.status === 'ready')) {
       startButton.disabled = false;
       startButton.textContent = '60秒で勝ちきれ！';
     }
@@ -243,48 +289,54 @@ function onLiveMessage(message: ServerMessage): void {
   }
   if (message.type === 'error') {
     q('#connection').textContent = message.message;
-    if (!message.recoverable) startButton.disabled = true;
+    if (!message.recoverable) returnToGate(`${message.message} 再接続するか、練習を選べます。`);
   }
 }
 
 async function connectLive(code: string): Promise<void> {
-  if (liveClient) await liveClient.disconnect();
+  cancelBattle();
+  const current = revision;
+  mode = 'live';
+  startButton.disabled = true;
   voiceReady = false;
   liveSnapshot = null;
   resetBattleUi();
   q('#connection').textContent = 'マイク許可を確認中…';
   const client = new LiveClient(avatarVideo);
   liveClient = client;
-  client.addEventListener('message', (event) => onLiveMessage((event as CustomEvent<ServerMessage>).detail));
-  client.addEventListener('disconnect', () => {
-    q('#connection').textContent = '通信が切断されました';
-    voiceReady = false;
+  client.setMuted(muted);
+  client.addEventListener('message', (event) => {
+    if (liveClient === client) onLiveMessage((event as CustomEvent<ServerMessage>).detail);
   });
-  client.addEventListener('avatar-disconnect', () => (q('#connection').textContent = 'キャラクター映像が切断されました'));
+  client.addEventListener('disconnect', () => {
+    if (liveClient !== client) return;
+    voiceReady = false;
+    if (liveSnapshot?.status === 'result') {
+      q('#connection').textContent = '会話接続終了 / 再戦できます';
+      liveClient = null;
+      return;
+    }
+    returnToGate('接続が終了しました。マイク許可と招待コードを確認して再接続するか、練習を選べます。');
+  });
   await client.connect(code);
-  mode = 'live';
+  if (current !== revision || liveClient !== client) throw new Error('connection_cancelled');
   modeBadge.textContent = 'LIVE AI';
   modeBadge.className = 'live';
   q('#mockFace').hidden = true;
 }
 
-async function waitForVoice(timeoutMs = 20_000): Promise<void> {
-  const started = performance.now();
-  while (!voiceReady) {
-    if (performance.now() - started > timeoutMs) throw new Error('voice_timeout');
-    await new Promise((resolve) => window.setTimeout(resolve, 100));
-  }
-}
-
 async function countdownThen(action: () => void): Promise<void> {
+  const current = revision;
   const overlay = q<HTMLDivElement>('#countdown');
   overlay.hidden = false;
   for (const value of [3, 2, 1]) {
     overlay.textContent = String(value);
     await new Promise((resolve) => window.setTimeout(resolve, 450));
+    if (current !== revision) return;
   }
   overlay.textContent = 'GO!';
   await new Promise((resolve) => window.setTimeout(resolve, 300));
+  if (current !== revision) return;
   overlay.hidden = true;
   action();
 }
@@ -297,7 +349,8 @@ async function startLiveOrRematch(): Promise<void> {
     q('#connection').textContent = '再戦のAIキャラクターを準備中…';
     await connectLive(lastInviteCode);
   }
-  await waitForVoice();
+  if (!voiceReady) throw new Error('voice_not_ready');
+  starting = true;
   resetBattleUi();
   startButton.disabled = true;
   startButton.textContent = '対戦中…';
@@ -312,34 +365,49 @@ q<HTMLButtonElement>('#liveConnect').onclick = async () => {
   }
   q<HTMLButtonElement>('#liveConnect').disabled = true;
   q('#gateMessage').textContent = 'マイク許可 → AIキャラクター接続の順に準備します…';
+  const attempt = revision + 1;
   try {
     await connectLive(code);
     lastInviteCode = code;
     gate.hidden = true;
+    q<HTMLInputElement>('#invite').value = '';
   } catch {
-    q('#gateMessage').textContent = 'ライブ接続に失敗しました。マイク許可・招待コード・環境設定を確認するか、練習モードを利用してください。';
+    if (revision === attempt) returnToGate('ライブ接続に失敗しました。マイク許可・招待コードを確認するか、練習を選べます。');
   } finally {
-    q<HTMLButtonElement>('#liveConnect').disabled = false;
+    if (revision === attempt) q<HTMLButtonElement>('#liveConnect').disabled = false;
   }
 };
 
 q<HTMLButtonElement>('#practice').onclick = () => {
+  cancelBattle();
+  resetBattleUi();
+  renderSnapshot(getSnapshot(createMatch(1, 'preview')));
   mode = 'practice';
+  q<HTMLButtonElement>('#liveConnect').disabled = false;
   gate.hidden = true;
   modeBadge.textContent = 'PRACTICE';
   modeBadge.className = 'practice';
-  q('#connection').textContent = 'API未使用 / 練習モード';
+  q('#connection').textContent = '練習モード / マイクは使用しません';
   q('#mockFace').hidden = false;
   startButton.disabled = false;
+  startButton.textContent = '60秒で勝ちきれ！';
 };
 
-startButton.onclick = () => {
-  if (mode === 'practice') {
-    if (practiceState?.status === 'playing') return;
-    void countdownThen(startPractice);
+startButton.onclick = async () => {
+  if (starting || startButton.disabled) return;
+  starting = true;
+  startButton.disabled = true;
+  try {
+    if (mode === 'practice' && practiceState?.status !== 'playing') await countdownThen(startPractice);
+    if (mode === 'live') await startLiveOrRematch();
+  } catch {
+    if (mode === 'live') returnToGate('対戦を開始できませんでした。再接続するか、練習を選べます。');
+  } finally {
+    starting = false;
   }
-  if (mode === 'live') void startLiveOrRematch();
 };
+
+q<HTMLButtonElement>('#leave').onclick = () => returnToGate('退出しました。マイクとAIの接続を終了しました。');
 
 upgradePanel.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-up]');
@@ -347,6 +415,8 @@ upgradePanel.addEventListener('click', (event) => {
   const upgradeId = button.dataset.up as UpgradeId;
   if (mode === 'practice' && practiceState) submitUpgrade(practiceState, 'player', activeOffer.index, upgradeId, practiceState.elapsed);
   if (mode === 'live') liveClient?.send({ type: 'upgrade', commandId: crypto.randomUUID(), upgradeId, offerIndex: activeOffer.index });
+  upgradePanel.querySelectorAll('button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+  q('#upgradeChoice').textContent = `選択中: ${upgradeId === 'steady' ? '🍒 安定型' : '7 大勝負'}`;
   button.blur();
 });
 
@@ -360,7 +430,9 @@ addEventListener('keydown', (event) => {
 q<HTMLButtonElement>('#sound').onclick = () => {
   muted = !muted;
   liveClient?.setMuted(muted);
-  q<HTMLButtonElement>('#sound').textContent = muted ? '音声 OFF' : '音声 ON';
+  q<HTMLButtonElement>('#sound').textContent = muted ? 'AI音声 OFF' : 'AI音声 ON';
+  q('#sound').setAttribute('aria-label', muted ? 'AI音声のミュートを解除' : 'AI音声をミュート');
+  q('#sound').setAttribute('aria-pressed', String(muted));
 };
 
 document.addEventListener('visibilitychange', () => {

@@ -1,59 +1,27 @@
 import { env } from './env';
 
-interface RedisResponse<T> {
-  result?: T;
-  error?: string;
-}
+// Small invitation-only demo: these limits belong to one running process.
+// Vercel restarts/scaling reset or split them; they are not an account-wide
+// spending cap. No database or additional service account is required.
+const active = new Map<string, number>();
+const used = new Map<string, number>();
+let day = '';
+let starts = 0;
 
-async function command<T>(args: Array<string | number>): Promise<T> {
-  if (!env.quotaUrl || !env.quotaToken) throw new Error('shared_quota_not_configured');
-  const response = await fetch(env.quotaUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.quotaToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(args),
-  });
-  if (!response.ok) throw new Error(`quota_store_http_${response.status}`);
-  const body = (await response.json()) as RedisResponse<T>;
-  if (body.error) throw new Error('quota_store_command_failed');
-  return body.result as T;
-}
-
-function dayKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-export async function claimQuota(sessionId: string): Promise<() => Promise<void>> {
-  const dailyKey = `reelforge:daily:${dayKey()}`;
-  const concurrentKey = 'reelforge:concurrent';
-  const leaseKey = `reelforge:lease:${sessionId}`;
-
-  const lease = await command<string | null>(['SET', leaseKey, '1', 'NX', 'EX', 180]);
-  if (lease === null) throw new Error('ticket_reused');
-
-  const daily = Number(await command<number>(['INCR', dailyKey]));
-  if (daily === 1) await command<number>(['EXPIRE', dailyKey, 172800]);
-  if (daily > env.maxDailySessions) {
-    await command<number>(['DEL', leaseKey]);
-    throw new Error('daily_session_limit');
-  }
-
-  const concurrent = Number(await command<number>(['INCR', concurrentKey]));
-  if (concurrent > env.maxConcurrentSessions) {
-    await command<number>(['DECR', concurrentKey]);
-    await command<number>(['DEL', leaseKey]);
-    throw new Error('concurrent_session_limit');
-  }
-
-  let released = false;
-  return async () => {
-    if (released) return;
-    released = true;
-    await Promise.allSettled([
-      command<number>(['DECR', concurrentKey]),
-      command<number>(['DEL', leaseKey]),
-    ]);
-  };
+export async function claimQuota(sessionId: string, ticketExpiresAt: number): Promise<() => Promise<void>> {
+  const now = Date.now();
+  if (!Number.isSafeInteger(ticketExpiresAt) || ticketExpiresAt <= now) throw new Error('ticket_expired');
+  for (const [id, expires] of active) if (expires <= now) active.delete(id);
+  for (const [id, expires] of used) if (expires <= now) used.delete(id);
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (day !== today) { day = today; starts = 0; }
+  if (used.has(sessionId)) throw new Error('ticket_reused');
+  if (starts >= env.maxDailySessions) throw new Error('daily_session_limit');
+  if (active.size >= env.maxConcurrentSessions) throw new Error('concurrent_session_limit');
+  // No await between checking and reserving: simultaneous requests in this
+  // process cannot pass the limit together. Leases outlive the 120s hard stop.
+  active.set(sessionId, now + 180_000);
+  used.set(sessionId, Math.max(ticketExpiresAt, now + 180_000));
+  starts += 1;
+  return async () => { active.delete(sessionId); };
 }

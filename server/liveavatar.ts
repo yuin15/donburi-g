@@ -16,6 +16,7 @@ async function post(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await response.text();
   if (!response.ok) throw new Error(`liveavatar_http_${response.status}`);
@@ -28,7 +29,10 @@ let fallbackAvatarId = '';
 async function resolveAvatarId(): Promise<string> {
   if (env.liveAvatarId) return env.liveAvatarId;
   if (fallbackAvatarId) return fallbackAvatarId;
-  const response = await fetch(`${env.liveAvatarApiUrl}/v1/avatars/public?page_size=20`);
+  const response = await fetch(`${env.liveAvatarApiUrl}/v1/avatars/public?page_size=20`, {
+    headers: { 'X-API-KEY': env.liveAvatarKey },
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!response.ok) throw new Error(`liveavatar_avatar_list_${response.status}`);
   const payload = (await response.json()) as {
     data?: { results?: Array<{ id?: string; status?: string; type?: string }> };
@@ -50,15 +54,18 @@ export async function startAvatarSession(): Promise<StartedAvatarSession> {
   const sessionToken = String(token.session_token ?? '');
   if (!sessionId || !sessionToken) throw new Error('liveavatar_token_invalid');
 
-  const started = await post('/v1/sessions/start', {}, { Authorization: `Bearer ${sessionToken}` });
-  const livekitUrl = String(started.livekit_url ?? '');
-  const livekitToken = String(started.livekit_client_token ?? '');
-  const mediaWsUrl = String(started.ws_url ?? '');
-  if (!livekitUrl || !livekitToken || !mediaWsUrl) {
+  try {
+    const started = await post('/v1/sessions/start', {}, { Authorization: `Bearer ${sessionToken}` });
+    const livekitUrl = String(started.livekit_url ?? '');
+    const livekitToken = String(started.livekit_client_token ?? '');
+    const mediaWsUrl = String(started.ws_url ?? '');
+    if (!livekitUrl || !livekitToken || !mediaWsUrl) throw new Error('liveavatar_start_invalid');
+    return { sessionId, livekitUrl, livekitToken, mediaWsUrl };
+  } catch (error) {
+    // The provider may have started billing even when its response failed.
     await stopAvatarSession(sessionId).catch(() => undefined);
-    throw new Error('liveavatar_start_invalid');
+    throw error;
   }
-  return { sessionId, livekitUrl, livekitToken, mediaWsUrl };
 }
 
 export async function stopAvatarSession(sessionId: string): Promise<void> {

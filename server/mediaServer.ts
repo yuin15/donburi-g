@@ -9,7 +9,7 @@ export class MediaServerLeg {
   private readyTimer: NodeJS.Timeout | null = null;
   private keepAlive: NodeJS.Timeout | null = null;
 
-  constructor(private readonly url: string) {}
+  constructor(private readonly url: string, private readonly onFailure: () => void = () => {}) {}
 
   async start(timeoutMs = 15_000): Promise<boolean> {
     if (this.closed) return false;
@@ -38,8 +38,13 @@ export class MediaServerLeg {
       ws.on('close', () => {
         this.connected = false;
         this.finishReady(false);
+        if (this.keepAlive) clearInterval(this.keepAlive);
+        if (!this.closed) this.onFailure();
       });
-      ws.on('error', () => this.finishReady(false));
+      ws.on('error', () => {
+        this.finishReady(false);
+        if (!this.closed) this.onFailure();
+      });
     });
   }
 

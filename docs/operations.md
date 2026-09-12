@@ -9,9 +9,8 @@ Live paid sessions start only when all of the following are configured:
 - LiveAvatar key
 - invite code
 - signing key
-- shared quota REST URL/token
 
-Missing shared quota configuration rejects paid sessions instead of falling back to per-process counters.
+No database is required for this invitation-only demo. Its in-memory connection guard runs inside the Vercel function; it does not replace a provider budget or a deployment-wide rate limit.
 
 ## Limits
 
@@ -22,10 +21,10 @@ Defaults:
 - normal result reaction window: 8 seconds
 - rival reasoning: max two calls per match, each ~2.5 second timeout
 - max mic WebSocket message: 256 KB base64 field
-- global daily sessions: 100 (configurable)
-- global concurrent sessions: 5 (configurable)
+- daily starts per running process: 10 (configurable)
+- concurrent sessions per running process: 1 (configurable)
 
-The shared store tracks a daily counter, global concurrent counter, and one-time ticket/session lease. Session teardown decrements concurrency and removes the lease. The daily counter is intentionally not decremented: it represents starts, not successful completions.
+The process tracks admitted starts, active leases, and used tickets. Session teardown removes the active lease but retains replay protection through ticket expiry. Leases expire after 180 seconds. Restarting or scaling Vercel functions resets or splits these counters; they are intentionally modest demo safeguards, not global spending caps. Use a private invite and short demo sessions. Vercel Firewall rules may be added for wider access without introducing a database. They have not been configured by this code change.
 
 ## Kill switch
 

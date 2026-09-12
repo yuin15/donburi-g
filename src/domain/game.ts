@@ -195,6 +195,8 @@ export function advanceMatch(state: MatchState, elapsedSeconds: number): GameEve
   const events: GameEvent[] = [];
   const wholeTarget = Math.floor(target);
   for (let second = state.processedSecond + 1; second <= wholeTarget; second += 1) {
+    state.elapsed = second;
+    state.remaining = MATCH_SECONDS - second;
     processSecond(state, second, events);
     state.processedSecond = second;
     if (second === MATCH_SECONDS) break;
