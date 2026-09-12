@@ -163,6 +163,16 @@ export class ReelScene {
     this.requestRender();
   }
 
+  /** Decorate the confirmed result without changing the settled reels or payout. */
+  celebrateResult(winner: 'player' | 'rival' | 'draw'): void {
+    if (this.disposed) return;
+    this.cabinet.stop();
+    if (winner === 'player' && !this.motionPreference.matches && !document.hidden) {
+      this.cabinet.celebrateResult(performance.now());
+    }
+    this.requestRender();
+  }
+
   private flash(payout: number, still = false): void {
     const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
     this.winUntil = payout > 0 ? still ? Infinity : performance.now() + duration : 0;
@@ -172,9 +182,9 @@ export class ReelScene {
     this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
   }
 
-  private clearWin(): void {
+  private clearWin(stopCabinet = true): void {
     this.winUntil = 0;
-    this.cabinet.stop();
+    if (stopCabinet) this.cabinet.stop();
     this.host.dataset.win = 'false';
     this.host.dataset.jackpot = 'false';
     this.materials.forEach(m => { m.uniforms.winning.value = 0; });
@@ -254,7 +264,7 @@ export class ReelScene {
         completion = () => pending.complete(elapsed <= 1800);
       }
     }
-    if (this.winUntil && now >= this.winUntil) this.clearWin();
+    if (this.winUntil && now >= this.winUntil) this.clearWin(false);
     const animating = this.cabinet.update(now, this.motionPreference.matches);
     this.renderer.render(this.scene, this.camera);
     // Scores, speech and sound follow the actual settled frame.

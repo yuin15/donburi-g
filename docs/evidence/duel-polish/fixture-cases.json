@@ -1,0 +1,46 @@
+[
+  {
+    "case": "victory",
+    "choice": "",
+    "detailsOpen": false,
+    "gap": "240コイン差で、ライバルを超えた。",
+    "resultBottom": 488.28125,
+    "resultVisible": true,
+    "score": "あなたのコイン1,440VSライバルのコイン1,200",
+    "startTop": 525.3099975585938,
+    "title": "勝利！"
+  },
+  {
+    "case": "defeat",
+    "choice": "",
+    "detailsOpen": false,
+    "gap": "1,200コイン差。次こそ、逆転を。",
+    "resultBottom": 488.28125,
+    "resultVisible": true,
+    "score": "あなたのコイン1,440VSライバルのコイン2,640",
+    "startTop": 525.3099975585938,
+    "title": "敗北"
+  },
+  {
+    "case": "draw",
+    "choice": "",
+    "detailsOpen": false,
+    "gap": "同じコイン数。決着は、次の60秒。",
+    "resultBottom": 488.28125,
+    "resultVisible": true,
+    "score": "あなたのコイン1,440VSライバルのコイン1,440",
+    "startTop": 525.3099975585938,
+    "title": "引き分け"
+  },
+  {
+    "case": "upgrade",
+    "choice": "クリック / キー 1・2 で選択",
+    "detailsOpen": false,
+    "gap": "同じコイン数。決着は、次の60秒。",
+    "resultBottom": 0,
+    "resultVisible": false,
+    "score": "あなたのコイン1,440VSライバルのコイン1,440",
+    "startTop": 525.3099975585938,
+    "title": "引き分け"
+  }
+]
