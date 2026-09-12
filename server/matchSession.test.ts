@@ -71,6 +71,8 @@ describe('live match cleanup', () => {
     await initialized;
     expect(provider.context).toHaveBeenCalledTimes(1);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=ready,勝者=未確定'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
+    expect(provider.context.mock.calls[0][0]).not.toContain('絵柄[');
     await vi.advanceTimersByTimeAsync(5000);
     for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
     session.handleRaw('{"type":"snapshot"}');
@@ -79,6 +81,7 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(2);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り60秒'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=playing,勝者=未確定'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
     await vi.advanceTimersByTimeAsync(900);
     for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
     expect(provider.context).toHaveBeenCalledTimes(2);
@@ -95,9 +98,18 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(13000);
     const reactionsBefore = provider.reaction.mock.calls.length;
-    await vi.advanceTimersByTimeAsync(2000);
-    session.handleRaw('{"type":"snapshot"}');
-    expect(messages.filter(m => m.type === 'spin').at(-1)).toMatchObject({ player: { round: 7, payout: 240, total: 1680 }, rival: { total: 0 } });
+    await vi.advanceTimersByTimeAsync(1000);
+    const latestSpin = messages.filter(m => m.type === 'spin').at(-1);
+    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], payout: 240, total: 1680 }, rival: { round: 7, payout: 0, total: 0 } });
+    if (latestSpin?.type !== 'spin') throw new Error('missing ordinary win');
+    // The boundary tick must include the just-confirmed spin, not wait for the next tick.
+    expect(provider.context).toHaveBeenCalledTimes(16);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー7回目、絵柄[bell,bell,bell]、配当240点'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`あなた7回目、絵柄[${latestSpin.rival.symbols.join(',')}]、配当0点`));
+    session.handleRaw('{"type":"mic","audio":"AAAA"}');
+    expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
+    expect(provider.context).toHaveBeenCalledTimes(16);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー1680点、あなた0点'));
     expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
     // Ready + start + one changed context per elapsed second, not every 100ms tick.
@@ -111,6 +123,7 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(20000);
     session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'test-match', commandId: 'context-upgrade', offerIndex: 0, upgradeId: 'jackpot' }));
+    expect(provider.context.mock.calls.at(-1)?.[0]).not.toContain('プレイヤー改造[jackpot]');
     const previousContextCount = provider.context.mock.calls.length;
     vi.setSystemTime(Date.now() + 4100);
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
@@ -120,6 +133,11 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り36秒、プレイヤー${latest.snapshot.scores.player}点、あなた${latest.snapshot.scores.rival}点`));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー改造[jackpot],あなた改造[steady]'));
+    if (!latest.lastSpin) throw new Error('missing caught-up spin');
+    for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
+      expect(latest.lastSpin[side].round).toBe(12);
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}12回目、絵柄[${latest.lastSpin[side].symbols.join(',')}]、配当${latest.lastSpin[side].payout}点`));
+    }
     expect(provider.mic).toHaveBeenCalledExactlyOnceWith('AAAA');
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
@@ -142,6 +160,12 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り0秒、プレイヤー${final.snapshot.scores.player}点、あなた${final.snapshot.scores.rival}点`));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`状態=result,勝者=${final.snapshot.winner}`));
+    const finalSpin = messages.filter(m => m.type === 'spin').at(-1);
+    if (finalSpin?.type !== 'spin') throw new Error('missing final spin');
+    for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
+      expect(finalSpin[side].round).toBe(30);
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}30回目、絵柄[${finalSpin[side].symbols.join(',')}]、配当${finalSpin[side].payout}点`));
+    }
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.reaction).toHaveBeenCalledTimes(priorReactions + 1);

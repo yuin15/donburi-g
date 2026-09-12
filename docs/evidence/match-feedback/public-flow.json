@@ -1,0 +1,494 @@
+{
+  "choicesSubmitted": 2,
+  "observations": [
+    {
+      "build": "未改造",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "48"
+    },
+    {
+      "build": "未改造",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "47"
+    },
+    {
+      "build": "未改造",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "46"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "45"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "44"
+    },
+    {
+      "build": "未改造",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "43"
+    },
+    {
+      "build": "未改造",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "42"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "41"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": true,
+      "player": "120",
+      "rival": "0",
+      "time": "40"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "120",
+      "rival": "0",
+      "time": "40"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりとも当たり！」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "39"
+    },
+    {
+      "build": "未改造",
+      "line": "「ふたりとも当たり！」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "38"
+    },
+    {
+      "build": "未改造",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "37"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ここから大勝負で行く。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "36"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ここから大勝負で行く。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "35"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "35"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "34"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "33"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "32"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "31"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "30"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "29"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "28"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "27"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "26"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "120",
+      "time": "25"
+    },
+    {
+      "build": "大勝負",
+      "line": "「私に当たり！ コインを積めた。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "25"
+    },
+    {
+      "build": "大勝負",
+      "line": "「私に当たり！ コインを積めた。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "24"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "23"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "22"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "21"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "21"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": true,
+      "player": "360",
+      "rival": "360",
+      "time": "20"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "20"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "19"
+    },
+    {
+      "build": "大勝負",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "18"
+    },
+    {
+      "build": "大勝負",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "17"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「崩さず取りに行く。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "16"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "15"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "14"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "13"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "12"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "11"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "11"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「今回は、お互い空振りだね。」",
+      "open": false,
+      "player": "360",
+      "rival": "360",
+      "time": "10"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「よし、私が前に出た！」",
+      "open": false,
+      "player": "360",
+      "rival": "480",
+      "time": "09"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「よし、私が前に出た！」",
+      "open": false,
+      "player": "360",
+      "rival": "480",
+      "time": "08"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「よし、私が前に出た！」",
+      "open": false,
+      "player": "360",
+      "rival": "480",
+      "time": "07"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「よし、こっちもコイン獲得。」",
+      "open": false,
+      "player": "360",
+      "rival": "600",
+      "time": "07"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「よし、こっちもコイン獲得。」",
+      "open": false,
+      "player": "360",
+      "rival": "600",
+      "time": "06"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「この点差、最後まで分からないね。」",
+      "open": false,
+      "player": "360",
+      "rival": "600",
+      "time": "05"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「この点差、最後まで分からないね。」",
+      "open": false,
+      "player": "360",
+      "rival": "600",
+      "time": "04"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「私に当たり！ コインを積めた。」",
+      "open": false,
+      "player": "360",
+      "rival": "720",
+      "time": "03"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「私に当たり！ コインを積めた。」",
+      "open": false,
+      "player": "360",
+      "rival": "720",
+      "time": "02"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "720",
+      "time": "01"
+    },
+    {
+      "build": "大勝負 / 安定型",
+      "line": "「ふたりともおあずけ。この間も緊張するね。」",
+      "open": false,
+      "player": "360",
+      "rival": "720",
+      "time": "00"
+    }
+  ],
+  "result": {
+    "rows": [
+      [
+        "チェリー",
+        "1回 · 120点",
+        "4回 · 480点"
+      ],
+      [
+        "ベル",
+        "1回 · 240点",
+        "1回 · 240点"
+      ],
+      [
+        "7",
+        "0回 · 0点",
+        "0回 · 0点"
+      ],
+      [
+        "最高の一回",
+        "240点（10回転目）",
+        "240点（17回転目）"
+      ],
+      [
+        "改造の順番",
+        "大勝負 → 安定型",
+        "大勝負 → 安定型"
+      ]
+    ],
+    "score": "360  vs  720",
+    "time": "00",
+    "title": "敗北",
+    "visible": true
+  },
+  "reset": {
+    "build": "未改造",
+    "player": "0",
+    "resultHidden": true,
+    "rival": "0",
+    "rows": 0,
+    "time": "60"
+  }
+}
