@@ -1,50 +1,40 @@
 # Slot-chan completion status
 
-## Completion scope (2026-09-12)
+## Scope
 
-The core game is a free, local CPU slot battle. OpenAI voice and LiveAvatar video are optional additions, not prerequisites for playing or completing the game. No shared database is required. Issue #23 covers the default CPU flow; Issue #24 covers continuing an existing battle after optional media failure.
+The core game is a free, local 60-second CPU slot battle with two upgrades and rematch. OpenAI voice and LiveAvatar video are optional additions. They are not prerequisites for playing or completing the core game. No shared database is required. Game graphics use Three.js; controls and readable text use HTML.
 
-## Verified locally (2026-09-12)
+## Verified implementation (2026-09-12)
 
-- TypeScript, ESLint, all 63 unit/integration tests, production build, and emitted Node ESM startup checks pass. The build has a bundle-size warning. The default CPU flow adds original synthesized game sounds with independent mute and resource-cleanup tests.
-- `npm run check:server-runtime` compiles server code with NodeNext and starts the emitted HTTP/WebSocket APIs directly. It verifies disabled-live rejection without contacting providers; CI runs this check to catch ESM import failures hidden by Vitest.
-- Six lifecycle regressions were reproduced before the fix: disconnects during avatar/media/OpenAI startup, result cleanup, fatal voice errors, and repeated initialization.
-- A real loopback WebSocket test verifies that a disconnect during quota allocation returns the lease without starting providers.
-- Mock provider tests verify startup-error cleanup, bounded transport shutdown, the live kill switch, ticket expiry, and the final 60-second snapshot.
-- ESLint now excludes generated bundles globally, so running lint after a build works.
-- The invitation-only demo requires no Redis/Upstash. Its in-process admission guard defaults to 10 starts/day and one active session, retains used tickets after cleanup, and expires abandoned leases. Tests verify concurrency, replay, late cleanup, daily rollover, and expiry. These counters are not global limits across Vercel instances or restarts.
-- Browser connection tests verify late microphone permission, refused access, early socket closure, combined readiness, late avatar tracks, and audio startup failure. The UI can exit, return to the gate on failure, and preserve AI-audio mute on reconnect.
-- Chrome practice verification covered start, both upgrade choices (20s/40s), selected-button feedback, the 60-second result, and rematch. Start is disabled during countdown. Screenshots identified and verified a fix for clipped reels; the visible title is Slot-chan.
-- Both upgrade strategies were measured across 10,000 hashed seeds with both seat assignments (20,000 games per pairing). Effects are now cherry +6 / seven +1; see `docs/game-balance.md`. Winning, losing, drawing, and last-10-second comeback fixtures are in the domain tests.
-- Upgrade choices lock after the first submission, matching server rules. Server receipt time decides the deadline even if its interval is delayed. Rival output must be an exact legal choice; ambiguous, truncated, or timed-out responses use a deterministic fallback.
-- These tests do not use paid APIs, real microphone input, or real avatar playback.
-- New provider-lifecycle regressions verify that OpenAI final usage is drained during shutdown, cumulative duration is not summed, transport loss remains unconfirmed, and LiveAvatar error/disconnection events stop the media path without leaking timers. Only numeric usage and a finalization flag are logged; provider session snapshots and conversation text are excluded.
-- Public Chrome practice verification on `https://slot-chan.vercel.app` covered two complete matches (600–720 loss, 1,080–600 win), rematch, keyboard `1` selection with locked-button feedback, exit, and the missing-invite message. The screenshot showed all three reels and the result panel. This was the PR #20 deployment; the provider-lifecycle changes require a fresh deployment and live-provider verification.
+- CPU entry requires no invite, microphone, keys or external API. Browser observation of a complete match recorded zero external/API requests without observation-buffer truncation (PR #25).
+- The common game domain resolves 30 rounds, upgrades at 20/40 seconds with 24/44-second deadlines, final-round scoring, win/loss/draw and rematch. Deterministic fixtures include a last-ten-second comeback. Strategy distributions are documented in `game-balance.md`.
+- Player selections lock on first submission. CPU player and rival input now use the actual monotonic clock rather than the last timer update; stalled-timer deadline and rematch regressions are tracked in #30.
+- Three.js draws the cabinet, backdrop panel, reels, winning line and bounded jackpot coins with one renderer. Idle and hidden scenes stop scheduling frames; shared textures and all scene resources have cleanup coverage (PR #29).
+- The optional LiveKit SDK loads only when avatar playback is requested. PR #29's public entry loaded only the main JavaScript file. Initial gzip JavaScript fell from 279 KB to about 134 KB. A five-second idle sample measured 0 ms script time and 0.393 ms total task time; this is not a claim of 60 fps on every device.
+- Browser checks cover both pointer/keyboard upgrade choices, locked selection feedback, full 60-second matches, result, rematch, countdown cancellation, effect mute and exit. 1280×720 and 1920×1080 layouts were visually checked under PR #27. Reduced-motion preference was recognized by the browser.
+- Optional-media failures are isolated from an already connected game. Tests verify the same match completes 30 spins and its second upgrade after media shutdown. Initial connection failure prepares CPU play. Game-WebSocket loss is reported as a separate interruption (PR #25).
+- Tests cover token rejection, quota/replay, emitted Node ESM startup, WebSocket lifecycle, bounded provider cleanup, late microphone/SDK callbacks, sound resources and Three.js lifecycle. The current local suite has 75 passing tests; lint, TypeScript/build and emitted-server checks pass. The build retains a large-chunk warning.
 
-## Still required for the core game
+## Latest verified publication before the #30 correction
 
-- The default CPU entry and optional-media isolation are implemented under #23 and #24. Browser verification covered both keyboard upgrade choices, a 60-second result (1,320 vs 480), and rematch. Throughout that match, network observation recorded zero external/API requests with no buffer truncation.
-- Mocked provider and browser-client regressions verify that optional media failure stops the microphone and providers, cancels AI reasoning, and preserves the same match through 30 spins and the second upgrade. Initial failure prepares CPU play. Losing the game WebSocket itself remains a separately reported termination.
-- 1280×720 was checked visually, including all three reels and replay. At 1920×1080, DOM bounds fit; the browser tool clipped its screenshot, so full visual verification remains pending. Reduced-motion, Edge and human sound-quality checks remain under #5 / #12.
-- Complete first-time playtests and record the observations required by Issue #12.
+- Public URL: https://slot-chan.vercel.app
+- main: `64d9b6d63d4bd9ccf46fe643beb3801ad103df44` (PR #29)
+- Vercel READY: `dpl_42J1Z6YZNdRvrMVCDgbvrf39WxwW`
+- Post-merge CI: https://github.com/yuin15/donburi-g/actions/runs/34665647443 (success)
+- Public CPU start and Three.js graphics were checked. Disabled-live smoke returned HTTP 401 `invalid_access` and WebSocket `session_rejected` / close 1008, without starting providers.
+- The #30 correction's release evidence will be recorded in its PR after CI and deployment. Git-based automatic deployment is not connected; manual deployment through the connected Vercel API is available.
 
-## Optional voice/video verification
+## Remaining core verification
 
-- Microphone-denial is verified in browser-client unit tests. Real-browser permission-denial and live-provider recovery remain pending; provider mocks are not a real live-session test.
-- Git-based automatic deployment remains unconnected. Manual deployments through the connected Vercel API are available; server-only environment configuration and deployed API rejection have been verified.
-- Verify three complete real-provider matches, 90-second connection survival, interruptions, teardown, latency, and measured usage. Local mocked tests are not evidence for these items.
-- Real-provider verification is required before enabling optional live access, not before playing CPU battles.
+- Complete first-time play observations under #12: win condition, upgrade meaning, four-second choice time, sound quality and willingness to rematch. Do not collect names, emails or conversation content. Automated play is not a substitute for these observations.
+- Verify the main flow and failure states in actual Edge. In-app Chromium and domain/client tests do not establish Edge coverage.
+- Finish the requirement-by-requirement issue audit. Open optional-provider issues do not make CPU play dependent on their approval or services.
 
-## Deployment state
+## Optional voice/video remains disabled
 
-- Production deployment `dpl_HdqEAbJxgZv96oChYPagkNtRGb4z` reached READY at `https://slot-chan.vercel.app`, including PR #22's provider cleanup. A public smoke check confirmed `/api/access` returns HTTP 401 with `invalid_access`; `/api/ws` completes the WebSocket handshake, returns `session_rejected`, and closes with code 1008 while live mode is disabled. These checks do not start provider sessions.
-- PR #17 through #22 are merged; deployed main commit `43161ce18309e1fc9f7c59523d25b8feb1d175bc` passed post-merge CI (run `34662616401`). The CPU-default and optional-media changes require a new deployment, recorded in their PR after publishing. Git-based automatic deployment is not connected; deployment through the connected Vercel API is available.
-- OpenAI/LiveAvatar keys, signing key, and invite code are saved as Vercel Secrets for Production and Preview. Live mode is explicitly disabled, allowed origin is the public Slot-chan URL, and per-process demo limits are configured. Actual API use is awaiting confirmation of the bounded test budget.
-- A free Upstash database was created during setup; it is not connected to this game and is not required by the current code. No paid plan was selected. No Vercel Firewall rule has been added by these changes.
+- Keys, signing key and invite code are in ignored local configuration and Vercel server Secrets. `LIVE_MODE_ENABLED=false` remains in force; real-provider API use awaits the previously requested bounded-test approval.
+- Before enabling it, verify three real-provider matches, connection survival, interruption, audible response, teardown, latency and actual usage. Provider mocks do not prove these results. Actual browser microphone-denial verification is also pending.
+- The invitation-only demo uses an in-process guard (10 starts/day, one active session by default), replay prevention and lease expiry. These are not global limits across instances or restarts. General paid access remains gated by #11.
+- A free Upstash store was created during setup but is unused and not required by the game. No paid plan or Firewall rule was added by these changes.
 
-## Provider references
-
-- [LiveAvatar session stop](https://docs.liveavatar.com/api-reference/sessions/stop-session): the existing `POST /v1/sessions/stop` endpoint accepts the session ID with server-side API-key authentication.
-- [OpenAI GPT-Live](https://developers.openai.com/api/docs/guides/live): startup, audible response, and teardown are separate checks; voice sessions bill by duration.
-
-Credentials and personal contact details belong only in ignored local files or the hosting provider's secret store. Do not include them in verification evidence.
+Credentials, personal contact details, raw provider errors and conversation data must not appear in the repository, screenshots or public verification records.
