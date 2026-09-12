@@ -15,7 +15,7 @@ import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
 import { GameAudio } from './view/GameAudio';
 import { RoundPresentation } from './view/RoundPresentation';
-import { MOBILE_HEIGHT, MOBILE_WIDTH, overlayRects, STAGE_HEIGHT, STAGE_WIDTH } from './view/StageLayout';
+import { OVERLAYS, STAGE_HEIGHT, STAGE_WIDTH } from './view/StageLayout';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('missing_app');
@@ -70,7 +70,7 @@ app.innerHTML = `
     <p>60秒のスロット対戦。<br>20秒・40秒でリールを改造し、<br>ライバルより多くのコインを手に入れよう。</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>回転は自動。選ぶのは、勝ち方。</span></div>
     <button id="practice" class="primary">CPUライバルと対戦 <span>→</span></button>
-    <small>無料・マイク不要。すぐに遊べます。</small>
+    <small>PC用・無料・マイク不要。横画面1280×720以上で遊べます。</small>
     <details class="voice-options"><summary>音声・映像もつける（任意）</summary>
       <p>マイク音声を外部AIサービスへ送信します。招待コードが必要です。終了後に接続を閉じ、会話本文は保存しません。</p>
       <label>招待コード<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
@@ -89,15 +89,11 @@ const q = <T extends HTMLElement>(selector: string): T => {
 };
 
 function placeOverlay(): void {
-  const mobile = matchMedia('(max-width: 800px)').matches;
-  const width = mobile ? MOBILE_WIDTH : STAGE_WIDTH;
-  const height = mobile ? MOBILE_HEIGHT : STAGE_HEIGHT;
-  for (const [id, rect] of Object.entries(overlayRects(mobile))) {
-    Object.assign(q('#' + id).style, { position: 'absolute', left: `${rect.x / width * 100}%`, top: `${rect.y / height * 100}%`, width: `${rect.w / width * 100}%`, height: `${rect.h / height * 100}%` });
+  for (const [id, rect] of Object.entries(OVERLAYS)) {
+    Object.assign(q('#' + id).style, { position: 'absolute', left: `${rect.x / STAGE_WIDTH * 100}%`, top: `${rect.y / STAGE_HEIGHT * 100}%`, width: `${rect.w / STAGE_WIDTH * 100}%`, height: `${rect.h / STAGE_HEIGHT * 100}%` });
   }
 }
 placeOverlay();
-addEventListener('resize', placeOverlay);
 const scene = new ReelScene(q('#stageArt'));
 const presentation = new RoundPresentation({
   play: (player, rival, stopped) => scene.play(player, rival, stopped),

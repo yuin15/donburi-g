@@ -104,13 +104,15 @@ describe('stage rendering and cleanup', () => {
     expect(completed).toHaveBeenCalledOnce();
     expect(frames.size).toBe(0);
   });
-  it('keeps rival symbols square inside their wider windows, including mobile layout', () => {
-    setup();
+  it('keeps rival symbols square when resizing the PC stage', () => {
+    const { host } = setup();
     frame();
-    for (const mobile of [false, true]) {
-      vi.stubGlobal('matchMedia', (query: string) => query.includes('max-width') ? { matches: mobile } : motion);
+    for (const [width, height] of [[1280, 720], [1920, 1080]]) {
+      host.clientWidth = width;
+      host.clientHeight = height;
       viewport.dispatchEvent(new Event('resize'));
       frame();
+      expect(graphics.size).toHaveBeenLastCalledWith(width, height, false);
       const minis = scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial && n.material.uniforms.mini.value === 1);
       expect(minis).toHaveLength(3);
       for (const mesh of minis) {
