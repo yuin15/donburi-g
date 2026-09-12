@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { SymbolId } from '../../shared/protocol';
+import { CabinetArt } from './CabinetArt';
 
 const GLYPH: Record<SymbolId, string> = { cherry: '🍒', bell: '🔔', seven: '7' };
 
@@ -15,6 +16,7 @@ export class ReelScene {
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private winTimer = 0;
   private disposed = false;
+  private cabinet = new CabinetArt();
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -25,6 +27,8 @@ export class ReelScene {
     });
     host.append(this.renderer.domElement);
     this.camera.position.set(0, 0, 7);
+    this.scene.background = new THREE.Color(0x090c13);
+    this.scene.add(this.cabinet.group);
     this.scene.add(new THREE.AmbientLight(0xfff5dd, 2));
     const key = new THREE.PointLight(0xffecd0, 45);
     key.position.set(2, 3, 4);
@@ -67,6 +71,7 @@ export class ReelScene {
       }
     });
     this.spinUntil = 0;
+    this.cabinet.flash(payout, performance.now(), this.motionPreference.matches ? 250 : 900);
     this.host.dataset.win = payout > 0 ? 'true' : 'false';
     this.host.dataset.jackpot = payout >= 1200 ? 'true' : 'false';
     clearTimeout(this.winTimer);
@@ -74,6 +79,7 @@ export class ReelScene {
       this.winTimer = window.setTimeout(() => {
         this.host.dataset.win = 'false';
         this.host.dataset.jackpot = 'false';
+        this.requestRender();
       }, this.motionPreference.matches ? 250 : 900);
     }
     this.requestRender();
@@ -81,6 +87,7 @@ export class ReelScene {
 
   stop(): void {
     if (this.disposed) return;
+    this.cabinet.stop();
     this.spinUntil = 0;
     clearTimeout(this.winTimer);
     this.host.dataset.win = 'false';
@@ -108,6 +115,7 @@ export class ReelScene {
     }
     for (const texture of this.textures.values()) texture.dispose();
     this.textures.clear();
+    this.cabinet.dispose();
     this.renderer.dispose();
     this.host.replaceChildren();
   }
@@ -145,13 +153,14 @@ export class ReelScene {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     const spread = Math.min(1.5, Math.max(1, this.camera.aspect / 1.5));
+    this.cabinet.resize(spread);
     this.reels.forEach((reel, index) => {
       reel.scale.x = spread;
       reel.position.x = (index - 1) * 1.75 * spread;
       for (let row = 0; row < 3; row += 1) this.labels[index * 3 + row].position.x = reel.position.x;
     });
     // Keep all three reels visible on narrow viewports and at high pixel ratios.
-    this.camera.position.z = 0.2 + Math.max(2.7 * spread / this.camera.aspect, 1.8) / Math.tan(THREE.MathUtils.degToRad(19));
+    this.camera.position.z = 0.35 + Math.max(2.95 * spread / this.camera.aspect, 2.02) / Math.tan(THREE.MathUtils.degToRad(19));
     this.camera.updateProjectionMatrix();
     this.requestRender();
   };
@@ -174,6 +183,7 @@ export class ReelScene {
     this.frame = 0;
     if (this.disposed || document.hidden) return;
     const spinning = performance.now() < this.spinUntil && !this.motionPreference.matches;
+    const animating = this.cabinet.update(performance.now(), this.motionPreference.matches);
     this.labels.forEach((label, index) => {
       const base = (1 - index % 3) * 1.08;
       const travel = spinning ? (performance.now() / 90 + Math.floor(index / 3) * 0.2) % 3.24 : 0;
@@ -181,6 +191,6 @@ export class ReelScene {
       label.material.opacity = spinning ? 0.7 : index % 3 === 1 ? 1 : 0.48;
     });
     this.renderer.render(this.scene, this.camera);
-    if (spinning) this.requestRender();
+    if (spinning || animating) this.requestRender();
   };
 }

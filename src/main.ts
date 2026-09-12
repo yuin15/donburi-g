@@ -34,7 +34,7 @@ app.innerHTML = `
     <section class="machine" aria-label="あなたのスロット">
       <div class="machine-title"><span>◆</span> Slot-chan <span>◆</span></div>
       <div class="event-cue" id="eventCue" role="status" hidden></div>
-      <div class="reel-window"><div id="reels"></div><div class="payline" aria-hidden="true"><span>▶</span><span>◀</span></div></div>
+      <div class="reel-window"><div id="reels"></div></div>
       <div class="pay" id="pay" aria-live="polite"></div>
       <div class="last-spin" id="lastSpin">🍒　🔔　7</div>
       <div class="machine-trim"><span>中央の1ラインで判定</span><span id="upgradeProgress">改造チャンス 20秒・40秒</span></div>

@@ -90,6 +90,8 @@ See [SECURITY.md](./SECURITY.md) and [docs/operations.md](./docs/operations.md).
 
 ## Third-party reference
 
-Reel geometry and UI are generated locally. Sound effects are original Web Audio oscillator cues; they contain no third-party recordings. Symbol glyphs use the browser/system font. Initial supported environments are desktop Chrome and Edge at 1280×720 or larger; a phone-specific layout is outside this demo's scope.
+Reels, cabinet background/frame, payout lines, win lighting and jackpot coins share one Three.js renderer. It redraws only while animating or when the visible state changes; settled/hidden screens have no continuous render loop. Text and controls use HTML/CSS. The avatar SDK is loaded only for the optional voice/video path. See [rendering verification](./docs/render-performance.md).
+
+Geometry and UI are generated locally. Sound effects are original Web Audio oscillator cues; they contain no third-party recordings. Symbol glyphs use the browser/system font. Initial supported environments are desktop Chrome and Edge at 1280×720 or larger; a phone-specific layout is outside this demo's scope.
 
 The LiveAvatar/GPT-Live bridge design is based on HeyGen's MIT-licensed reference implementation `heygen-com/liveavatar-gpt-live-demos`. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

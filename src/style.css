@@ -8,7 +8,7 @@
 /* The game is primary; voice/video setup is an optional disclosure. */
 .gate-card #practice.primary{border:1px solid #dba64b;background:linear-gradient(#b92727,#7b1015);color:#fff;font-weight:800}.voice-options{margin-top:20px;border-top:1px solid #57432d;padding-top:14px}.voice-options summary{cursor:pointer;color:#d7c9b7;font-size:14px}.voice-options p{font-size:13px}.voice-options button{background:#181411;border:1px solid #6e5942;color:#fff}.gate{overflow-y:auto}.gate-card{margin:auto}
 
-/* Cabinet treatment inspired by the concept layout; all decoration is local CSS. */
+/* DOM handles layout and controls; cabinet artwork is rendered by Three.js. */
 body{background:radial-gradient(ellipse at 16% 8%,#63421755,transparent 40%),radial-gradient(ellipse at 80% 30%,#172a4960,transparent 48%),repeating-linear-gradient(90deg,transparent 0 109px,#dbb96a08 110px 112px,transparent 113px 220px),#08090d}
 .scores{position:relative;grid-template-columns:1fr minmax(150px,.42fr) 1fr;gap:14px;margin:0}
 .scores>div{position:relative;overflow:hidden;border:1px solid #9c824f;border-radius:12px 12px 5px 5px;padding:6px 18px 10px;background:linear-gradient(110deg,#28131a,#0b0c11 80%)}
@@ -23,15 +23,11 @@ body{background:radial-gradient(ellipse at 16% 8%,#63421755,transparent 40%),rad
 .duel-gap::before{content:'VS';font:italic 22px Georgia;color:#8b764e;letter-spacing:.2em}
 .duel-gap[data-leader=player]{color:#ffadb4}.duel-gap[data-leader=rival]{color:#a8d4ff}
 .arena{grid-template-columns:minmax(0,1.5fr) minmax(330px,.85fr);gap:20px}
-.machine{display:grid;grid-template-rows:34px minmax(0,1fr) 30px;gap:10px;padding:16px 24px 10px;border:3px solid #b98d48;border-radius:28px 28px 18px 18px;background:linear-gradient(100deg,#3d2514,#ae813c 2%,#251810 4%,#2a1513 48%,#4d3021 96%,#d1a55a 98%,#392315);box-shadow:inset 0 0 0 4px #27180d,inset 0 0 0 6px #cba55d66,inset 0 16px 16px #efca7222,0 12px 30px #0009}
+.machine{display:grid;grid-template-rows:34px minmax(0,1fr) 30px;gap:10px;padding:16px 24px 10px;border:1px solid #514634;border-radius:18px;background:#090c13;box-shadow:none}
 .machine-title{position:static;transform:none;font:bold 25px Georgia;text-align:center;align-self:center;letter-spacing:.06em;color:#f2d594;text-shadow:0 2px 1px #000,0 0 18px #a67923}
 .machine-title span{font:12px Georgia;color:#ad854a;vertical-align:middle;padding:0 14px}
-.reel-window{position:relative;min-height:0;border:5px solid #6c4720;border-radius:13px;background:#0b0906;box-shadow:0 0 0 2px #d8b975,inset 0 0 0 3px #1b1009;overflow:hidden}
-.machine #reels{min-height:0;height:100%;border:0;border-radius:8px;background:linear-gradient(90deg,#100c06,#47351c 50%,#100c06)}
-.reel-window::after{content:'';pointer-events:none;position:absolute;z-index:2;inset:0;background:linear-gradient(#080500b0,transparent 27%,transparent 73%,#080500b0);box-shadow:inset 0 0 24px #000}
-.payline{position:absolute;z-index:3;top:35%;height:30%;left:0;right:0;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #ffe49c8c;border-bottom:1px solid #ffe49c8c;background:#ffd45809;box-shadow:0 0 18px #ffcf6012;pointer-events:none;color:#ffe095;font-size:23px}
-.machine:has(#reels[data-win=true]) .payline{background:#ffdf7530;box-shadow:0 0 22px #ffc74788;border-color:#fff1b3}
-.machine:has(#reels[data-jackpot=true]){box-shadow:inset 0 0 0 4px #ffd572,0 0 45px #e5a12480}
+.reel-window{position:relative;min-height:0;overflow:hidden}
+.machine #reels{min-height:0;height:100%;border:0;border-radius:0;background:transparent;box-shadow:none}
 .machine-trim{display:flex;justify-content:space-between;gap:8px;align-items:center;color:#ddc59b;font-size:11px;letter-spacing:.02em}
 .machine-trim span:last-child{color:#ffdc8c}
 .last-spin{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0;border:0}

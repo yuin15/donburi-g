@@ -108,6 +108,7 @@ describe('reel rendering and cleanup', () => {
     expect(frames.size).toBe(0);
     view.show(['seven', 'seven', 'seven'], 1200);
     expect(frames.size).toBe(0);
+    vi.advanceTimersByTime(1_000);
     const before = graphics.render.mock.calls.length;
     page.hidden = false;
     page.dispatchEvent(new Event('visibilitychange'));
@@ -147,11 +148,31 @@ describe('reel rendering and cleanup', () => {
     expect(frames.size).toBe(0);
   });
 
+  it('plays bounded jackpot coins in the shared renderer and returns to idle', () => {
+    const { view } = setup();
+    frame();
+    view.show(['seven', 'seven', 'seven'], 1200);
+    frame();
+    const coins: Mesh[] = [];
+    scene().traverse(node => { if (node instanceof Mesh && node.geometry.type === 'CylinderGeometry') coins.push(node); });
+    expect(coins).toHaveLength(16);
+    expect(coins.every(coin => coin.visible)).toBe(true);
+    expect(frames.size).toBe(1);
+    for (let count = 0; count < 60; count += 1) frame();
+    expect(coins.every(coin => !coin.visible)).toBe(true);
+    expect(frames.size).toBe(0);
+    motion.matches = true;
+    view.show(['seven', 'seven', 'seven'], 1200);
+    frame();
+    expect(coins.every(coin => !coin.visible)).toBe(true);
+    expect(frames.size).toBe(0);
+  });
+
   it('disposes shared textures, geometry and materials once and cannot restart', () => {
     const { view, host } = setup();
     frame();
     const resources = new Set<{ dispose: () => void }>();
-    for (const node of scene().children) {
+    scene().traverse(node => {
       if (node instanceof Mesh) {
         resources.add(node.geometry);
         if (!Array.isArray(node.material)) resources.add(node.material);
@@ -160,7 +181,7 @@ describe('reel rendering and cleanup', () => {
         resources.add(node.material);
         if (node.material.map) resources.add(node.material.map);
       }
-    }
+    });
     const disposals = [...resources].map(resource => vi.spyOn(resource, 'dispose'));
     view.show(['seven', 'seven', 'seven'], 1200);
     view.spin();
