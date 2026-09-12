@@ -4,6 +4,8 @@
 
 Game jam project by team **donburi**. The core game uses Vite, TypeScript and Three.js. GPT voice and LiveAvatar video are optional additions.
 
+**PC only — landscape browser viewport 1280×720 or larger, mouse and keyboard.** Smaller windows keep the desktop composition with scrolling; smartphone layouts and touch optimization are outside the scope. Play at [slot-chan.vercel.app](https://slot-chan.vercel.app). See [current status and remaining checks](./docs/current-status.md).
+
 ## Play loop
 
 1. Click **CPUライバルと対戦**. No key, invitation, microphone, or external AI service is needed.
@@ -12,7 +14,7 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 4. The CPU chooses its own legal upgrades. In optional voice/video mode, the rival can also respond to speech and game events.
 5. Highest confirmed coin total at 60 seconds wins.
 
-Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. The scoreboard shows the point difference, while the rival panel shows both upgrade histories. The cabinet shows when the next upgrade becomes available. Results stay below the cabinet so the final symbols remain visible.
+Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. The scoreboard shows the point difference, while the rival panel shows both upgrade histories. The cabinet shows when the next upgrade becomes available. The result panel appears after the final reels have stopped and both scores have been confirmed.
 
 The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
 
@@ -92,6 +94,6 @@ See [SECURITY.md](./SECURITY.md) and [docs/operations.md](./docs/operations.md).
 
 Reels, cabinet background/frame, payout lines, win lighting and jackpot coins share one Three.js renderer. It redraws only while animating or when the visible state changes; settled/hidden screens have no continuous render loop. Text and controls use HTML/CSS. The avatar SDK is loaded only for the optional voice/video path. See [rendering verification](./docs/render-performance.md).
 
-Cabinet, character expressions, symbols and coin art were generated for this project and are served locally as four shared WebP textures. Reels move downward with continuous UV scrolling and stop left, middle, then right; score and reaction updates follow the settled frame. Text and controls remain accessible HTML. Sound effects are original Web Audio oscillator cues. Desktop layouts cover 1280×720 and 1920×1080; narrow screens stack the same artwork without stretching it. Actual Edge and human play/sound evaluation remain pending. See [visual assets](./docs/visual-assets.md) and [visual verification](./docs/visual-redesign-verification.md).
+Cabinet, character expressions, symbols and coin art were generated for this project and are served locally as four shared WebP textures. Reels move downward with continuous UV scrolling and stop left, middle, then right; score and reaction updates follow the settled frame. Text and controls remain accessible HTML. Sound effects are original Web Audio oscillator cues. The fixed landscape composition is verified at 1280×720 and 1920×1080; rival symbols retain their square proportions. Actual Edge and human play/sound evaluation remain pending. See [visual assets](./docs/visual-assets.md) and [visual verification](./docs/visual-redesign-verification.md).
 
 The LiveAvatar/GPT-Live bridge design is based on HeyGen's MIT-licensed reference implementation `heygen-com/liveavatar-gpt-live-demos`. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

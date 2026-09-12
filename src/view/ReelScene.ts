@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { SpinView, SymbolId } from '../../shared/protocol';
 import { CabinetArt } from './CabinetArt';
 import { planTravel, settledOffset, travelAt, type ReelTravel } from './ReelMotion';
-import { fitRect, MINI_RECTS, MOBILE_HEIGHT, MOBILE_MACHINE, MOBILE_RIVAL, MOBILE_WIDTH, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
+import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
 
 export type RivalExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
 const EXPRESSIONS: RivalExpression[] = ['neutral', 'confident', 'surprised', 'frustrated'];
@@ -83,7 +83,6 @@ export class ReelScene {
     this.portraitTexture.repeat.set(.5, .5);
     this.portraitTexture.offset.set(0, .5);
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
-    this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0);
     const atlas = this.load('/art/symbols.webp');
     [...REEL_RECTS, ...MINI_RECTS].forEach((rect, i) => {
       const material = new THREE.ShaderMaterial({
@@ -98,7 +97,6 @@ export class ReelScene {
       }
       geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.userData.rect = rect;
       this.place(mesh, rect, 3);
       this.scene.add(mesh);
       this.reelMeshes.push(mesh);
@@ -124,16 +122,13 @@ export class ReelScene {
 
   private addPlane(texture: THREE.Texture, rect: Rect, z: number): void {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(rect.w, rect.h), new THREE.MeshBasicMaterial({ map: texture }));
-    plane.userData.rect = rect;
     this.place(plane, rect, z);
     this.planes.push(plane);
     this.scene.add(plane);
   }
 
-  private place(mesh: THREE.Mesh, rect: Rect, z: number, height = STAGE_HEIGHT): void {
-    mesh.position.set(rect.x + rect.w / 2, height - rect.y - rect.h / 2, z);
-    const base = mesh.userData.rect as Rect;
-    mesh.scale.set(rect.w / base.w, rect.h / base.h, 1);
+  private place(mesh: THREE.Mesh, rect: Rect, z: number): void {
+    mesh.position.set(rect.x + rect.w / 2, STAGE_HEIGHT - rect.y - rect.h / 2, z);
   }
 
   play(player: SpinView, rival: SpinView, complete: (celebrate: boolean) => void): void {
@@ -220,35 +215,9 @@ export class ReelScene {
 
   private resize = (): void => {
     if (this.disposed) return;
-    const mobile = matchMedia('(max-width: 800px)').matches;
-    const height = mobile ? MOBILE_HEIGHT : STAGE_HEIGHT;
-    this.camera.right = mobile ? MOBILE_WIDTH : STAGE_WIDTH;
-    this.camera.top = height;
-    this.camera.updateProjectionMatrix();
-    this.place(this.planes[0], mobile ? MOBILE_MACHINE.target : { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, 0, height);
-    this.crop(this.planes[0], mobile ? MOBILE_MACHINE.source : { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT });
-    this.planes[2].visible = mobile;
-    if (mobile) {
-      this.place(this.planes[2], MOBILE_RIVAL.target, 0, height);
-      this.crop(this.planes[2], MOBILE_RIVAL.source);
-    }
-    this.place(this.planes[1], mobile ? fitRect(PORTRAIT, MOBILE_RIVAL) : PORTRAIT, 1, height);
-    this.reelMeshes.forEach((mesh, i) => {
-      const rect = i < 3 ? REEL_RECTS[i] : MINI_RECTS[i - 3];
-      this.place(mesh, mobile ? fitRect(rect, i < 3 ? MOBILE_MACHINE : MOBILE_RIVAL) : rect, 3, height);
-    });
-    const scale = mobile ? MOBILE_MACHINE.target.w / MOBILE_MACHINE.source.w : 1;
-    this.cabinet.group.scale.set(scale, scale, 1);
-    this.cabinet.group.position.set(mobile ? -MOBILE_MACHINE.source.x * scale : 0, height - STAGE_HEIGHT * scale, 0);
     this.renderer.setSize(this.host.clientWidth || 1280, this.host.clientHeight || 720, false);
     this.requestRender();
   };
-
-  private crop(mesh: THREE.Mesh, source: Rect): void {
-    const uv = mesh.geometry.attributes.uv;
-    for (let i = 0; i < 4; i += 1) uv.setXY(i, (source.x + (i % 2) * source.w) / STAGE_WIDTH, 1 - (source.y + (i < 2 ? 0 : 1) * source.h) / STAGE_HEIGHT);
-    uv.needsUpdate = true;
-  }
 
   private requestRender = (): void => {
     if (this.disposed || document.hidden || this.frame) return;
