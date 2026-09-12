@@ -26,6 +26,7 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
     offerIndex: z.union([z.literal(0), z.literal(1)]),
   }),
   z.object({ type: z.literal('mic'), audio: z.string().min(1).max(256_000) }),
+  z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
 ]);
@@ -45,6 +46,10 @@ export class MatchSession {
   private media: MediaServerLeg | null = null;
   private gpt: GptLiveBridge | null = null;
   private voiceReady = false;
+  private gameReady = false;
+  private voiceDisabled = false;
+  private readonly voiceAbort = new AbortController();
+  private voiceStopping: Promise<void> | null = null;
   private closed = false;
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
@@ -84,13 +89,14 @@ export class MatchSession {
       if (this.closed) return;
       this.gpt = new GptLiveBridge({
         onReady: () => {
-          if (this.closed) return;
+          if (this.closed || this.voiceDisabled) return;
           this.voiceReady = true;
+          this.gameReady = true;
           this.emit({ type: 'voice_status', status: 'ready' });
         },
         onAudio: (audio) => this.media?.speak(audio),
         onTranscript: (role, delta) => {
-          if (this.closed) return;
+          if (this.closed || this.voiceDisabled) return;
           if (role === 'user') this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.emit({ type: 'transcript', role, delta });
         },
@@ -104,7 +110,7 @@ export class MatchSession {
     } catch {
       if (this.closed) return;
       this.emit({ type: 'voice_status', status: 'error', message: 'AIキャラクターへ接続できませんでした。' });
-      this.emitSafeError('live_connect_failed', 'AIキャラクターへ接続できませんでした。練習モードを利用してください。', false);
+      this.emitSafeError('live_connect_failed', '音声・映像を利用できません。CPU対戦を開始できます。', false);
       // Do not await shutdown here: shutdown waits for initialization to settle.
       void this.shutdown('initialize_failed');
     }
@@ -134,16 +140,9 @@ export class MatchSession {
     if (this.hardStop) clearTimeout(this.hardStop);
     if (this.resultStop) clearTimeout(this.resultStop);
     if (this.state.status !== 'result') abortMatch(this.state);
-    this.voiceReady = false;
-    this.media?.close();
-    const closeGpt = this.gpt?.close().catch(() => undefined);
+    const closeVoice = this.stopVoice();
     this.stopping = (async () => {
-      await closeGpt;
-      // A provider can finish creating a session after the browser leaves.
-      // Wait for ownership of that session before releasing the quota lease.
-      await this.initialization;
-      if (this.avatar) await stopAvatarSession(this.avatar.sessionId).catch(() => undefined);
-      this.avatar = null;
+      await closeVoice;
       if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
       this.releaseQuota = null;
       this.recentUserText = '';
@@ -154,9 +153,33 @@ export class MatchSession {
   }
 
   private failVoice(): void {
-    if (this.closed) return;
-    this.emitSafeError('voice_error', '会話接続が切れたため対戦を終了しました。もう一度接続してください。', false);
-    void this.shutdown('voice_error');
+    if (this.closed || this.voiceDisabled) return;
+    if (!this.gameReady) {
+      this.emitSafeError('voice_error', '音声・映像へ接続できません。CPU対戦を開始できます。', false);
+      void this.shutdown('voice_error');
+      return;
+    }
+    this.emit({ type: 'voice_status', status: 'error', message: '音声・映像を終了しました。CPUとの対戦は続きます。' });
+    void this.stopVoice();
+  }
+
+  private stopVoice(): Promise<void> {
+    if (this.voiceStopping) return this.voiceStopping;
+    this.voiceDisabled = true;
+    this.voiceReady = false;
+    this.voiceAbort.abort();
+    this.media?.close();
+    const closeGpt = this.gpt?.close().catch(() => undefined);
+    this.gpt = null;
+    this.recentUserText = '';
+    this.voiceStopping = (async () => {
+      await closeGpt;
+      // Startup may still own an in-flight avatar creation request.
+      await this.initialization;
+      if (this.avatar) await stopAvatarSession(this.avatar.sessionId).catch(() => undefined);
+      this.avatar = null;
+    })();
+    return this.voiceStopping;
   }
 
   private handle(message: ClientMessage): void {
@@ -169,7 +192,11 @@ export class MatchSession {
       return;
     }
     if (message.type === 'mic') {
-      this.gpt?.sendMic(message.audio);
+      if (this.voiceReady) this.gpt?.sendMic(message.audio);
+      return;
+    }
+    if (message.type === 'voice_close') {
+      this.failVoice();
       return;
     }
     if (message.type === 'start') {
@@ -193,7 +220,7 @@ export class MatchSession {
   }
 
   private beginMatch(): void {
-    if (!this.voiceReady) {
+    if (!this.gameReady) {
       this.emitSafeError('voice_not_ready', 'AIキャラクターの準備中です。', true);
       return;
     }
@@ -259,7 +286,12 @@ export class MatchSession {
 
   private async decideRivalUpgrade(offerIndex: 0 | 1): Promise<void> {
     const snapshot = getSnapshot(this.state);
-    const choice = await chooseRivalUpgrade(snapshot, offerIndex, this.recentUserText);
+    const fallback = { upgradeId: snapshot.scores.rival < snapshot.scores.player ? 'jackpot' as const : 'steady' as const, source: 'fallback' as const };
+    const proposed = this.voiceReady
+      ? await chooseRivalUpgrade(snapshot, offerIndex, this.recentUserText, this.voiceAbort.signal)
+      : fallback;
+    if (this.closed) return;
+    const choice = this.voiceDisabled ? fallback : proposed;
     const accepted = submitUpgrade(this.state, 'rival', offerIndex, choice.upgradeId, this.state.elapsed);
     if (accepted) {
       const label = choice.upgradeId === 'jackpot' ? '大勝負' : '安定型';

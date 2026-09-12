@@ -95,6 +95,9 @@ export class LiveClient extends EventTarget {
   private connecting: Promise<void> | null = null;
   private rejectConnect: ((error: Error) => void) | null = null;
   private cleanup: Promise<void> | null = null;
+  private connected = false;
+  private voiceStopped = false;
+  private voiceCleanup: Promise<void> | null = null;
 
   constructor(private readonly videoElement: HTMLVideoElement) {
     super();
@@ -142,7 +145,8 @@ export class LiveClient extends EventTarget {
       };
       this.rejectConnect = (error) => { clearTimeout(timeout); reject(error); };
       const ready = () => {
-        if (this.closed || !microphoneReady || !avatarReady || !voiceReady) return;
+        if (this.closed || this.connected || this.voiceStopped || !microphoneReady || !avatarReady || !voiceReady) return;
+        this.connected = true;
         clearTimeout(timeout);
         this.rejectConnect = null;
         this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
@@ -161,16 +165,21 @@ export class LiveClient extends EventTarget {
         if (this.closed) return;
         let message: ServerMessage;
         try { message = JSON.parse(String(event.data)) as ServerMessage; } catch { return; }
-        if (message.type === 'avatar') {
+        if (message.type === 'avatar' && !this.voiceStopped) {
           void this.attachAvatar(message.livekitUrl, message.livekitToken).then(() => {
             avatarReady = true;
             ready();
           }).catch(() => fail(new Error('avatar_connect_failed')));
         }
         if (message.type === 'voice_status' && message.status === 'ready') {
+          if (this.voiceStopped) return;
           voiceReady = true;
           ready();
           return;
+        }
+        if (message.type === 'voice_status' && (message.status === 'error' || message.status === 'closed')) {
+          if (!this.connected) { fail(new Error('voice_connect_failed')); return; }
+          void this.stopVoice();
         }
         this.dispatchEvent(new CustomEvent<ServerMessage>('message', { detail: message }));
         if (message.type === 'error' && !message.recoverable) fail(new Error('session_failed'));
@@ -200,24 +209,39 @@ export class LiveClient extends EventTarget {
     this.rejectConnect = null;
     this.ws?.close();
     this.ws = null;
-    this.cleanup = Promise.allSettled([this.mic.stop(), this.detachAvatar()]).then(() => undefined);
+    this.cleanup = this.stopVoice();
     return this.cleanup;
+  }
+
+  private stopVoice(): Promise<void> {
+    if (this.voiceCleanup) return this.voiceCleanup;
+    this.voiceStopped = true;
+    this.send({ type: 'voice_close' });
+    this.voiceCleanup = Promise.allSettled([this.mic.stop(), this.detachAvatar()]).then(() => undefined);
+    return this.voiceCleanup;
   }
 
   private async attachAvatar(url: string, token: string): Promise<void> {
     await this.detachAvatar();
-    if (this.closed) throw new Error('connection_cancelled');
+    if (this.closed || this.voiceStopped) throw new Error('connection_cancelled');
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;
     room.on(RoomEvent.TrackSubscribed, (track) => {
-      if (this.closed || this.room !== room) return;
+      if (this.closed || this.voiceStopped || this.room !== room) return;
       if (track.kind === 'video') track.attach(this.videoElement);
       if (track.kind === 'audio') track.attach(this.audioElement);
     });
     room.on(RoomEvent.Disconnected, () => {
       if (this.closed || this.room !== room) return;
-      this.dispatchEvent(new Event('disconnect'));
-      void this.disconnect();
+      if (!this.connected) {
+        this.rejectConnect?.(new Error('avatar_connect_failed'));
+        void this.disconnect();
+        return;
+      }
+      void this.stopVoice();
+      this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
+        detail: { type: 'voice_status', status: 'error', message: '音声・映像を終了しました。CPUとの対戦は続きます。' },
+      }));
     });
     await room.connect(url, token);
     if (this.closed || this.room !== room) {

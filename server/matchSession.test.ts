@@ -24,6 +24,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
 } }));
 vi.mock('./rivalBrain', () => ({ chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })) }));
 import { MatchSession } from './matchSession';
+import { chooseRivalUpgrade } from './rivalBrain';
 
 const avatar = { sessionId: 'test-session', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' };
 function deferred<T>() {
@@ -121,15 +122,49 @@ describe('live match cleanup', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('stops the match and paid providers on a voice failure', async () => {
-    const { session, release, messages } = setup();
+  it.each(['provider', 'browser'])('finishes the same 30-spin match after %s voice failure', async (source) => {
+    const { session, release, messages, close } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
-    provider.events?.onError('transport_closed');
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(messages.some(m => m.type === 'spin')).toBe(false);
+    await vi.advanceTimersByTimeAsync(25_000);
+    const before = messages.filter(m => m.type === 'snapshot').at(-1);
+    if (source === 'provider') provider.events?.onError('transport_closed');
+    else session.handleRaw('{"type":"voice_close"}');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(provider.stop).toHaveBeenCalledTimes(1);
+    expect(provider.gptClose).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(messages.some(m => m.type === 'error' && !m.recoverable)).toBe(false);
+    await vi.advanceTimersByTimeAsync(14_000);
+    session.handleRaw(JSON.stringify({ type: 'upgrade', commandId: 'after-voice-failure', offerIndex: 1, upgradeId: 'jackpot' }));
+    await vi.advanceTimersByTimeAsync(20_000);
+    const final = messages.find(m => m.type === 'match_ended');
+    expect(final).toMatchObject({ snapshot: { matchId: 'test-match', status: 'result', elapsed: 60, round: 30, upgrades: { player: ['steady', 'jackpot'] } } });
+    expect(messages.filter(m => m.type === 'spin')).toHaveLength(30);
+    if (before?.type === 'snapshot' && final?.type === 'match_ended') {
+      expect(final.snapshot.scores.player).toBeGreaterThanOrEqual(before.snapshot.scores.player);
+      expect(final.snapshot.scores.rival).toBeGreaterThanOrEqual(before.snapshot.scores.rival);
+    }
+    expect(chooseRivalUpgrade).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(8_000);
     expect(provider.stop).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('allows starting after optional media fails in the ready lobby', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    provider.events?.onError('transport_closed');
+    provider.events?.onReady();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messages.filter(m => m.type === 'match_ended')).toHaveLength(1);
+    expect(chooseRivalUpgrade).not.toHaveBeenCalled();
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'ready')).toHaveLength(1);
+    await session.shutdown('test_finished');
   });
 
   it('cleans up an initialization failure and repeated initialize calls', async () => {

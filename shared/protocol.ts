@@ -27,6 +27,7 @@ export type ClientMessage =
   | { type: 'start' }
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex }
   | { type: 'mic'; audio: string }
+  | { type: 'voice_close' }
   | { type: 'snapshot' }
   | { type: 'close' };
 

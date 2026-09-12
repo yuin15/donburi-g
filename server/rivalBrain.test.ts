@@ -8,6 +8,18 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 const snapshot = () => getSnapshot(createMatch(1, 'test'));
 
 describe('rival upgrade choice', () => {
+  it('cancels in-flight reasoning when optional voice is stopped and skips later requests', async () => {
+    const controller = new AbortController();
+    request.mockImplementation((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
+      options.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    }));
+    const pending = chooseRivalUpgrade(snapshot(), 0, '', controller.signal);
+    controller.abort();
+    expect(await pending).toEqual({ upgradeId: 'steady', source: 'fallback' });
+    expect(await chooseRivalUpgrade(snapshot(), 1, '', controller.signal)).toEqual({ upgradeId: 'steady', source: 'fallback' });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it.each(['steady', 'jackpot'])('accepts an exact legal %s output', async (choice) => {
     request.mockResolvedValue(Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: choice }] }] }));
     expect(await chooseRivalUpgrade(snapshot(), 0, 'test speech')).toEqual({ upgradeId: choice, source: 'ai' });
