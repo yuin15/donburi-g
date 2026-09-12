@@ -1,31 +1,33 @@
 # Slot-chan
 
-**しゃべるAIライバルに60秒で勝ちきれ。**
+**リールを改造して、CPUライバルに60秒で勝ちきれ。**
 
-Game jam project by team **donburi**. Browser MVP built with Vite, TypeScript, Three.js, GPT-Live and HeyGen LiveAvatar LITE.
+Game jam project by team **donburi**. The core game uses Vite, TypeScript and Three.js. GPT voice and LiveAvatar video are optional additions.
 
 ## Play loop
 
-1. Start a match.
+1. Click **CPUライバルと対戦**. No key, invitation, microphone, or external AI service is needed.
 2. Both sides auto-spin every 2 seconds for 60 seconds.
 3. At 20s and 40s, choose one reel upgrade: **steady** adds cherries; **jackpot** adds 7s.
-4. The AI rival chooses its own upgrades and reacts to jackpots, lead changes, your speech and the final result.
+4. The CPU chooses its own legal upgrades. In optional voice/video mode, the rival can also respond to speech and game events.
 5. Highest confirmed coin total at 60 seconds wins.
 
 The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
 
 ## Modes
 
-### Practice mode
+### Normal CPU match (no external APIs)
 
-Runs fully in the browser and does not call paid APIs. Useful for UI/gameplay iteration.
+Runs fully in the browser without API calls. It is the normal game, including both upgrades, results and rematch. Short synthesized effects distinguish spins, wins, jackpots, lead changes and the last ten seconds; **効果音 ON/OFF** controls them separately from optional AI speech.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-### Live AI mode
+### Optional voice and video
+
+Open **音声・映像もつける（任意）** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. In-progress voice isolation is tracked in #24. The core game's completion does not depend on real-provider voice/video validation.
 
 Live mode requires server-side environment variables. Copy `.env.example` to a local ignored environment file and fill it locally, or configure the variables in Vercel. **Never commit real values.**
 
@@ -61,6 +63,7 @@ The same WebSocket owns the authoritative match and the voice/avatar session. If
 npm run typecheck
 npm run lint
 npm test
+npm run check:server-runtime
 npm run build
 ```
 
@@ -84,5 +87,7 @@ See [SECURITY.md](./SECURITY.md) and [docs/operations.md](./docs/operations.md).
 - [MVP verification](./docs/mvp-verification.md)
 
 ## Third-party reference
+
+Reel geometry and UI are generated locally. Sound effects are original Web Audio oscillator cues; they contain no third-party recordings. Symbol glyphs use the browser/system font. Initial supported environments are desktop Chrome and Edge at 1280×720 or larger; a phone-specific layout is outside this demo's scope.
 
 The LiveAvatar/GPT-Live bridge design is based on HeyGen's MIT-licensed reference implementation `heygen-com/liveavatar-gpt-live-demos`. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

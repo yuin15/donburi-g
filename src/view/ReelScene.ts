@@ -11,7 +11,8 @@ export class ReelScene {
   private labels: THREE.Sprite[] = [];
   private frame = 0;
   private spinUntil = 0;
-  private reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  private winTimer = 0;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -46,21 +47,23 @@ export class ReelScene {
   }
 
   spin(): void {
-    this.spinUntil = performance.now() + (this.reducedMotion ? 120 : 520);
+    this.spinUntil = performance.now() + (this.motionPreference.matches ? 120 : 520);
   }
 
   show(symbols: [SymbolId, SymbolId, SymbolId], payout = 0): void {
     symbols.forEach((symbol, index) => this.setLabel(this.labels[index], GLYPH[symbol]));
     this.host.dataset.win = payout > 0 ? 'true' : 'false';
     this.host.dataset.jackpot = payout >= 1200 ? 'true' : 'false';
-    window.setTimeout(() => {
+    clearTimeout(this.winTimer);
+    this.winTimer = window.setTimeout(() => {
       this.host.dataset.win = 'false';
       this.host.dataset.jackpot = 'false';
-    }, this.reducedMotion ? 250 : 900);
+    }, this.motionPreference.matches ? 250 : 900);
   }
 
   dispose(): void {
     cancelAnimationFrame(this.frame);
+    clearTimeout(this.winTimer);
     removeEventListener('resize', this.resize);
     for (const reel of this.reels) {
       reel.geometry.dispose();
@@ -115,7 +118,7 @@ export class ReelScene {
   private loop = (): void => {
     if (performance.now() < this.spinUntil) {
       this.reels.forEach((reel, index) => {
-        reel.rotation.x += this.reducedMotion ? 0.05 : 0.25 + index * 0.025;
+        reel.rotation.x += this.motionPreference.matches ? 0.05 : 0.25 + index * 0.025;
       });
     }
     this.frame = requestAnimationFrame(this.loop);
