@@ -55,7 +55,7 @@ beforeEach(() => {
   getUserMedia.mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
   resume.mockResolvedValue(undefined);
   closeAudio.mockResolvedValue(undefined);
-  request.mockResolvedValue(Response.json({ ticket: 'test-ticket' }));
+  request.mockImplementation(async () => Response.json({ ticket: 'test-ticket' }));
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
   vi.stubGlobal('document', { createElement: () => ({ autoplay: false, muted: false, srcObject: null }) });
   vi.stubGlobal('location', { protocol: 'http:', host: 'localhost' });
@@ -79,6 +79,18 @@ async function socket() {
   return Socket.instances[0];
 }
 
+function resultSnapshot() {
+  return {
+    matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0,
+    scores: { player: 1200, rival: 0 },
+    stats: {
+      player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 1200 } },
+      rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null },
+    },
+    upgrades: { player: [], rival: [] }, eventSeq: 40, winner: 'player',
+  };
+}
+
 describe('browser live connection lifecycle', () => {
   it('recovers a missing final spin from one authoritative snapshot request', async () => {
     const instance = client(); const received: unknown[] = [];
@@ -86,18 +98,89 @@ describe('browser live connection lifecycle', () => {
     const connection = instance.connect('test'); const ws = await socket();
     ws.open(); ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' }); ws.message({ type: 'voice_status', status: 'ready' });
     await connection;
-    const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 1200, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 40, winner: 'player' };
+    const snapshot = resultSnapshot();
     const lastSpin = { player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 1200 }, rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } };
     ws.sequence += 1; // The last spin was lost before it reached the listener.
     ws.message({ type: 'match_ended', snapshot });
     expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'snapshot' }));
     expect(received.some(m => (m as { type: string }).type === 'match_ended')).toBe(false);
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(closeAudio).toHaveBeenCalledOnce();
+    expect(media.disconnect).not.toHaveBeenCalled();
+    const sentDuringGap = ws.send.mock.calls.length;
+    instance.send({ type: 'mic', audio: 'AAAA' });
+    expect(ws.send).toHaveBeenCalledTimes(sentDuringGap);
     ws.message({ type: 'snapshot', snapshot, lastSpin });
     expect(received).toContainEqual({ type: 'snapshot', snapshot, lastSpin });
     const count = received.length;
     ws.sequence -= 1; ws.message({ type: 'snapshot', snapshot, lastSpin });
     expect(received).toHaveLength(count);
     expect(ws.close).not.toHaveBeenCalled();
+    expect(ws.send).not.toHaveBeenCalledWith(JSON.stringify({ type: 'voice_close' }));
+    expect(stopTrack).toHaveBeenCalledOnce();
+    await instance.disconnect();
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(closeAudio).toHaveBeenCalledOnce();
+    expect(media.disconnect).toHaveBeenCalledOnce();
+  });
+  it.each(['match_ended', 'snapshot'] as const)('stops microphone input on a result %s while preserving the room until final voice shutdown', async type => {
+    const instance = client();
+    const connection = instance.connect('test'); const ws = await socket();
+    ws.open(); ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' }); ws.message({ type: 'voice_status', status: 'ready' });
+    await connection;
+    instance.send({ type: 'mic', audio: 'AAAA' });
+    expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'mic', audio: 'AAAA' }));
+    ws.message({
+      type, snapshot: resultSnapshot(),
+      ...(type === 'snapshot' ? { lastSpin: {
+        player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 1200 },
+        rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 },
+      } } : {}),
+    });
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(closeAudio).toHaveBeenCalledOnce();
+    const sentAtResult = ws.send.mock.calls.length;
+    instance.send({ type: 'mic', audio: 'BBBB' });
+    expect(ws.send).toHaveBeenCalledTimes(sentAtResult);
+    expect(ws.send).not.toHaveBeenCalledWith(JSON.stringify({ type: 'voice_close' }));
+    vi.useFakeTimers();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(media.disconnect).not.toHaveBeenCalled();
+    expect(ws.close).not.toHaveBeenCalled();
+    ws.message({ type: 'voice_status', status: 'closed' });
+    await instance.disconnect();
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(closeAudio).toHaveBeenCalledOnce();
+    expect(media.disconnect).toHaveBeenCalledOnce();
+    expect(ws.close).toHaveBeenCalledOnce();
+  });
+  it('uses a new microphone for a replay and ignores the old result connection after cleanup', async () => {
+    const first = client();
+    const firstConnection = first.connect('test'); const oldSocket = await socket();
+    oldSocket.open(); oldSocket.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' }); oldSocket.message({ type: 'voice_status', status: 'ready' });
+    await firstConnection;
+    oldSocket.message({ type: 'match_ended', snapshot: resultSnapshot() });
+    await first.disconnect();
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(closeAudio).toHaveBeenCalledOnce();
+    expect(media.disconnect).toHaveBeenCalledOnce();
+
+    const replay = client();
+    const replayConnection = replay.connect('test');
+    await vi.waitFor(() => expect(Socket.instances).toHaveLength(2));
+    const newSocket = Socket.instances[1];
+    newSocket.open(); newSocket.message({ type: 'avatar', livekitUrl: 'replay-url', livekitToken: 'replay-token' }); newSocket.message({ type: 'voice_status', status: 'ready' });
+    await replayConnection;
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    oldSocket.message({ type: 'voice_status', status: 'closed' });
+    replay.send({ type: 'mic', audio: 'CCCC' });
+    expect(newSocket.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'mic', audio: 'CCCC' }));
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(media.disconnect).toHaveBeenCalledOnce();
+    await Promise.all([replay.disconnect(), replay.disconnect()]);
+    expect(stopTrack).toHaveBeenCalledTimes(2);
+    expect(closeAudio).toHaveBeenCalledTimes(2);
+    expect(media.disconnect).toHaveBeenCalledTimes(2);
   });
   it('ends a stalled game transport when recovery does not arrive, releasing optional media', async () => {
     const instance = client(); const disconnected = vi.fn();

@@ -100,6 +100,8 @@ export class LiveClient extends EventTarget {
   private connected = false;
   private voiceStopped = false;
   private voiceCleanup: Promise<void> | null = null;
+  private microphoneStopped = false;
+  private microphoneCleanup: Promise<void> | null = null;
   private sync = new LiveSync();
   private syncTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -171,6 +173,10 @@ export class LiveClient extends EventTarget {
         if (!wire) { fail(new Error('invalid_server_message')); return; }
         let synchronized: ReturnType<LiveSync['accept']>;
         try { synchronized = this.sync.accept(wire); } catch { fail(new Error('invalid_match_sequence')); return; }
+        // Stop capture even if a sequence gap holds the result until its snapshot is recovered.
+        if ((wire.type === 'snapshot' || wire.type === 'match_ended') && wire.snapshot.status === 'result') {
+          void this.stopMicrophone();
+        }
         if (synchronized.requestSnapshot) {
           this.send({ type: 'snapshot' });
           this.syncTimeout = setTimeout(() => fail(new Error('snapshot_timeout')), 5000);
@@ -206,6 +212,7 @@ export class LiveClient extends EventTarget {
 
   send(message: ClientMessage): void {
     if (this.closed || this.ws?.readyState !== WebSocket.OPEN) return;
+    if (message.type === 'mic' && this.microphoneStopped) return;
     const payload = message.type === 'upgrade' ? { ...message, matchId: this.sync.sessionId } : message;
     this.ws.send(JSON.stringify(payload));
   }
@@ -229,11 +236,17 @@ export class LiveClient extends EventTarget {
     return this.cleanup;
   }
 
+  private stopMicrophone(): Promise<void> {
+    this.microphoneStopped = true;
+    this.microphoneCleanup ??= this.mic.stop();
+    return this.microphoneCleanup;
+  }
+
   private stopVoice(): Promise<void> {
     if (this.voiceCleanup) return this.voiceCleanup;
     this.voiceStopped = true;
     this.send({ type: 'voice_close' });
-    this.voiceCleanup = Promise.allSettled([this.mic.stop(), this.detachAvatar()]).then(() => undefined);
+    this.voiceCleanup = Promise.allSettled([this.stopMicrophone(), this.detachAvatar()]).then(() => undefined);
     return this.voiceCleanup;
   }
 

@@ -8,6 +8,12 @@ export class MediaServerLeg {
   private readyResolve: ((value: boolean) => void) | null = null;
   private readyTimer: NodeJS.Timeout | null = null;
   private keepAlive: NodeJS.Timeout | null = null;
+  private pendingInterrupt: {
+    eventId: string;
+    promise: Promise<boolean>;
+    resolve: (confirmed: boolean) => void;
+    timer: NodeJS.Timeout;
+  } | null = null;
 
   constructor(private readonly url: string, private readonly onFailure: () => void = () => {}) {}
 
@@ -26,15 +32,19 @@ export class MediaServerLeg {
       });
       ws.on('message', (raw) => {
         if (this.closed) return;
-        let event: { type?: string; state?: string };
+        let event: { type?: string; state?: string; source_event_id?: string };
         try {
-          event = JSON.parse(raw.toString()) as { type?: string; state?: string };
+          event = JSON.parse(raw.toString()) as typeof event;
         } catch {
           return;
         }
+        if (!event || typeof event !== 'object') return;
         if (event.type === 'session.state_updated' && event.state === 'connected') {
           this.connected = true;
           this.finishReady(true);
+        } else if (event.type === 'agent.audio_buffer_cleared' && this.pendingInterrupt
+          && event.source_event_id === this.pendingInterrupt.eventId) {
+          this.finishInterrupt(true);
         } else if (event.type === 'error' || (event.type === 'session.state_updated' && event.state === 'disconnected')) {
           this.fail();
         }
@@ -52,11 +62,30 @@ export class MediaServerLeg {
   }
 
   speak(audio: string): void {
+    // Drop audio while the old utterance is being cleared; never replay it later.
+    if (this.pendingInterrupt) return;
     this.send({ type: 'agent.speak', audio });
   }
 
   interrupt(): void {
+    if (this.pendingInterrupt) return;
     this.send({ type: 'agent.interrupt' });
+  }
+
+  interruptAndWait(timeoutMs = 2000): Promise<boolean> {
+    if (this.pendingInterrupt) return this.pendingInterrupt.promise;
+    if (this.closed || !this.connected || this.ws?.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+    const eventId = randomUUID();
+    let resolve!: (confirmed: boolean) => void;
+    const promise = new Promise<boolean>(done => { resolve = done; });
+    const timer = setTimeout(() => this.finishInterrupt(false), timeoutMs);
+    this.pendingInterrupt = { eventId, promise, resolve, timer };
+    try {
+      this.send({ type: 'agent.interrupt', event_id: eventId });
+    } catch {
+      this.fail();
+    }
+    return promise;
   }
 
   close(): void {
@@ -66,6 +95,7 @@ export class MediaServerLeg {
     if (this.keepAlive) clearInterval(this.keepAlive);
     if (this.readyTimer) clearTimeout(this.readyTimer);
     this.finishReady(false);
+    this.finishInterrupt(false);
     const ws = this.ws;
     this.ws = null;
     if (!ws || ws.readyState === WebSocket.CLOSED) return;
@@ -91,6 +121,14 @@ export class MediaServerLeg {
     if (this.readyTimer) clearTimeout(this.readyTimer);
     this.readyTimer = null;
     resolve(value);
+  }
+
+  private finishInterrupt(confirmed: boolean): void {
+    const pending = this.pendingInterrupt;
+    if (!pending) return;
+    this.pendingInterrupt = null;
+    clearTimeout(pending.timer);
+    pending.resolve(confirmed);
   }
 
   private send(payload: Record<string, unknown>): void {

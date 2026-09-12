@@ -23,7 +23,7 @@ export class GptLiveBridge {
   private finalized = false;
   private usageReported = false;
 
-  constructor(private readonly events: LiveEvents) {}
+  constructor(private readonly events: LiveEvents, private readonly openingContext = '') {}
 
   async connect(timeoutMs = 15_000): Promise<boolean> {
     if (this.closing) return false;
@@ -50,7 +50,7 @@ export class GptLiveBridge {
           session: {
             model: env.gptLiveModel,
             store: false,
-            instructions: PERSONA,
+            instructions: this.openingContext ? `${PERSONA}\n${this.openingContext}` : PERSONA,
             audio: {
               format: { type: 'audio/pcm', rate: 24000 },
               output: { voice: env.gptLiveVoice },

@@ -446,7 +446,22 @@ function finishPresentation(snapshot: MatchSnapshot): void {
   q('#eventCue').hidden = true;
   scene.setExpression(snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral');
   reactionUntil = performance.now() + 3600000;
-  if (!voiceReady) q('#line').textContent = snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
+  if (!voiceReady) showResultLine(snapshot);
+}
+
+function showResultLine(snapshot: MatchSnapshot): void {
+  q('#line').textContent = snapshot.winner === 'player' ? '「……負けた。もう一回！」' : snapshot.winner === 'rival' ? '「私の勝ち。再戦する？」' : '「引き分け？ 次で決めよう。」';
+}
+
+function prepareLiveResult(snapshot: MatchSnapshot): void {
+  if (snapshot.status !== 'result' || (liveSnapshot?.status === 'result' && liveSnapshot.matchId === snapshot.matchId)) return;
+  clearTimeout(assistantResetTimer);
+  assistantText = '';
+  q('#heard').textContent = '';
+  if (voiceReady) {
+    q('#line').textContent = '「……」';
+    q('#connection').textContent = 'マイク停止 / 結果の反応を待っています';
+  }
 }
 
 function handlePracticeEvent(event: GameEvent): void {
@@ -507,6 +522,7 @@ function onLiveMessage(message: ServerMessage): void {
       q('#heard').textContent = '';
       clearTimeout(assistantResetTimer);
       assistantText = '';
+      if (liveSnapshot?.status === 'result' && (message.status === 'error' || q('#line').textContent === '「……」')) showResultLine(liveSnapshot);
     }
     if (gameConnected && !starting && (!liveSnapshot || liveSnapshot.status === 'ready')) {
       startButton.disabled = false;
@@ -515,6 +531,7 @@ function onLiveMessage(message: ServerMessage): void {
     return;
   }
   if (message.type === 'snapshot') {
+    prepareLiveResult(message.snapshot);
     liveSnapshot = message.snapshot;
     if (message.lastSpin) handleSpin(message.lastSpin.player, message.lastSpin.rival);
     renderSnapshot(message.snapshot);
@@ -550,12 +567,14 @@ function onLiveMessage(message: ServerMessage): void {
     window.clearTimeout(assistantResetTimer);
     assistantText = `${assistantText}${message.delta}`.slice(-120);
     q('#line').textContent = `「${assistantText}」`;
+    if (liveSnapshot?.status === 'result') q('#connection').textContent = 'マイク停止 / 結果のひとこと';
     assistantResetTimer = window.setTimeout(() => {
       assistantText = '';
     }, 2500);
     return;
   }
   if (message.type === 'match_ended') {
+    prepareLiveResult(message.snapshot);
     liveSnapshot = message.snapshot;
     renderSnapshot(message.snapshot);
     presentation.end(message.snapshot);
@@ -807,12 +826,21 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
         presentation.scores = { ...snapshot.scores };
         finishPresentation(snapshot);
       }
-      if (example === 'live-caption' || example === 'rematch-ready') {
-        snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.winner = 'player';
+      if (example === 'live-caption' || example === 'live-result-error' || example === 'live-result-closed' || example === 'rematch-ready') {
+        liveSnapshot = { ...snapshot };
+        gameConnected = true;
         voiceReady = true;
-        onLiveMessage({ type: 'transcript', role: 'assistant', delta: '検収字幕: いい勝負だったね。' });
+        onLiveMessage({ type: 'transcript', role: 'assistant', delta: '混ぜてはいけない試合中の字幕。' });
+        snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.winner = 'player';
+        onLiveMessage({ type: 'snapshot', snapshot });
+        onLiveMessage({ type: 'transcript', role: 'assistant', delta: '検収字幕: いい' });
+        onLiveMessage({ type: 'match_ended', snapshot });
+        onLiveMessage({ type: 'snapshot', snapshot });
+        onLiveMessage({ type: 'transcript', role: 'assistant', delta: '勝負だったね。' });
         onLiveMessage({ type: 'rival_line', text: '検収用の未発声作戦文', reason: 'visual-review' });
         finishPresentation(snapshot);
+        if (example === 'live-result-error') onLiveMessage({ type: 'voice_status', status: 'error', message: '結果の音声を終了しました。対戦結果は確定しています。' });
+        if (example === 'live-result-closed') onLiveMessage({ type: 'voice_status', status: 'closed' });
         modeBadge.textContent = 'DEV · 字幕検収';
         if (example === 'rematch-ready') { resetBattleUi(); startButton.disabled = true; startButton.textContent = '準備中'; }
       }

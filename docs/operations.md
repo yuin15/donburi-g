@@ -17,8 +17,9 @@ No database is required for this invitation-only demo. Its in-memory connection 
 Defaults:
 
 - ticket lifetime: 60 seconds
-- server session hard limit: 120 seconds
-- normal result reaction window: 8 seconds
+- server shutdown begins no later than 120 seconds from provider initialization
+- result input/output window: at most 8 seconds, bounded by that original 120-second deadline
+- GPT-Live connections: at most 2 per match, sequential (play, then final reaction); one LiveAvatar session
 - rival reasoning: max two calls per match, each ~2.5 second timeout
 - mic input per one-second bucket: 192,000 base64 characters
 - messages per one-second bucket: 120; individual JSON payload: 300,000 characters
@@ -28,6 +29,8 @@ Defaults:
 - concurrent sessions per running process: 1 (configurable)
 
 The process tracks admitted starts, active leases, and used tickets. Session teardown removes the active lease but retains replay protection through ticket expiry. Leases expire after 180 seconds. Restarting or scaling Vercel functions resets or splits these counters; they are intentionally modest demo safeguards, not global spending caps. Use a private invite and short demo sessions. Vercel Firewall rules may be added for wider access without introducing a database. They have not been configured by this code change.
+
+The 120-second deadline starts teardown; it is not proof that provider billing or remote resources have already stopped. GPT finalization can take up to 5 seconds, and the subsequent avatar stop request has a 10-second timeout. Verify final usage and residual remote sessions separately. Result reconnection never resets the original deadline. If old GPT closure or the matching LiveAvatar buffer-clear ACK fails, abandon result speech and retain the finished game.
 
 ## Kill switch
 
@@ -44,6 +47,8 @@ Do not log:
 - signed access tickets
 
 Safe operational metrics are session duration, exit reason, aggregate call counts and provider HTTP status class.
+
+`voice_session_usage` records only `phase` (`match`/`result`), `seconds`, and `finalized`. Preserve both generations; closing the match connection must not discard its final usage. Null seconds or `finalized=false` mean final usage is unconfirmed, never zero cost. No conversation, session identifier, email, or key is included.
 
 ## Credential leak
 

@@ -1,0 +1,41 @@
+{
+  "verification": "DEV fixture; providers and microphone not used",
+  "cases": [
+    {
+      "case": "Live字幕の保持",
+      "connection": "マイク停止 / 結果のひとこと",
+      "line": "「検収字幕: いい勝負だったね。」",
+      "resultVisible": true,
+      "rows": 5,
+      "score": "♛ あなた1,440",
+      "time": "00"
+    },
+    {
+      "case": "結果音声の接続失敗",
+      "connection": "結果の音声を終了しました。対戦結果は確定しています。",
+      "line": "「……負けた。もう一回！」",
+      "resultVisible": true,
+      "rows": 5,
+      "score": "♛ あなた1,440",
+      "time": "00"
+    },
+    {
+      "case": "結果音声の正常終了",
+      "connection": "会話接続終了",
+      "line": "「検収字幕: いい勝負だったね。」",
+      "resultVisible": true,
+      "rows": 5,
+      "score": "♛ あなた1,440",
+      "time": "00"
+    },
+    {
+      "case": "Live再戦の準備",
+      "connection": "マイク停止 / 結果のひとこと",
+      "line": "「60秒。私に勝てる？」",
+      "resultVisible": false,
+      "rows": 0,
+      "score": "♛ あなた0",
+      "time": "60"
+    }
+  ]
+}

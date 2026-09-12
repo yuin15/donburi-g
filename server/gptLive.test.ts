@@ -16,14 +16,43 @@ vi.mock('ws', async () => {
     constructor() { super(); sockets.push(this); }
   } };
 });
-function setup() {
+function setup(openingContext = '') {
   const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onTranscript: vi.fn(), onUserSpeech: vi.fn(), onUsage: vi.fn() };
-  return { bridge: new GptLiveBridge(events), events };
+  return { bridge: new GptLiveBridge(events, openingContext), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
 afterEach(() => vi.useRealTimers());
 
 describe('voice transport teardown', () => {
+  it('includes confirmed result context in session.start before the new voice is ready', async () => {
+    const resultContext = '試合は終了済み。残り0秒、プレイヤー3640点、あなた3200点、状態=result,勝者=player。確定結果への短い一言だけを話す。';
+    const { bridge, events } = setup(resultContext);
+    const connecting = bridge.connect();
+    sockets[0].readyState = 1;
+    sockets[0].emit('open');
+    expect(events.onReady).not.toHaveBeenCalled();
+    expect(sockets[0].send).toHaveBeenCalledTimes(1);
+    const start = JSON.parse(sockets[0].send.mock.calls[0][0]);
+    expect(start).toMatchObject({
+      type: 'session.start',
+      session: {
+        model: 'test-model', store: false,
+        instructions: expect.stringContaining(resultContext),
+        audio: { format: { type: 'audio/pcm', rate: 24000 }, output: { voice: 'test-voice' } },
+      },
+    });
+    expect(start.session.instructions).toContain('日本語で話す');
+    bridge.updateGameContext('not-ready context');
+    expect(sockets[0].send).toHaveBeenCalledTimes(1);
+    sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
+    expect(await connecting).toBe(true);
+    expect(events.onReady).toHaveBeenCalledOnce();
+    const closing = bridge.close();
+    sockets[0].emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 0 } }));
+    await closing;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('drains final usage during close without forwarding late audio or private fields', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
