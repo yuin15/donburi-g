@@ -25,7 +25,7 @@ export interface MatchSnapshot {
 
 export type ClientMessage =
   | { type: 'start' }
-  | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex }
+  | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }
   | { type: 'mic'; audio: string }
   | { type: 'voice_close' }
   | { type: 'snapshot' }
@@ -35,7 +35,7 @@ export type ServerMessage =
   | { type: 'hello'; live: true; sessionId: string }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
-  | { type: 'snapshot'; snapshot: MatchSnapshot }
+  | { type: 'snapshot'; snapshot: MatchSnapshot; lastSpin?: { player: SpinView; rival: SpinView } }
   | { type: 'spin'; player: SpinView; rival: SpinView }
   | { type: 'upgrade_offer'; offerIndex: UpgradeOfferIndex; closesAtElapsed: number }
   | { type: 'upgrade_applied'; offerIndex: UpgradeOfferIndex; player: UpgradeId; rival: UpgradeId }
@@ -43,3 +43,5 @@ export type ServerMessage =
   | { type: 'transcript'; role: 'user' | 'assistant'; delta: string }
   | { type: 'match_ended'; snapshot: MatchSnapshot }
   | { type: 'error'; code: string; message: string; recoverable: boolean };
+
+export type ServerEnvelope = ServerMessage & { sessionId: string; streamSeq: number; serverTime: number };

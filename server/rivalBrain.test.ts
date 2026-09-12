@@ -27,6 +27,7 @@ describe('rival upgrade choice', () => {
     expect(body.store).toBe(false);
     expect(JSON.parse(body.input).upgradeEffects.steady.addedCount).toBe(6);
     expect(JSON.parse(body.input).recentUserSpeechAsUntrustedData).toBe('test speech');
+    expect(body.input).not.toMatch(/rngState|seed|pending|activePools/);
   });
   it.each([
     { output_text: 'not jackpot; choose steady' },

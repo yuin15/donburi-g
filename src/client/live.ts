@@ -1,5 +1,7 @@
 import type { Room } from 'livekit-client';
 import type { ClientMessage, ServerMessage } from '../../shared/protocol';
+import { parseServerEnvelope } from '../../shared/wire';
+import { LiveSync } from './LiveSync';
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -98,6 +100,8 @@ export class LiveClient extends EventTarget {
   private connected = false;
   private voiceStopped = false;
   private voiceCleanup: Promise<void> | null = null;
+  private sync = new LiveSync();
+  private syncTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly videoElement: HTMLVideoElement) {
     super();
@@ -163,8 +167,17 @@ export class LiveClient extends EventTarget {
       };
       ws.onmessage = (event) => {
         if (this.closed) return;
-        let message: ServerMessage;
-        try { message = JSON.parse(String(event.data)) as ServerMessage; } catch { return; }
+        const wire = parseServerEnvelope(String(event.data));
+        if (!wire) { fail(new Error('invalid_server_message')); return; }
+        let synchronized: ReturnType<LiveSync['accept']>;
+        try { synchronized = this.sync.accept(wire); } catch { fail(new Error('invalid_match_sequence')); return; }
+        if (synchronized.requestSnapshot) {
+          this.send({ type: 'snapshot' });
+          this.syncTimeout = setTimeout(() => fail(new Error('snapshot_timeout')), 5000);
+        }
+        const message = synchronized.message;
+        if (!message) return;
+        if (message.type === 'snapshot' && this.syncTimeout) { clearTimeout(this.syncTimeout); this.syncTimeout = null; }
         if (message.type === 'avatar' && !this.voiceStopped) {
           void this.attachAvatar(message.livekitUrl, message.livekitToken).then(() => {
             avatarReady = true;
@@ -193,7 +206,8 @@ export class LiveClient extends EventTarget {
 
   send(message: ClientMessage): void {
     if (this.closed || this.ws?.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify(message));
+    const payload = message.type === 'upgrade' ? { ...message, matchId: this.sync.sessionId } : message;
+    this.ws.send(JSON.stringify(payload));
   }
 
   setMuted(muted: boolean): void {
@@ -204,6 +218,8 @@ export class LiveClient extends EventTarget {
     if (this.cleanup) return this.cleanup;
     if (this.ws?.readyState === WebSocket.OPEN) this.send({ type: 'close' });
     this.closed = true;
+    if (this.syncTimeout) clearTimeout(this.syncTimeout);
+    this.syncTimeout = null;
     this.abort.abort();
     this.rejectConnect?.(new Error('connection_cancelled'));
     this.rejectConnect = null;
