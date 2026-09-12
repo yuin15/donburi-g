@@ -41,6 +41,7 @@ export class GameViewModel implements GameCommands {
   private cue: GameViewState['cue'] = null;
   private line = INITIAL_LINE;
   private heard = '';
+  private lastHeardAt = 0;
   private assistantText = '';
   private expression: GameExpression = 'neutral';
   private reactionUntil = 0;
@@ -544,7 +545,12 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'rival_line') {
       if (!this.voiceReady) this.line = message.text;
     } else if (message.type === 'transcript') {
-      if (message.role === 'user') this.heard = `YOU: ${message.delta}`;
+      if (message.role === 'user') {
+        const now = this.deps.clock.now();
+        const previous = now - this.lastHeardAt < 2500 ? this.heard.replace(/^YOU: /, '') : '';
+        this.heard = `YOU: ${`${previous}${message.delta}`.slice(-120)}`;
+        this.lastHeardAt = now;
+      }
       else {
         this.cancelTimer(this.assistantTimer);
         this.assistantText = `${this.assistantText}${message.delta}`.slice(-120);

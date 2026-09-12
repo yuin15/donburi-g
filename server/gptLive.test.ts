@@ -124,3 +124,65 @@ describe('voice transport teardown', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+describe('live conversation pacing', () => {
+  it('interrupts on microphone speech despite continuous silent output, then preserves the new reply', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const quiet = Buffer.alloc(4800).toString('base64');
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    for (let i = 0; i < 10; i++) {
+      socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    events.onAudio.mockClear();
+    bridge.sendMic(voice);
+    expect(events.onUserSpeech).not.toHaveBeenCalled();
+    bridge.sendMic(voice);
+    expect(events.onUserSpeech).toHaveBeenCalledOnce();
+    bridge.sendMic(voice);
+    expect(events.onUserSpeech).toHaveBeenCalledOnce();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    for (let i = 0; i < 3; i++) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice);
+    const count = socket.send.mock.calls.length;
+    bridge.requestReaction('stale game commentary');
+    expect(socket.send).toHaveBeenCalledTimes(count);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('replaces pending game updates with the latest one instead of queuing every clock tick', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.updateGameContext('first score');
+    const first = JSON.parse(socket.send.mock.calls[0][0]);
+    for (let i = 0; i < 30; i++) bridge.updateGameContext('score ' + i);
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: 'unrelated' }));
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: first.event_id }));
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    const latest = JSON.parse(socket.send.mock.calls[1][0]);
+    expect(latest.content).toBe('score 29');
+    expect(latest.event_id).not.toBe(first.event_id);
+    bridge.updateGameContext('score 29');
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: latest.event_id }));
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+});
