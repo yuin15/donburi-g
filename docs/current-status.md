@@ -29,8 +29,9 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `63a5827f650052db5af5af630b573d6848ee51dd`（PR #87）。既定は映像なしのGPT-Live音声。ブラウザPCM再生・割り込み待ち音声の消去・任意映像・接続画面の調整を追加。
-- Vercel READY: `dpl_FCjMhbZS6tJQExRwrnSzg6LvgVGg`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- 公開コード: `98a5ee0cf2d6f082ea021941c342a8701c092bda`（PR #89の実装コミット）。#87の映像なし音声に、現在の首位を明示する文脈と重複するルール説明の削減を追加。クライアントの画面・操作は#87と同じ。
+- Vercel READY: `dpl_2zb5jzsH19SPBJssR8pfAAU8KseM`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
+- #89の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34692986660 （success）。実文脈生成処理を使う合成局面で首位への返答を確認。音声を人が聞いた遅延の検証とは分ける。未認証の音声アクセスはHTTP 401を維持。
 - #87のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34692346148 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34692381994 （success）。公開画面のJS `index-DcXOweyw.js` / CSS `index-C_glZ5y0.css`を照合。
 - #84のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34690618750 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34690704198 （success）。
 - 公開実APIの通し接続は97.761秒、準備4.665秒、388イベントの連番欠落0。手動16回/240点対自動30回/600点、配当内訳一致、WebSocket正常終了1000。VercelログでGPTの76秒＋結果4秒をともにfinalized=trueと確認。LiveAvatarは履歴95秒/1.6クレジット・終了時刻あり、残存接続0件。[公開Liveの記録](voice-spike.md)。
