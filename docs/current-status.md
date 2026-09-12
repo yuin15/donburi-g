@@ -24,10 +24,11 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- PC専用変更前の公開コード: `9fde0621255d197d92cc8a856896282006730af5`（PR #42）
-- Vercel READY: `dpl_kfU653ipTqNTULV4G9WBVqKZuv1f`
-- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34672296070 （success）
-- PC専用変更の公開追跡: https://github.com/yuin15/donburi-g/issues/43
+- 公開ゲームコード: `34566cde7cb2c8d2a319d123417998d845482519`（PR #44）
+- Vercel READY: `dpl_G86zFUeuH7aS5k9RMGi6T1icc5ky`
+- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34673051948 （success）
+- PC専用変更 #43 はマージ済み・クローズ。公開版の主JS `index-D2vs1ujK.js` とPC専用の案内文を確認。
+- 公開Chromeで大勝負→安定型を数字キー2→1で選び、60秒・30回転で3,120対2,760の勝利。履歴と結果の一致、再戦直後の0対0・未改造、Enter取消、ミュート保持を確認した。公開CPU対戦の外部/API要求0、JavaScriptエラー0。認証なしHTTP 401 / WebSocket拒否1008も再確認。
 - Git連動の自動デプロイは未接続。接続済みVercel APIで公開する。
 
 ## 今回スキップする確認

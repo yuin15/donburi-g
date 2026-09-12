@@ -1,0 +1,57 @@
+{
+  "commit": "34566cde7cb2c8d2a319d123417998d845482519",
+  "cache": "existing browser cache; transferSize is not a cold-load total",
+  "requests": 8,
+  "externalRequests": 0,
+  "apiRequests": 0,
+  "resources": [
+    {
+      "name": "https://slot-chan.vercel.app/assets/index-D2vs1ujK.js",
+      "encodedBodySize": 136731,
+      "transferSize": 137031,
+      "initiatorType": "script"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/assets/index-CvtvdQNR.css",
+      "encodedBodySize": 3809,
+      "transferSize": 4109,
+      "initiatorType": "link"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/art/symbols.webp",
+      "encodedBodySize": 93720,
+      "transferSize": 300,
+      "initiatorType": "css"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/art/coin.webp",
+      "encodedBodySize": 26710,
+      "transferSize": 300,
+      "initiatorType": "img"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/art/casino-stage.webp",
+      "encodedBodySize": 270940,
+      "transferSize": 300,
+      "initiatorType": "img"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/art/symbols.webp",
+      "encodedBodySize": 93720,
+      "transferSize": 300,
+      "initiatorType": "img"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/art/rival-expressions.webp",
+      "encodedBodySize": 145278,
+      "transferSize": 300,
+      "initiatorType": "img"
+    },
+    {
+      "name": "https://slot-chan.vercel.app/art/coin.webp",
+      "encodedBodySize": 26710,
+      "transferSize": 300,
+      "initiatorType": "other"
+    }
+  ]
+}
