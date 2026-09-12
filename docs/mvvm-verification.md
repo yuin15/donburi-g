@@ -26,3 +26,16 @@ Issue #72。約1,100行の`main.ts`を40行の起動・結線・破棄へ整理�
 観測: [初回対戦](evidence/mvvm/local-flow.json)、[再戦](evidence/mvvm/local-rematch-flow.json)、[DEV回転計測](evidence/mvvm/dev-motion.json)。
 
 実APIによる任意の音声・映像の接続確認は行っていない。今回の整理は、残っている実API・実機確認を完了扱いにするものではない。
+
+## 公開確認
+
+PR #73、コード `2e749af13e13c526f7cb2dfcaef75b4fbdbf4350` をVercel `dpl_Ft8atN2hnqA8ChSJY2mgJtuoTPjN`（READY）へ反映。マージ後CI [34684527781](https://github.com/yuin15/donburi-g/actions/runs/34684527781) 成功。
+
+公開Chromeで37回転、1,200対2,160の敗北まで確認。最初は2キーで大勝負を選択し、2回目は操作間隔が空いたため既定の安定型が適用された。期限後の1キー入力で変更されないことも確認。表示の得点・配当内訳・最高の一回・改造順が一致し、最後の回転は停止後に結果へ移った。
+
+結果詳細を開いて効果音を切り替えても詳細は開いたまま。再戦は0点・0回・60秒・内訳0行・閉じた状態へ初期化された。外部/API通信0、JavaScriptエラー0。新JS `index-DR4oln0M.js`、CSS `index-BgFTt2wz.css`、DEVツールなし。
+
+![公開版の対戦画面](evidence/mvvm/public-playing-1280.webp)
+![公開版の結果詳細](evidence/mvvm/public-result-1280.webp)
+
+公開観測: [public-flow.json](evidence/mvvm/public-flow.json)。
