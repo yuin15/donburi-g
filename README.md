@@ -10,7 +10,7 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 
 1. Click **CPUライバルと対戦**. No key, invitation, microphone, or external AI service is needed.
 2. Both sides auto-spin every 2 seconds for 60 seconds.
-3. At 20s and 40s, choose one reel upgrade: **steady** adds cherries; **jackpot** adds 7s.
+3. Preview the upgrade odds at 15s and 35s, then choose at 20s and 40s: **steady** adds cherries; **jackpot** adds 7s. Each selection window lasts 4 seconds; no selection applies steady.
 4. The CPU chooses its own legal upgrades. In optional voice/video mode, the rival can also respond to speech and game events.
 5. Highest confirmed coin total at 60 seconds wins.
 

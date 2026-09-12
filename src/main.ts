@@ -6,10 +6,12 @@ import {
   getSnapshot,
   startMatch,
   UPGRADE_DEFINITIONS,
+  UPGRADE_OPEN_SECONDS,
   PAYOUT,
   type GameEvent,
   type MatchState,
 } from './domain/game';
+import { describeUpgrade } from './domain/upgradePreview';
 import type { LiveClient } from './client/live';
 import { submitCpuUpgrade } from './client/cpu';
 import { ReelScene } from './view/ReelScene';
@@ -52,9 +54,9 @@ app.innerHTML = `
     <div class="connection" id="connection">接続していません</div>
   </aside>
   <div class="upgrade" id="upgrade" hidden>
-    <div><b>リール改造</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
-    <button data-up="steady" aria-pressed="false"><span class="symbol-icon cherry" aria-hidden="true"></span><strong>安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><kbd>1</kbd></button>
-    <button data-up="jackpot" aria-pressed="false"><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><kbd>2</kbd></button>
+    <div><b id="upgradeTitle">リール改造</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite" tabindex="-1"></small></div>
+    <button data-up="steady" aria-pressed="false"><span class="symbol-icon cherry" aria-hidden="true"></span><strong>安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><span class="upgrade-odds" id="steadyOdds"></span><small class="upgrade-target">チェリー3つで120点</small><kbd>1</kbd></button>
+    <button data-up="jackpot" aria-pressed="false"><span class="symbol-icon seven" aria-hidden="true"></span><strong>大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><span class="upgrade-odds" id="jackpotOdds"></span><small class="upgrade-target">7が3つで1,200点</small><kbd>2</kbd></button>
   </div>
   <footer>
     <div class="result" id="result" role="status" hidden><small>DUEL FINISHED</small><strong id="resultTitle"></strong><span id="resultScore"></span><p>改造を変えて、もう一度。</p></div>
@@ -68,6 +70,7 @@ app.innerHTML = `
     <div class="eyebrow">SLOT-CHAN · 60 SECOND DUEL</div>
     <h2 id="gateTitle">回して、改造して。<br><em>ライバルを超えろ。</em></h2>
     <p>60秒のスロット対戦。<br>20秒・40秒でリールを改造し、<br>ライバルより多くのコインを手に入れよう。</p>
+    <p class="gate-strategy">安定型で小当たりを増やすか、<br>大勝負で1,200点を狙うか。<br>改造の5秒前から、効果を見比べられます。</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>回転は自動。選ぶのは、勝ち方。</span></div>
     <button id="practice" class="primary">CPUライバルと対戦 <span>→</span></button>
     <small>PC用・無料・マイク不要。横画面1280×720以上で遊べます。</small>
@@ -121,6 +124,10 @@ let gameConnected = false;
 let lastInviteCode = '';
 let muted = false;
 let activeOffer: { index: 0 | 1; closesAt: number } | null = null;
+let previewOffer: 0 | 1 | null = null;
+let playerChoices: Partial<Record<0 | 1, UpgradeId>> = {};
+let upgradeReceipt = '';
+let upgradeReceiptUntil = 0;
 let assistantText = '';
 let assistantResetTimer = 0;
 let revision = 0;
@@ -212,6 +219,14 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
   const buildLabel = (upgrades: UpgradeId[]) => upgrades.length ? upgrades.map(id => id === 'steady' ? '安定型' : '大勝負').join(' / ') : '未改造';
   q('#playerBuild').textContent = buildLabel(snapshot.upgrades.player);
   q('#rivalBuild').textContent = buildLabel(snapshot.upgrades.rival);
+  q('#machineTrim').textContent = performance.now() < upgradeReceiptUntil ? upgradeReceipt : '中央の1ラインで判定 · 60秒の獲得コインで勝負';
+  if (!activeOffer) {
+    const upcoming = snapshot.status === 'playing' ? UPGRADE_OPEN_SECONDS.findIndex(at => snapshot.elapsed >= at - 5 && snapshot.elapsed < at) : -1;
+    if (upcoming >= 0) {
+      if (previewOffer !== upcoming) showUpgradePreview(upcoming as 0 | 1);
+      q('#upgradeRemain').textContent = `選択まで ${Math.ceil(UPGRADE_OPEN_SECONDS[upcoming] - snapshot.elapsed)}秒`;
+    } else if (previewOffer !== null) hideUpgrade();
+  }
   q('#upgradeProgress').textContent = snapshot.status === 'playing' ? activeOffer ? '改造を選ぼう！' : snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - snapshot.elapsed)}秒` : snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - snapshot.elapsed)}秒` : '改造完了・ラストスパート' : snapshot.status === 'result' ? '対戦終了' : '改造チャンス 20秒・40秒';
   q('#time').parentElement!.classList.toggle('urgent', snapshot.status === 'playing' && snapshot.remaining <= 10);
   if (snapshot.status === 'playing') {
@@ -236,12 +251,49 @@ function announce(text: string, sound: 'lead' | 'warning' | 'jackpot'): void {
   cueTimer = window.setTimeout(() => { q('#eventCue').hidden = true; }, 1800);
 }
 
+function fillUpgradeChoices(): void {
+  const percent = (chance: number) => `${(chance * 100).toFixed(1)}%`;
+  for (const id of ['steady', 'jackpot'] as const) {
+    const { before, after } = describeUpgrade(latestSnapshot?.upgrades.player ?? [], id);
+    const odds = q('#' + id + 'Odds');
+    odds.replaceChildren();
+    for (const [label, from, to] of [['当たり率', before.hitChance, after.hitChance], ['7揃い', before.sevenChance, after.sevenChance]] as const) {
+      const row = document.createElement('span');
+      const change = document.createElement('strong');
+      row.append(`${label} `);
+      change.textContent = `${percent(from)} → ${percent(to)}`;
+      row.append(change);
+      odds.append(row);
+    }
+  }
+}
+
+function showUpgradePreview(index: 0 | 1): void {
+  previewOffer = index;
+  upgradePanel.dataset.phase = 'preview';
+  q('#upgradeTitle').textContent = '改造プレビュー';
+  q('#upgradeNo').textContent = `${index + 1}/2 · 中央3つ揃いの確率`;
+  q('#upgradeChoice').textContent = '見比べよう。受付後に選べます';
+  fillUpgradeChoices();
+  upgradePanel.querySelectorAll('button').forEach(button => {
+    button.disabled = true;
+    button.setAttribute('aria-pressed', 'false');
+  });
+  upgradePanel.hidden = false;
+  q('.shell').dataset.upgrading = 'true';
+}
+
 function showUpgrade(index: 0 | 1, closesAt: number): void {
+  if (activeOffer?.index === index) return;
   beforeUpgradeFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   effects.play('choose');
+  previewOffer = null;
   activeOffer = { index, closesAt };
-  q('#upgradeNo').textContent = `${index + 1}/2`;
+  upgradePanel.dataset.phase = 'open';
+  q('#upgradeTitle').textContent = 'リール改造';
+  q('#upgradeNo').textContent = `${index + 1}/2 · 中央3つ揃いの確率`;
   q('#upgradeChoice').textContent = 'どちらか1つを選んで確定';
+  fillUpgradeChoices();
   upgradePanel.querySelectorAll('button').forEach((button) => {
     button.disabled = false;
     button.setAttribute('aria-pressed', 'false');
@@ -254,6 +306,7 @@ function showUpgrade(index: 0 | 1, closesAt: number): void {
 function hideUpgrade(): void {
   const restoreFocus = upgradePanel.contains(document.activeElement);
   activeOffer = null;
+  previewOffer = null;
   upgradePanel.hidden = true;
   q('.shell').dataset.upgrading = 'false';
   if (restoreFocus) {
@@ -261,6 +314,14 @@ function hideUpgrade(): void {
     else focusBattleControl();
   }
   beforeUpgradeFocus = null;
+}
+
+function confirmUpgrade(index: 0 | 1, applied: UpgradeId): void {
+  upgradeReceipt = playerChoices[index] === undefined
+    ? `改造${index + 1}: 未選択のため${UPGRADE_DEFINITIONS[applied].label}を適用 · 次の回転から有効`
+    : `改造${index + 1}: ${UPGRADE_DEFINITIONS[applied].label}を適用 · 次の回転から有効`;
+  upgradeReceiptUntil = performance.now() + 3500;
+  hideUpgrade();
 }
 
 function showResult(snapshot: MatchSnapshot): void {
@@ -275,6 +336,8 @@ function showResult(snapshot: MatchSnapshot): void {
 }
 
 function resetBattleUi(): void {
+  playerChoices = {};
+  upgradeReceiptUntil = 0;
   presentation.reset();
   scene.stop();
   reactionUntil = 0;
@@ -364,7 +427,7 @@ function handlePracticeEvent(event: GameEvent): void {
     }, 700);
   }
   if (event.type === 'upgrade_applied') {
-    hideUpgrade();
+    confirmUpgrade(event.offerIndex, event.player);
     q('#line').textContent = event.rival === 'jackpot' ? '「ここから大勝負で行く。」' : '「崩さず取りに行く。」';
   }
   if (event.type === 'match_end') {
@@ -439,7 +502,7 @@ function onLiveMessage(message: ServerMessage): void {
     return;
   }
   if (message.type === 'upgrade_applied') {
-    hideUpgrade();
+    confirmUpgrade(message.offerIndex, message.player);
     return;
   }
   if (message.type === 'rival_line') {
@@ -617,6 +680,7 @@ upgradePanel.addEventListener('click', (event) => {
   const upgradeId = button.dataset.up as UpgradeId;
   if (mode === 'practice' && practiceState && !submitCpuUpgrade(practiceState, 'player', activeOffer.index, upgradeId, practiceStartedAt)) return;
   if (mode === 'live') liveClient?.send({ type: 'upgrade', commandId: crypto.randomUUID(), upgradeId, offerIndex: activeOffer.index });
+  playerChoices[activeOffer.index] = upgradeId;
   effects.play('choose');
   upgradePanel.querySelectorAll('button').forEach((item) => {
     item.disabled = true;
@@ -674,6 +738,11 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-revi
       prepareCpuMatch();
       resetBattleUi();
       const snapshot: MatchSnapshot = { matchId: 'visual-fixture', status: 'playing', elapsed: 42, remaining: 18, round: 21, scores: { player: 1440, rival: 1200 }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, eventSeq: 1 };
+      if (example === 'upgrade') snapshot.upgrades = { player: ['steady'], rival: ['steady'] };
+      if (example === 'upgrade-preview') {
+        snapshot.elapsed = 15; snapshot.remaining = 45; snapshot.round = 7;
+        snapshot.upgrades = { player: [], rival: [] };
+      }
       presentation.scores = { ...snapshot.scores };
       renderSnapshot(snapshot);
       startButton.textContent = '自動回転中';

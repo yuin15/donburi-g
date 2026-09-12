@@ -1,7 +1,7 @@
 import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import type { ReelScene } from './ReelScene';
 
-type Example = 'normal' | 'small' | 'jackpot' | 'draw' | 'final' | 'upgrade';
+type Example = 'normal' | 'small' | 'jackpot' | 'draw' | 'final' | 'upgrade' | 'upgrade-preview';
 interface ReviewPort {
   scene: ReelScene;
   preview: (example: Example) => void;
@@ -16,7 +16,7 @@ export function mountVisualReview(port: ReviewPort): void {
   controls.id = 'visualReview';
   controls.style.cssText = 'position:fixed;z-index:80;left:8px;bottom:8px;max-width:96vw;padding:8px;background:#080b14ed;border:1px solid #cba768;color:white;font:12px system-ui';
   controls.innerHTML = `<details><summary>ローカル検収ツール（本番には含まれません）</summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-    <button data-example="normal">通常</button><button data-example="small">小当たり</button><button data-example="jackpot">7揃い・逆転</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button><button data-example="upgrade">改造選択</button>
+    <button data-example="normal">通常</button><button data-example="small">小当たり</button><button data-example="jackpot">7揃い・逆転</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button><button data-example="upgrade">改造選択</button><button data-example="upgrade-preview">改造の予告</button>
     <button id="recordMotion">8秒の回転を録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
     </div><output id="reviewStats" style="display:block;margin:8px 0"></output><details><summary>録画データ</summary><textarea id="recordingData" readonly aria-label="生成した回転動画のデータ"></textarea><video id="reviewVideo" src="/docs/evidence/visual-redesign/downward-reels-1920.webm" preload="metadata" controls muted style="display:block;max-width:400px"></video><button id="slowMotion">1/4速度で再生</button><label>動画時刻（秒）<input id="videoSeek" type="number" min="0" step="0.033" value="0"></label><button id="exportFrame">現在の動画フレームを書き出す</button><textarea id="frameData" readonly aria-label="動画フレームの画像データ"></textarea></details></details>`;
   document.body.append(controls);
