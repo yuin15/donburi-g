@@ -53,6 +53,14 @@
 
 ## 公開版の通し確認
 
+PC専用版はPR #44、main `34566cde7cb2c8d2a319d123417998d845482519`、Vercel `dpl_G86zFUeuH7aS5k9RMGi6T1icc5ky` READY。マージ後CI https://github.com/yuin15/donburi-g/actions/runs/34673051948 は成功。
+
+- 公開Chromeで数字キー2→1により大勝負→安定型を選択し、両ボタンのロックと履歴を確認。相手は大勝負→大勝負。60秒・30回転の結果は3,120対2,760でプレイヤー勝利。[改造1280×720](evidence/visual-redesign/pc-public-upgrade-1280.webp)、[結果1920×1080](evidence/visual-redesign/pc-public-result-1920.webp)。
+- 再戦直後に双方0点・未改造・結果非表示へ初期化し、ミュートを保持。Enterでカウントダウンを取り消してCPU入口へ戻れた。
+- [1試合のResource Timing](evidence/visual-redesign/pc-public-network.json)は8要求で外部/APIなし、任意LiveClient/LiveKitなし。既存の画像キャッシュを使用したため、transferSizeは初回転送量ではない。JavaScriptエラー0件。認証なしのHTTP 401 `invalid_access` とWebSocket `session_rejected` / close 1008を別途確認した。
+
+以下はPC専用化前のPR #41の記録。
+
 PR #41のmain `e99e88009c32f6fe0253d5c9d38409eda8d5fb9f`、Vercel `dpl_FSGJF8cRW24uwLu75jb4bTbsKhDS` はREADY。公開URLは https://slot-chan.vercel.app 。マージ後CI https://github.com/yuin15/donburi-g/actions/runs/34670929185 は成功。
 
 - 公開Chromeで40秒の改造を数字キー1で選択。終盤にページを25秒凍結し、復帰後360対840、双方30回転の決着へ追いついた。[対戦画面](evidence/visual-redesign/public-playing-1280.webp)、[結果1280](evidence/visual-redesign/public-result-1280.webp)、[結果1920](evidence/visual-redesign/public-result-1920.webp)。
