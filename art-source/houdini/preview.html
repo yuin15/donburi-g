@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Slot-chan · Gold coin study</title>
+<style>
+  *{box-sizing:border-box}body{margin:0;background:#0a0b10;color:#ffe5ac;font-family:Georgia,serif;height:100vh;overflow:hidden}
+  header{position:absolute;top:6%;left:6%;z-index:1}small{font:12px/1.8 system-ui,sans-serif;letter-spacing:.25em;color:#bd9250}h1{font-size:48px;font-weight:400;margin:10px 0}
+  #stage{height:100%;width:100%}canvas{display:block}footer{position:absolute;bottom:7%;left:6%;right:6%;display:flex;justify-content:space-between;align-items:center}
+  footer p{font:12px/1.8 system-ui,sans-serif;letter-spacing:.13em;color:#af9a79}button{border:1px solid #907043;border-radius:99px;padding:13px 24px;background:#17130d;color:#ffe5ac;cursor:pointer}button:hover{background:#352514}
+</style>
+<header><small>SLOT-CHAN / MODEL 01</small><h1>The lucky seven.</h1></header>
+<div id="stage" aria-label="Three views of the 3D gold coin"></div>
+<footer><p>DOUBLE-SIDED RELIEF &nbsp; / &nbsp; BEVELED RIM &nbsp; / &nbsp; MILLED EDGE</p><button id="motion">Pause rotation</button></footer>
+<script type="module">
+  import * as THREE from 'three';
+  import { createGoldCoinGeometry, createGoldCoinEnvironment, createGoldCoinMaterial } from '../../src/view/GoldCoin.ts';
+  const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  document.querySelector('#stage').append(renderer.domElement);
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(-150,150,84,-84,.1,500);
+  camera.position.z = 200;
+  const geometry = createGoldCoinGeometry();
+  const material = createGoldCoinMaterial(createGoldCoinEnvironment());
+  const coins = [-87,0,87].map((x,i)=>{
+    const coin = new THREE.Mesh(geometry,material);
+    coin.position.set(x,-5,0); coin.scale.setScalar(i===1?1.62:1.32);
+    coin.rotation.set(.2,i===0?.28:i===1?-.42:Math.PI-.5,i===1?-.13:.08);
+    scene.add(coin); return coin;
+  });
+  scene.add(new THREE.AmbientLight(0xffe8be,2.2));
+  const light = new THREE.DirectionalLight(0xffe8c2,1.5);
+  light.position.set(-70,110,160); scene.add(light);
+  const motion = document.querySelector('#motion');
+  let moving = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let angle = 0, last = performance.now();
+  function label(){motion.textContent = moving?'Pause rotation':'Rotate coin';}
+  motion.addEventListener('click',()=>{moving=!moving;label();}); label();
+  function resize(){renderer.setSize(innerWidth,innerHeight);const a=innerWidth/innerHeight;camera.left=-84*a;camera.right=84*a;camera.updateProjectionMatrix();renderer.render(scene,camera);}
+  addEventListener('resize',resize); resize();
+  renderer.setAnimationLoop(now=>{
+    const dt=Math.min(.05,(now-last)/1000);last=now;
+    if(!moving||document.hidden)return;
+    angle+=dt*.42;coins[1].rotation.y=-.42+angle;
+    renderer.render(scene,camera);
+  });
+</script>
+</html>

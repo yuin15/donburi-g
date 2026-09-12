@@ -69,24 +69,26 @@ def build_geometry(geo, segments=64, reeds=48):
             direction = tuple((q - p).cross(r - p).normalized())
             face(vertices, [direction] * 4, "coin_reeds")
 
-    # Two convex pieces form a generous, legible 7. The overlap stays inside
-    # the relief, avoiding a dependency on installed fonts or font licensing.
-    pieces = [ [(-.39, .45), (-.39, .25), (.35, .25), (.39, .45)],
-               [(.105, .29), (-.30, -.46), (-.035, -.46), (.365, .29)] ]
+    # A single solid silhouette avoids a seam where the bar meets the diagonal.
+    # The raised face is inset slightly to catch a highlight along its bevel.
+    outline = [(-.40, .46), (-.40, .25), (.10, .25), (-.31, -.46),
+               (-.04, -.46), (.39, .30), (.43, .46)]
+    inset = []
+    for i, (x, y) in enumerate(outline):
+        px, py = outline[i - 1]
+        qx, qy = outline[(i + 1) % len(outline)]
+        a, b = math.hypot(x - px, y - py), math.hypot(qx - x, qy - y)
+        n0, n1 = (-(y - py) / a, (x - px) / a), (-(qy - y) / b, (qx - x) / b)
+        distance = .018 / (1 + n0[0] * n1[0] + n0[1] * n1[1])
+        inset.append((x + (n0[0] + n1[0]) * distance, y + (n0[1] + n1[1]) * distance))
     for side in (-1, 1):
-        for outline in pieces:
-            contour = [(x * side, y) for x, y in outline]
-            signed_area = sum(x * contour[(i + 1) % len(contour)][1]
-                              - y * contour[(i + 1) % len(contour)][0]
-                              for i, (x, y) in enumerate(contour))
-            if signed_area * side < 0:
-                contour.reverse()
-            back = [(x, y, .078 * side) for x, y in contour]
-            front = [(x, y, .143 * side) for x, y in contour]
-            face(front, [(0.0, 0.0, float(side))] * len(front), "coin_seven")
-            face(list(reversed(back)), [(0.0, 0.0, float(-side))] * len(back), "coin_seven")
-            for i in range(len(contour)):
-                j = (i + 1) % len(contour)
+        contours = [[(x * side, y, z * side) for x, y in shape]
+                    for shape, z in ((outline, .078), (outline, .122), (inset, .143))]
+        face(contours[-1], [(0.0, 0.0, float(side))] * len(outline), "coin_seven")
+        face(list(reversed(contours[0])), [(0.0, 0.0, float(-side))] * len(outline), "coin_seven")
+        for back, front in zip(contours, contours[1:]):
+            for i in range(len(outline)):
+                j = (i + 1) % len(outline)
                 vertices = [back[i], back[j], front[j], front[i]]
                 p, q, r = (hou.Vector3(v) for v in vertices[:3])
                 direction = tuple((q - p).cross(r - p).normalized())
@@ -116,13 +118,25 @@ def main():
     source = Path(__file__).read_text(encoding="utf-8")
     embedded = source[:source.index("\ndef main():")]
     generator.parm("python").set(embedded + "\nnode = hou.pwd()\nbuild_geometry(node.geometry(), node.evalParm('segments'), node.evalParm('reeds'))\n")
+    triangles = container.createNode("divide", "triangulate_for_web")
+    triangles.setInput(0, generator)
     output = container.createNode("null", "OUT_COIN")
-    output.setInput(0, generator)
+    output.setInput(0, triangles)
     output.setDisplayFlag(True)
     output.setRenderFlag(True)
     container.layoutChildren()
     geometry = output.geometry()
-    geometry.saveToFile(str(exported / "slot-chan-coin.obj"))
+    asset = exported / "slot-chan-coin.obj"
+    geometry.saveToFile(str(asset))
+    # Five decimals are far below one screen pixel at the game's scale. Keep
+    # the web asset compact while retaining full precision in the native scene.
+    lines = []
+    for line in asset.read_text().splitlines():
+        if line.startswith(("v ", "vn ")):
+            parts = line.split()
+            line = parts[0] + " " + " ".join(str(round(float(value), 5)) for value in parts[1:])
+        lines.append(line.rstrip())
+    asset.write_text("\n".join(lines) + "\n", encoding="utf-8")
     hou.hipFile.save(str(local / "slot-chan-coin.hipnc"), save_to_recent_files=False)
     print(json.dumps({"houdini": hou.applicationVersionString(),
                       "points": len(geometry.points()), "polygons": len(geometry.prims()),

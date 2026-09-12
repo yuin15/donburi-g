@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Side } from '../../shared/protocol';
 import { STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
-import { createGoldCoinEnvironment, createGoldCoinGeometry } from './GoldCoin';
+import { createGoldCoinEnvironment, createGoldCoinGeometry, createGoldCoinMaterial } from './GoldCoin';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false });
@@ -30,12 +30,10 @@ export class CabinetArt {
   private resultUntil = 0;
 
   constructor() {
-    const coin = () => new THREE.MeshStandardMaterial({
-      vertexColors: true, metalness: .86, roughness: .27,
-      envMap: this.coinEnvironment, envMapIntensity: 1.6,
-      transparent: true,
-    });
-    this.coinMaterials = { player: coin(), rival: coin() };
+    this.coinMaterials = {
+      player: createGoldCoinMaterial(this.coinEnvironment),
+      rival: createGoldCoinMaterial(this.coinEnvironment),
+    };
     this.coins = Array.from({ length: 24 }, (_, index) => {
       const mesh = new THREE.Mesh(this.coinGeometry, this.coinMaterials[index < 12 ? 'player' : 'rival']);
       mesh.visible = false; mesh.name = 'win-coin';

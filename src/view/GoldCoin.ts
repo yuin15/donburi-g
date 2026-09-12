@@ -28,6 +28,13 @@ export function createGoldCoinGeometry(): THREE.BufferGeometry {
   return geometry;
 }
 
+export function createGoldCoinMaterial(environment: THREE.Texture): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    vertexColors: true, metalness: .86, roughness: .27,
+    envMap: environment, envMapIntensity: 1.6, transparent: true,
+  });
+}
+
 /** Small studio light map: soft white panels, a cool rim and a dark lower fill. */
 export function createGoldCoinEnvironment(): THREE.DataTexture {
   const width = 128, height = 64;
