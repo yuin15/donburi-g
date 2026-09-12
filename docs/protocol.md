@@ -21,7 +21,7 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 - `close` — end the whole session.
 
 Unknown/oversized/invalid payloads do not mutate game state.
-The connection closes above 120 messages or 192,000 audio base64 characters per one-second bucket; individual JSON input is limited to 300,000 characters. The 120-second session lifetime remains a separate bound.
+The connection closes above 120 messages or 192,000 audio base64 characters per one-second bucket; individual JSON input is limited to 300,000 characters. Provider initialization starts an independent 120-second teardown deadline; remote cleanup/final usage can finish later.
 
 ## Server messages
 
@@ -49,4 +49,6 @@ Duplicate/older deliveries are ignored. A sequence gap requests one current snap
 
 The MVP intentionally does not resume a disconnected live match. WebSocket loss aborts it and tears down upstream services. UI can start a fresh rematch explicitly. AI latency never pauses the game timer; rival inference uses a bounded deterministic fallback on timeout/failure, and a late answer cannot overwrite the closed choice window.
 
-Pending live reaction candidates are scoped to one MatchSession, deduplicated by event/round, checked again against current state and expired after 1.8 seconds. A same-round jackpot outranks a lead change. At most five spontaneous in-match requests plus one final-result request are sent, with a three-second interval. The final result clears pending old commentary. Stopping voice or the whole session clears all timers/candidates. Already transmitted provider audio and audible interruption/latency still require real-media verification under #3/#8.
+Pending live reaction candidates are scoped to one MatchSession, deduplicated by event/round, checked again against current state and expired after 1.8 seconds. A same-round jackpot outranks a lead change. At most five spontaneous in-match requests are sent, with a three-second interval. The final result clears pending commentary and invalidates that GPT connection's audio/transcript callbacks. After its transport closes and LiveAvatar acknowledges the matching buffer-clear event, a second GPT connection receives the final state and a short, explicitly untrusted user quote in its startup context and one final reaction request. Failure skips the reaction. No third connection is attempted.
+
+On a result snapshot or match_ended, the client immediately stops microphone capture/sends, including while recovering a sequence gap. LiveKit remains available for result playback. The server supplies real-time PCM16 24kHz mono silence during this final phase. Its output and timer use the earlier of result+8 seconds or the original session deadline. Stopping voice or the whole session clears timers/candidates. The first UI result transition clears the old caption accumulator; duplicate result messages retain the new caption. Already delivered browser audio and actual interruption/latency still require real-media verification under #3/#8.

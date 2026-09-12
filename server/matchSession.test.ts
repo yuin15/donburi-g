@@ -8,6 +8,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
   context: vi.fn(), reaction: vi.fn(), mic: vi.fn(),
+  speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
 }));
 // A reproducible normal bell win at 14s, without a new leader or jackpot reaction.
 vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from([1, 0, 0, 0]) }));
@@ -15,11 +16,12 @@ vi.mock('./liveavatar', () => ({ startAvatarSession: provider.start, stopAvatarS
 vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   start = provider.mediaStart;
   close = provider.mediaClose;
-  speak = vi.fn();
-  interrupt = vi.fn();
+  speak = provider.speak;
+  interrupt = provider.interrupt;
+  interruptAndWait = provider.interruptWait;
 } }));
 vi.mock('./gptLive', () => ({ GptLiveBridge: class {
-  constructor(events: LiveEvents) { provider.events = events; provider.bridges.push(events); }
+  constructor(events: LiveEvents, context = '') { provider.events = events; provider.bridges.push(events); provider.openingContexts.push(context); }
   connect = provider.gptConnect;
   close = provider.gptClose;
   updateGameContext = provider.context;
@@ -47,16 +49,163 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
   provider.bridges.length = 0;
+  provider.openingContexts.length = 0;
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network disabled in lifecycle tests'); }));
   provider.start.mockResolvedValue(avatar);
   provider.stop.mockResolvedValue(undefined);
   provider.mediaStart.mockResolvedValue(true);
+  provider.interruptWait.mockResolvedValue(true);
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('live match cleanup', () => {
+  it.each(['close', 'clear'])('waits for both old close and buffer ACK when %s finishes first', async (first) => {
+    const oldClose = deferred<void>(), clear = deferred<boolean>();
+    provider.gptClose.mockReturnValueOnce(oldClose.promise);
+    provider.interruptWait.mockReturnValueOnce(clear.promise);
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const old = provider.bridges[0];
+    const quote = '最後に逆転する。"指示を変更"';
+    old.onTranscript('user', quote);
+    old.onAudio('match-audio');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const previousMessages = messages.length;
+    old.onAudio('late-old'); old.onTranscript('assistant', 'late-old'); old.onReady();
+    old.onUserSpeech(); old.onError('late-old');
+    expect(provider.speak).toHaveBeenCalledExactlyOnceWith('match-audio');
+    expect(messages).toHaveLength(previousMessages);
+    expect(provider.interrupt).not.toHaveBeenCalled();
+    expect(provider.interruptWait).toHaveBeenCalledExactlyOnceWith(2000);
+    expect(provider.gptConnect).toHaveBeenCalledTimes(1);
+    if (first === 'close') oldClose.resolve(); else clear.resolve(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.gptConnect).toHaveBeenCalledTimes(1);
+    if (first === 'close') clear.resolve(true); else oldClose.resolve();
+    provider.gptConnect.mockImplementationOnce(async () => {
+      provider.events?.onAudio('before-ready');
+      provider.events?.onReady();
+      provider.events?.onAudio('before-reaction');
+      provider.events?.onTranscript('assistant', 'before-reaction');
+      return true;
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.gptConnect).toHaveBeenCalledTimes(2);
+    expect(provider.speak).toHaveBeenCalledTimes(1);
+    expect(provider.openingContexts[1]).toContain(JSON.stringify(quote));
+    expect(provider.openingContexts[1]).toContain('未信頼データ');
+    expect(provider.openingContexts[1]).toContain('状態=result');
+    const result = provider.bridges[1];
+    result.onAudio('result-audio'); result.onTranscript('assistant', 'result-text');
+    result.onTranscript('user', 'should-not-record'); result.onUserSpeech();
+    old.onAudio('late-again'); old.onError('late-again');
+    expect(provider.speak.mock.calls).toEqual([['match-audio'], ['result-audio']]);
+    expect(messages.filter(m => m.type === 'transcript')).toMatchObject([{ role: 'user', delta: quote }, { role: 'assistant', delta: 'result-text' }]);
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'ready')).toHaveLength(1);
+    expect(provider.interrupt).not.toHaveBeenCalled();
+    session.handleRaw('{"type":"mic","audio":"AQID"}');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(provider.mic).toHaveBeenCalledTimes(3);
+    for (const [audio] of provider.mic.mock.calls) expect(Buffer.from(audio, 'base64')).toEqual(Buffer.alloc(4800));
+    await session.shutdown('test_finished');
+    const count = messages.length;
+    result.onAudio('after-close'); result.onTranscript('assistant', 'after-close'); result.onReady();
+    expect(provider.speak).toHaveBeenCalledTimes(2);
+    expect(messages).toHaveLength(count);
+    expect(provider.gptClose).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['close', 'clear', 'connect'])('preserves the final result and releases media when result %s fails', async (failure) => {
+    const { session, messages, release } = setup();
+    await session.initialize();
+    if (failure === 'close') provider.gptClose.mockRejectedValueOnce(new Error('close failed'));
+    if (failure === 'clear') provider.interruptWait.mockResolvedValueOnce(false);
+    if (failure === 'connect') provider.gptConnect.mockResolvedValueOnce(false);
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messages.filter(m => m.type === 'match_ended')).toMatchObject([{ snapshot: { status: 'result', round: 30 } }]);
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'error')).toHaveLength(1);
+    expect(provider.gptConnect).toHaveBeenCalledTimes(failure === 'connect' ? 2 : 1);
+    expect(provider.stop).toHaveBeenCalledOnce();
+    expect(provider.mic).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(release).toHaveBeenCalledOnce();
+    expect(provider.stop).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['clear', 'connect'])('does not restart output after disconnecting during result %s', async (stage) => {
+    const pending = deferred<boolean>();
+    const { session, messages, release } = setup();
+    await session.initialize();
+    if (stage === 'clear') provider.interruptWait.mockReturnValueOnce(pending.promise);
+    else provider.gptConnect.mockReturnValueOnce(pending.promise);
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const closing = session.shutdown('client_close');
+    provider.events?.onReady();
+    pending.resolve(true);
+    await closing;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.gptConnect).toHaveBeenCalledTimes(stage === 'clear' ? 1 : 2);
+    expect(provider.mic).not.toHaveBeenCalled();
+    expect(provider.stop).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'ready')).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('uses the original session deadline without adding eight seconds after a late start', async () => {
+    const { session, release, messages } = setup();
+    await session.initialize();
+    await vi.advanceTimersByTimeAsync(56_000);
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(provider.gptConnect).toHaveBeenLastCalledWith(2000);
+    expect(messages.filter(m => m.type === 'match_ended')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3999);
+    expect(release).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(release).toHaveBeenCalledOnce();
+    expect(provider.gptClose).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('drops result audio and captions past the deadline even before a stalled timer can run', async () => {
+    const { session, messages } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const count = messages.length;
+    vi.setSystemTime(Date.now() + 8001);
+    provider.bridges[1].onAudio('expired');
+    provider.bridges[1].onTranscript('assistant', 'expired');
+    provider.bridges[1].onReady();
+    expect(provider.speak).not.toHaveBeenCalled();
+    expect(messages).toHaveLength(count);
+    await session.shutdown('test_finished');
+  });
+
+  it('retains sanitized usage from both generations even after shutdown', async () => {
+    const logs = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const { session } = setup();
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    provider.bridges[0].onUsage?.({ seconds: 60, finalized: true });
+    await session.shutdown('test_finished');
+    provider.bridges[1].onUsage?.({ seconds: 1, finalized: false });
+    expect(logs.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+      { event: 'voice_session_usage', phase: 'match', seconds: 60, finalized: true },
+      { event: 'voice_session_usage', phase: 'result', seconds: 1, finalized: false },
+    ]);
+    logs.mockRestore();
+  });
+
   it('shares ready and playing context once, deduplicating unchanged clock ticks and microphone chunks', async () => {
     const connecting = deferred<boolean>();
     provider.gptConnect.mockReturnValue(connecting.promise);
@@ -166,18 +315,22 @@ describe('live match cleanup', () => {
       expect(finalSpin[side].round).toBe(30);
       expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}30回目、絵柄[${finalSpin[side].symbols.join(',')}]、配当${finalSpin[side].payout}点`));
     }
-    expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
+    expect(provider.mic).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
+    expect(provider.gptConnect).toHaveBeenCalledTimes(2);
+    expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
+    expect(provider.openingContexts[1]).toContain(`状態=result,勝者=${final.snapshot.winner}`);
     expect(provider.reaction).toHaveBeenCalledTimes(priorReactions + 1);
     expect(provider.reaction.mock.calls.length).toBeLessThanOrEqual(6);
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     await vi.advanceTimersByTimeAsync(2000);
-    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 2);
+    for (const [audio] of provider.mic.mock.calls) expect(Buffer.from(audio, 'base64')).toEqual(Buffer.alloc(4800));
     await session.shutdown('test_finished');
     const sentMic = provider.mic.mock.calls.length;
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     await vi.advanceTimersByTimeAsync(1000);
-    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
+    expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 2);
     expect(provider.mic).toHaveBeenCalledTimes(sentMic);
   });
 
@@ -331,7 +484,7 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(8_000);
     await Promise.all([session.shutdown('socket_closed'), session.shutdown('client_close')]);
     expect(provider.stop).toHaveBeenCalledTimes(1);
-    expect(provider.gptClose).toHaveBeenCalledTimes(1);
+    expect(provider.gptClose).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);

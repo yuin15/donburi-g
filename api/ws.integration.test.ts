@@ -7,10 +7,20 @@ import type { LiveEvents } from '../server/gptLive';
 import { parseServerEnvelope } from '../shared/wire';
 import { PAYOUT } from '../src/domain/game';
 
+interface VoiceMock {
+  events: LiveEvents;
+  openingContext: string;
+  close: ReturnType<typeof vi.fn>;
+  updateGameContext: ReturnType<typeof vi.fn>;
+  requestReaction: ReturnType<typeof vi.fn>;
+  sendMic: ReturnType<typeof vi.fn>;
+}
+
 const provider = vi.hoisted(() => ({
   claim: vi.fn(), release: vi.fn(), start: vi.fn(), stop: vi.fn(),
   mediaStart: vi.fn(), mediaClose: vi.fn(), gptConnect: vi.fn(), gptClose: vi.fn(),
-  brain: vi.fn(), events: null as LiveEvents | null,
+  mediaInterrupt: vi.fn(), mediaSpeak: vi.fn(),
+  brain: vi.fn(), bridges: [] as VoiceMock[],
 }));
 vi.mock('../server/auth', () => ({
   isAllowedOrigin: () => true,
@@ -22,13 +32,14 @@ vi.mock('../server/liveavatar', () => ({ startAvatarSession: provider.start, sto
 vi.mock('../server/mediaServer', () => ({ MediaServerLeg: class {
   start = provider.mediaStart;
   close = provider.mediaClose;
-  speak = vi.fn();
+  speak = provider.mediaSpeak;
   interrupt = vi.fn();
+  interruptAndWait = provider.mediaInterrupt;
 } }));
 vi.mock('../server/gptLive', () => ({ GptLiveBridge: class {
-  constructor(events: LiveEvents) { provider.events = events; }
-  connect = provider.gptConnect;
-  close = provider.gptClose;
+  constructor(readonly events: LiveEvents, readonly openingContext = '') { provider.bridges.push(this); }
+  connect = (timeoutMs?: number) => provider.gptConnect(this.events, timeoutMs);
+  close = vi.fn(() => provider.gptClose());
   updateGameContext = vi.fn();
   requestReaction = vi.fn();
   sendMic = vi.fn();
@@ -47,6 +58,7 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   vi.resetAllMocks();
+  provider.bridges.length = 0;
   now = START_TIME;
   vi.spyOn(Date, 'now').mockImplementation(() => now);
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('External network disabled in WebSocket integration tests'); }));
@@ -55,7 +67,8 @@ beforeEach(() => {
   provider.start.mockResolvedValue({ sessionId: 'test-avatar', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' });
   provider.stop.mockResolvedValue(undefined);
   provider.mediaStart.mockResolvedValue(true);
-  provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
+  provider.mediaInterrupt.mockResolvedValue(true);
+  provider.gptConnect.mockImplementation(async (events: LiveEvents) => { events.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
   provider.brain.mockImplementation(async (_snapshot: unknown, index: number) => ({ upgradeId: index === 0 ? 'steady' : 'jackpot', source: 'ai' }));
 });
@@ -115,6 +128,10 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   expect(provider.claim).toHaveBeenCalledExactlyOnceWith('ws-integration-match', 1700000120);
   wire.send({ type: 'start' });
   await wire.waitFor(message => message.type === 'snapshot' && message.snapshot.status === 'playing' && message.snapshot.round === 0);
+  const matchVoice = provider.bridges[0];
+  wire.send({ type: 'mic', audio: 'AQIDBA==' });
+  await wire.barrier();
+  expect(matchVoice.sendMic).toHaveBeenCalledExactlyOnceWith('AQIDBA==');
 
   for (const index of [0, 1] as const) {
     now = START_TIME + (index === 0 ? 20000 : 40000);
@@ -145,6 +162,53 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   if (voice === 'connected') expect(ended.snapshot.upgrades.rival).toEqual(['steady', 'jackpot']);
   expect(provider.brain).toHaveBeenCalledTimes(voice === 'connected' ? 2 : 1);
   expect(provider.release).not.toHaveBeenCalled();
+
+  await wire.barrier();
+  if (voice === 'connected') {
+    expect(provider.mediaInterrupt).toHaveBeenCalledOnce();
+    expect(provider.gptConnect).toHaveBeenCalledTimes(2);
+    expect(provider.bridges).toHaveLength(2);
+    const resultVoice = provider.bridges[1];
+    expect(matchVoice.close).toHaveBeenCalledOnce();
+    expect(resultVoice.close).not.toHaveBeenCalled();
+    expect(resultVoice.openingContext).toContain(`プレイヤー${ended.snapshot.scores.player}点、あなた${ended.snapshot.scores.rival}点`);
+    expect(resultVoice.openingContext).toContain(`状態=result,勝者=${ended.snapshot.winner}`);
+    expect(resultVoice.openingContext).toContain('プレイヤー30回目');
+    expect(resultVoice.updateGameContext).toHaveBeenCalledOnce();
+    expect(resultVoice.requestReaction).toHaveBeenCalledOnce();
+    expect(resultVoice.updateGameContext.mock.invocationCallOrder[0]).toBeLessThan(resultVoice.requestReaction.mock.invocationCallOrder[0]);
+    expect(resultVoice.requestReaction.mock.invocationCallOrder[0]).toBeLessThan(resultVoice.sendMic.mock.invocationCallOrder[0]);
+    const silentChunksBefore = resultVoice.sendMic.mock.calls.length;
+    expect(silentChunksBefore).toBeGreaterThan(0);
+    wire.send({ type: 'mic', audio: 'BQYHCA==' });
+    wire.send({ type: 'start' }); // A settled connection cannot create another game or voice.
+    await wire.barrier();
+    await new Promise(resolve => setTimeout(resolve, 220));
+    expect(resultVoice.sendMic.mock.calls.length).toBeGreaterThan(silentChunksBefore);
+    for (const [audio] of resultVoice.sendMic.mock.calls) {
+      const pcm = Buffer.from(audio, 'base64');
+      expect(pcm).toHaveLength(4800); // 100 ms at 24 kHz, 16-bit mono.
+      expect(pcm.equals(Buffer.alloc(4800))).toBe(true);
+    }
+    expect(matchVoice.sendMic).toHaveBeenCalledExactlyOnceWith('AQIDBA==');
+    matchVoice.events.onAudio('old-generation-audio');
+    matchVoice.events.onTranscript('assistant', 'old-generation-caption');
+    matchVoice.events.onError('old-generation-error');
+    resultVoice.events.onAudio('result-generation-audio');
+    resultVoice.events.onTranscript('assistant', 'result-generation-caption');
+    await wire.waitFor(message => message.type === 'transcript' && message.delta === 'result-generation-caption');
+    expect(provider.mediaSpeak).toHaveBeenCalledExactlyOnceWith('result-generation-audio');
+    expect(wire.messages.some(message => message.type === 'transcript' && message.delta === 'old-generation-caption')).toBe(false);
+    expect(resultVoice.close).not.toHaveBeenCalled();
+    expect(provider.bridges).toHaveLength(2);
+  } else {
+    expect(provider.mediaInterrupt).not.toHaveBeenCalled();
+    expect(provider.gptConnect).toHaveBeenCalledOnce();
+    expect(provider.bridges).toHaveLength(1);
+    wire.send({ type: 'mic', audio: 'BQYHCA==' });
+    await wire.barrier();
+    expect(matchVoice.sendMic).toHaveBeenCalledExactlyOnceWith('AQIDBA==');
+  }
 
   const spins = wire.messages.filter(message => message.type === 'spin');
   expect(spins.map(message => message.player.round)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
@@ -183,6 +247,10 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   expect(provider.start).toHaveBeenCalledOnce();
   expect(provider.stop).toHaveBeenCalledExactlyOnceWith('test-avatar');
   expect(provider.mediaClose).toHaveBeenCalledOnce();
-  expect(provider.gptClose).toHaveBeenCalledOnce();
+  expect(provider.gptClose).toHaveBeenCalledTimes(voice === 'connected' ? 2 : 1);
+  for (const bridge of provider.bridges) expect(bridge.close).toHaveBeenCalledOnce();
+  const audioCountsAtClose = provider.bridges.map(bridge => bridge.sendMic.mock.calls.length);
+  await new Promise(resolve => setTimeout(resolve, 120));
+  expect(provider.bridges.map(bridge => bridge.sendMic.mock.calls.length)).toEqual(audioCountsAtClose);
   expect(fetch).not.toHaveBeenCalled();
 }, 10000);
