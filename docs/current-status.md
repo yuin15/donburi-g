@@ -27,9 +27,10 @@
 ## 公開記録
 
 - URL: https://slot-chan.vercel.app
-- 公開コード: `4399179ef8f3269ff3b54156d29fb8386c1da973`（PR #80）。ライバルの独立した自動回転と改造の撤去を含む。#81の英語UIは実装・ローカル確認済みで、公開後にこの記録を更新する。
-- Vercel READY: `dpl_5vFMufXiVczFTyNywcqa5KCpGYyU`
-- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34687651779 （success）
+- 公開コード: `042c2905b0ad17e0260e5d2dc577513f33347a5f`（PR #82）。独立したライバル回転、改造撤去、英語UI、大型スコア、左右別BIG WINを含む。#81も完了として閉じた。
+- Vercel READY: `dpl_76WK2uwoT7PJCsebRMb7hRnXR4fz`
+- マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34688959719 （success）
+- #82の公開Chromeで8回/0点対30回/1,440点の60秒対戦、配当内訳、再戦初期化、Space予約、退出を確認。外部/API要求なし。[英語版の公開確認](english-win-presentation.md)。
 - #80の公開Chromeで4回だけ手動回転後に無操作とし、プレイヤー4回/0点、ライバル30回/840点で決着。任意Live/API要求なし。[公開確認](independent-duel.md)。
 - #75の公開Chrome確認で、Space先行入力・開始後の両者回転・クリック/Tab/Enter取消が成功。主JS `index-CS9XBjIE.js`、CSS `index-aE-Q_cR0.css`。外部/API要求と任意Liveクライアントの読み込みなし。[開始操作の公開確認](countdown-start.md)。
 - #63/#64/#68/#70/#72をクローズ。PR #73の公開Chromeでは37回転、1,200対2,160の結果・内訳・最終停止・再戦初期化を確認。外部/API通信0、JavaScriptエラー0。[MVVMの公開確認](mvvm-verification.md)。
@@ -41,9 +42,9 @@
 - PR #56では画面のJS/CSSハッシュが変わらないことを確認し、公開入口と結果表、JSエラー0、HTTP 401 / WebSocket1008を再確認した。実Liveの有料接続は行っていない。
 - Git連動の自動デプロイは未接続。接続済みVercel APIで公開する。
 
-## 今回スキップする確認
+## 残る確認
 
-ユーザーの「できない項目はスキップして別の作業を進める」方針に従う。以下を完了扱いで閉じず、無料CPU対戦の利用条件にも戻さない。
+ユーザーの追加指示で、GPT-Live-1の実音声接続を再開する。以下を完了扱いで閉じず、確認できたものから更新する。音声・映像は引き続き任意で、無料CPU対戦は独立して遊べる。
 
 | Issue | 実装・確認済み | 残る確認 |
 | --- | --- | --- |
