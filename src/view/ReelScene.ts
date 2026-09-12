@@ -50,6 +50,7 @@ const fragmentShader = `
 interface PendingSpin {
   spin: SpinView;
   started: number;
+  stoppedColumns: number;
   travel: ReelTravel[];
   complete: (celebrate: boolean) => void;
 }
@@ -63,6 +64,8 @@ export class ReelScene {
   private textures: THREE.Texture[] = [];
   private planes: THREE.Mesh[] = [];
   private portraitTexture: THREE.Texture;
+  private portraitExpression = 0;
+  private portraitReactionUntil = 0;
   private frame = 0;
   private pending: Partial<Record<Side, PendingSpin>> = {};
   private winUntil = 0;
@@ -76,7 +79,7 @@ export class ReelScene {
   private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
   private activeStrips = this.stagedStrips;
 
-  constructor(private readonly host: HTMLElement) {
+  constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -196,7 +199,7 @@ export class ReelScene {
     this.applyStagedStrips(side);
     const start = side === 'player' ? 0 : 3;
     this.pending[side] = {
-      spin, complete, started: performance.now(),
+      spin, complete, started: performance.now(), stoppedColumns: 0,
       travel: spin.symbols.map((symbol, i) => planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
     };
     this.updateSpinning();
@@ -214,6 +217,7 @@ export class ReelScene {
     if (this.disposed) return;
     this.clearWin();
     this.pending = {};
+    this.portraitReactionUntil = 0;
     this.lastRound = { player: 0, rival: 0 };
     this.applyStagedStrips();
     this.host.dataset.round = '0';
@@ -226,11 +230,22 @@ export class ReelScene {
 
   setExpression(expression: RivalExpression): void {
     const index = EXPRESSIONS.indexOf(expression);
-    const x = (index % 2) * .5;
-    const y = index < 2 ? .5 : 0;
-    if (this.portraitTexture.offset.x === x && this.portraitTexture.offset.y === y) return;
-    this.portraitTexture.offset.set(x, y);
+    if (this.portraitExpression === index) return;
+    this.portraitExpression = index;
+    this.portraitReactionUntil = !this.motionPreference.matches && !document.hidden ? performance.now() + 420 : 0;
+    this.posePortrait(performance.now());
     this.requestRender();
+  }
+
+  private posePortrait(now: number): boolean {
+    const remaining = this.motionPreference.matches ? 0 : Math.max(0, (this.portraitReactionUntil - now) / 420);
+    // Crop within one atlas cell; the portrait frame and face proportions stay fixed.
+    const zoom = 1 + Math.sin(remaining * Math.PI) * (this.portraitExpression === 2 ? .045 : .022);
+    const size = .5 / zoom;
+    const inset = (.5 - size) / 2;
+    this.portraitTexture.repeat.set(size, size);
+    this.portraitTexture.offset.set(this.portraitExpression % 2 * .5 + inset, (this.portraitExpression < 2 ? .5 : 0) + inset);
+    return remaining > 0;
   }
 
   /** Decorate the confirmed result without changing the settled reels or payout. */
@@ -355,6 +370,11 @@ export class ReelScene {
       this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach((m, i) => {
         if (!reduced || finished) m.uniforms.offset.value = finished ? pending.travel[i].to : travelAt(pending.travel[i], elapsed);
       });
+      const stoppedColumns = reduced ? finished ? 3 : 0 : pending.travel.filter(travel => elapsed >= travel.duration).length;
+      while (pending.stoppedColumns < stoppedColumns) {
+        if (elapsed <= 1800) this.onReelStop(side, pending.stoppedColumns);
+        pending.stoppedColumns++;
+      }
       if (finished) {
         delete this.pending[side];
         this.updateSpinning();
@@ -371,7 +391,8 @@ export class ReelScene {
       if (now >= this.rivalWinUntil) this.clearRivalWin();
       else this.materials.slice(3).forEach(m => { m.uniforms.winning.value = Math.min(1, (this.rivalWinUntil - now) / 180); });
     }
-    const animating = this.cabinet.update(now, this.motionPreference.matches);
+    const portraitMoving = this.posePortrait(now);
+    const animating = this.cabinet.update(now, this.motionPreference.matches) || portraitMoving;
     this.renderer.render(this.scene, this.camera);
     // Scores, speech and sound follow the actual settled frame.
     completions.forEach(complete => complete());

@@ -26,7 +26,7 @@ export class GameView implements GamePresentation {
       });
     }
     this.video = this.q<HTMLVideoElement>('#avatar');
-    this.scene = new ReelScene(this.q('#stageArt'));
+    this.scene = new ReelScene(this.q('#stageArt'), (side, column) => this.audio.reelStop(side, column));
   }
 
   private q<T extends HTMLElement = HTMLElement>(selector: string): T {
