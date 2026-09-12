@@ -19,11 +19,13 @@ export class MediaServerLeg {
       const ws = new WebSocket(this.url);
       this.ws = ws;
       ws.on('open', () => {
+        if (this.closed) return;
         this.keepAlive = setInterval(() => {
           this.send({ type: 'session.keep_alive', event_id: randomUUID() });
         }, 120_000);
       });
       ws.on('message', (raw) => {
+        if (this.closed) return;
         let event: { type?: string; state?: string };
         try {
           event = JSON.parse(raw.toString()) as { type?: string; state?: string };
@@ -33,17 +35,18 @@ export class MediaServerLeg {
         if (event.type === 'session.state_updated' && event.state === 'connected') {
           this.connected = true;
           this.finishReady(true);
+        } else if (event.type === 'error' || (event.type === 'session.state_updated' && event.state === 'disconnected')) {
+          this.fail();
         }
       });
       ws.on('close', () => {
         this.connected = false;
         this.finishReady(false);
         if (this.keepAlive) clearInterval(this.keepAlive);
-        if (!this.closed) this.onFailure();
+        this.fail();
       });
       ws.on('error', () => {
-        this.finishReady(false);
-        if (!this.closed) this.onFailure();
+        this.fail();
       });
     });
   }
@@ -57,13 +60,28 @@ export class MediaServerLeg {
   }
 
   close(): void {
+    if (this.closed) return;
     this.closed = true;
     this.connected = false;
     if (this.keepAlive) clearInterval(this.keepAlive);
     if (this.readyTimer) clearTimeout(this.readyTimer);
     this.finishReady(false);
-    this.ws?.close();
+    const ws = this.ws;
     this.ws = null;
+    if (!ws || ws.readyState === WebSocket.CLOSED) return;
+    if (ws.readyState !== WebSocket.OPEN) {
+      ws.terminate();
+      return;
+    }
+    const deadline = setTimeout(() => ws.terminate(), 1500);
+    ws.once('close', () => clearTimeout(deadline));
+    ws.close();
+  }
+
+  private fail(): void {
+    if (this.closed) return;
+    this.close();
+    this.onFailure();
   }
 
   private finishReady(value: boolean): void {

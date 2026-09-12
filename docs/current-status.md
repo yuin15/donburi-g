@@ -2,7 +2,7 @@
 
 ## Verified locally (2026-09-12)
 
-- TypeScript, ESLint, 47 unit/integration tests, and the production build pass.
+- TypeScript, ESLint, 53 unit/integration tests, and the production build pass.
 - `npm run check:server-runtime` compiles server code with NodeNext and starts the emitted HTTP/WebSocket APIs directly. It verifies disabled-live rejection without contacting providers; CI runs this check to catch ESM import failures hidden by Vitest.
 - Six lifecycle regressions were reproduced before the fix: disconnects during avatar/media/OpenAI startup, result cleanup, fatal voice errors, and repeated initialization.
 - A real loopback WebSocket test verifies that a disconnect during quota allocation returns the lease without starting providers.
@@ -14,6 +14,8 @@
 - Both upgrade strategies were measured across 10,000 hashed seeds with both seat assignments (20,000 games per pairing). Effects are now cherry +6 / seven +1; see `docs/game-balance.md`. Winning, losing, drawing, and last-10-second comeback fixtures are in the domain tests.
 - Upgrade choices lock after the first submission, matching server rules. Server receipt time decides the deadline even if its interval is delayed. Rival output must be an exact legal choice; ambiguous, truncated, or timed-out responses use a deterministic fallback.
 - These tests do not use paid APIs, real microphone input, or real avatar playback.
+- New provider-lifecycle regressions verify that OpenAI final usage is drained during shutdown, cumulative duration is not summed, transport loss remains unconfirmed, and LiveAvatar error/disconnection events stop the media path without leaking timers. Only numeric usage and a finalization flag are logged; provider session snapshots and conversation text are excluded.
+- Public Chrome practice verification on `https://slot-chan.vercel.app` covered two complete matches (600–720 loss, 1,080–600 win), rematch, keyboard `1` selection with locked-button feedback, exit, and the missing-invite message. The screenshot showed all three reels and the result panel. This was the PR #20 deployment; the provider-lifecycle changes require a fresh deployment and live-provider verification.
 
 ## Still required for the MVP
 
