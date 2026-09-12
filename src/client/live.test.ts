@@ -92,6 +92,30 @@ function resultSnapshot() {
 }
 
 describe('browser live connection lifecycle', () => {
+  it('sends a unique spin command only after connection readiness and forwards its acknowledgement', async () => {
+    const instance = client(); const received: unknown[] = [];
+    instance.addEventListener('message', event => received.push((event as CustomEvent).detail));
+    expect(instance.sendSpin()).toBeUndefined();
+    const connection = instance.connect('test'); const ws = await socket();
+    ws.open();
+    expect(instance.sendSpin()).toBeUndefined();
+    ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+    ws.message({ type: 'voice_status', status: 'ready' });
+    await connection;
+    const first = instance.sendSpin();
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'spin', commandId: first, matchId: 'test-match' });
+    const second = instance.sendSpin();
+    expect(second).not.toBe(first);
+    const acknowledgement = { type: 'spin_status', commandId: second, accepted: false, retryAfterMs: 1100 };
+    ws.message(acknowledgement);
+    expect(received).toContainEqual(acknowledgement);
+    await instance.disconnect();
+    const sent = ws.send.mock.calls.length;
+    expect(instance.sendSpin()).toBeUndefined();
+    expect(ws.send).toHaveBeenCalledTimes(sent);
+  });
+
   it('recovers a missing final spin from one authoritative snapshot request', async () => {
     const instance = client(); const received: unknown[] = [];
     instance.addEventListener('message', e => received.push((e as CustomEvent).detail));
@@ -224,6 +248,9 @@ describe('browser live connection lifecycle', () => {
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'voice_close' }));
     instance.send({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot' });
     expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot', matchId: 'test-match' }));
+    const spinId = instance.sendSpin();
+    expect(spinId).toBeDefined();
+    expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'spin', commandId: spinId, matchId: 'test-match' });
     const snapshot = { matchId: 'test-match', status: 'result', round: 30, elapsed: 60, remaining: 0, scores: { player: 0, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
     ws.message({ type: 'match_ended', snapshot });
     expect(received).toContainEqual({ type: 'match_ended', snapshot });

@@ -186,6 +186,7 @@ export class ReelScene {
     this.pending = null;
     this.lastRound = 0;
     this.applyStagedStrips();
+    this.host.dataset.round = '0';
     [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol, this.activeStrips[i < 3 ? 0 : 1]); });
     this.host.dataset.spinning = 'false';
     this.flash(payout, still);

@@ -3,6 +3,10 @@ export type UpgradeId = 'steady' | 'jackpot';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
 export type UpgradeOfferIndex = 0 | 1;
 
+export const MATCH_SECONDS = 60;
+export const MANUAL_SPIN_INTERVAL = 1.1;
+export const MAX_MATCH_ROUNDS = Math.ceil(MATCH_SECONDS / MANUAL_SPIN_INTERVAL);
+
 export type SideStats = {
   wins: Record<SymbolId, number>;
   bestSpin: { round: number; payout: number } | null;
@@ -16,6 +20,7 @@ export interface SpinView {
   symbols: [SymbolId, SymbolId, SymbolId];
   payout: number;
   total: number;
+  upgrades?: UpgradeId[];
 }
 
 export interface MatchSnapshot {
@@ -33,6 +38,7 @@ export interface MatchSnapshot {
 
 export type ClientMessage =
   | { type: 'start' }
+  | { type: 'spin'; commandId: string; matchId: string }
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }
   | { type: 'mic'; audio: string }
   | { type: 'voice_close' }
@@ -45,6 +51,7 @@ export type ServerMessage =
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
   | { type: 'snapshot'; snapshot: MatchSnapshot; lastSpin?: { player: SpinView; rival: SpinView } }
   | { type: 'spin'; player: SpinView; rival: SpinView }
+  | { type: 'spin_status'; commandId: string; accepted: boolean; retryAfterMs: number }
   | { type: 'upgrade_offer'; offerIndex: UpgradeOfferIndex; closesAtElapsed: number }
   | { type: 'upgrade_applied'; offerIndex: UpgradeOfferIndex; player: UpgradeId; rival: UpgradeId }
   | { type: 'rival_line'; text: string; reason: string }

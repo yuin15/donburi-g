@@ -1,0 +1,93 @@
+[
+  {
+    "case": "no-input",
+    "button": "回す",
+    "focus": "start",
+    "hint": "クリック / SPACE · 両者が1回転",
+    "phase": "hidden",
+    "player": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "result": false,
+    "rival": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "round": "0",
+    "spinning": "false",
+    "time": "57"
+  },
+  {
+    "case": "mash-reserved",
+    "button": "予約済み",
+    "focus": "start",
+    "hint": "次の1回を予約しました",
+    "phase": "hidden",
+    "player": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "result": false,
+    "rival": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "round": "0",
+    "spinning": "true",
+    "time": "56"
+  },
+  {
+    "case": "two-spins-only",
+    "button": "回す",
+    "focus": "start",
+    "hint": "クリック / SPACE · 両者が1回転",
+    "phase": "hidden",
+    "player": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "result": false,
+    "rival": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "round": "2",
+    "spinning": "false",
+    "time": "53"
+  },
+  {
+    "case": "upgrade-open",
+    "button": "回す",
+    "focus": "",
+    "hint": "クリック / SPACE · 両者が1回転",
+    "phase": "open",
+    "player": "絵柄15枚：チェリー10枚、ベル3枚、7が2枚",
+    "result": false,
+    "rival": "絵柄10枚：チェリー4枚、ベル3枚、7が3枚",
+    "round": "2",
+    "spinning": "false",
+    "time": "20"
+  },
+  {
+    "case": "result",
+    "button": "再戦する",
+    "focus": "start",
+    "hint": "4回転の勝負",
+    "phase": "hidden",
+    "player": "絵柄21枚：チェリー16枚、ベル3枚、7が2枚",
+    "result": true,
+    "rival": "絵柄11枚：チェリー4枚、ベル3枚、7が4枚",
+    "round": "4",
+    "spinning": "false",
+    "time": "00"
+  },
+  {
+    "case": "rematch-reset",
+    "button": "回す",
+    "focus": "start",
+    "hint": "クリック / SPACE · 両者が1回転",
+    "phase": "hidden",
+    "player": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "result": false,
+    "rival": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "round": "0",
+    "spinning": "false",
+    "time": "58"
+  },
+  {
+    "case": "rematch-space",
+    "button": "回す",
+    "focus": "start",
+    "hint": "クリック / SPACE · 両者が1回転",
+    "phase": "hidden",
+    "player": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "result": false,
+    "rival": "絵柄9枚：チェリー4枚、ベル3枚、7が2枚",
+    "round": "1",
+    "spinning": "false",
+    "time": "57"
+  }
+]

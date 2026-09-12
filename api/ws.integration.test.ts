@@ -133,19 +133,25 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   await wire.barrier();
   expect(matchVoice.sendMic).toHaveBeenCalledExactlyOnceWith('AQIDBA==');
 
-  for (const index of [0, 1] as const) {
-    now = START_TIME + (index === 0 ? 20000 : 40000);
-    wire.send({ type: 'snapshot' });
-    await wire.waitFor(message => message.type === 'upgrade_offer' && message.offerIndex === index);
-    const choice = index === 0 ? 'jackpot' : 'steady';
-    wire.send({ type: 'upgrade', matchId: 'ws-integration-match', commandId: `choice-${index}`, offerIndex: index, upgradeId: choice });
-    // Ping/pong crosses the real socket after the command; keep native timers and I/O running.
-    await wire.barrier();
-    now += 4000;
-    wire.send({ type: 'snapshot' });
-    const applied = await wire.waitFor(message => message.type === 'upgrade_applied' && message.offerIndex === index);
-    expect(applied).toMatchObject({ player: choice });
-    if (index === 0 && voice === 'closed') {
+  for (let second = 0; second < 60; second += 2) {
+    now = START_TIME + second * 1000;
+    if (second === 20 || second === 40) {
+      const index = second === 20 ? 0 : 1;
+      wire.send({ type: 'snapshot' });
+      await wire.waitFor(message => message.type === 'upgrade_offer' && message.offerIndex === index);
+      wire.send({ type: 'upgrade', matchId: 'ws-integration-match', commandId: `choice-${index}`, offerIndex: index, upgradeId: index === 0 ? 'jackpot' : 'steady' });
+      await wire.barrier();
+    }
+    const commandId = `manual-${second}`;
+    wire.send({ type: 'spin', matchId: 'ws-integration-match', commandId });
+    await wire.waitFor(message => message.type === 'spin_status' && message.commandId === commandId && message.accepted);
+    await wire.waitFor(message => message.type === 'spin' && message.player.round === second / 2 + 1);
+    if (second === 24 || second === 44) {
+      const index = second === 24 ? 0 : 1;
+      const applied = await wire.waitFor(message => message.type === 'upgrade_applied' && message.offerIndex === index);
+      expect(applied).toMatchObject({ player: index === 0 ? 'jackpot' : 'steady' });
+    }
+    if (second === 24 && voice === 'closed') {
       wire.send({ type: 'voice_close' });
       await wire.waitFor(message => message.type === 'voice_status' && message.status === 'error');
       await wire.barrier();

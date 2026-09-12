@@ -4,7 +4,9 @@
 
 - 1 player vs 1 AI rival.
 - 60 seconds.
-- Both sides complete one spin every 2 seconds: 30 spins each.
+- A click on **回す** or a **Space** press requests one spin for both sides. Neither side spins without player input.
+- Requests are accepted at least 1.1 seconds apart, starting at elapsed 0 and strictly before 60 seconds: at most 55 spins each. The result reports the actual count, including zero.
+- During a spin, another press queues one next spin. Further presses do not add more reservations. Holding Space does not repeatedly enqueue. Leaving, hiding the page, ending, or restarting clears the reservation.
 - Three reels, one center payline.
 - Symbols: cherry, bell, seven.
 - Three identical symbols pay: cherry 120, bell 240, seven 1200.
@@ -19,11 +21,11 @@ The UI previews each choice for 5 seconds before its window (15–20s and 35–4
 
 Boundary ordering is deterministic:
 
-1. Complete the spin whose completion time is the boundary.
-2. Open or close/apply the upgrade window for that boundary.
-3. Subsequent spins use the updated reel pool.
+1. Advance the authoritative clock and process all elapsed upgrade/result deadlines.
+2. If still playing and outside the spin cooldown, accept the requested spin.
+3. Both sides draw from their current applied pool; their `SpinView.upgrades` records that composition for rendering.
 
-Therefore the spin completing at 24s uses the pre-upgrade pool; the next spin uses the newly applied pool.
+Therefore a request at 24s uses the first applied upgrade, while a spin accepted before 24s retains its earlier composition until it stops. Requests at or after 60s do not draw. A previously accepted final spin settles before the result panel appears.
 
 Unselected or timed-out upgrades default to `steady`.
 
@@ -40,6 +42,6 @@ Both sides have the same legal choices and number of upgrades. The rival does no
 
 Live mode creates its random seed on the server. Player and rival use separate deterministic RNG states derived from that seed. The seed and pools are not sent to the browser.
 
-The browser submits only player intent (`start`, `upgrade`, mic audio, snapshot request, close). It cannot submit scores, outcomes, remaining time, or rival changes.
+The browser submits only player intent (`start`, `spin`, `upgrade`, mic audio, snapshot request, close). It cannot submit scores, outcomes, remaining time, or rival changes. Spin command IDs are deduplicated, and server time controls acceptance and cooldown.
 
-`advanceMatch` catches up all missed boundaries if a timer is delayed, preventing browser backgrounding or event-loop stalls from dropping or duplicating spins.
+`advanceMatch` catches up missed deadlines without creating manual spins. `requestManualSpin` advances those deadlines before accepting a request. The domain retains an explicit automatic simulation mode for balance analysis and previous regression scenarios; both playable CPU and live matches use manual mode.

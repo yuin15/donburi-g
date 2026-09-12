@@ -10,6 +10,8 @@ import {
   UPGRADE_OPEN_SECONDS,
   UPGRADE_CLOSE_SECONDS,
   SPIN_INTERVAL,
+  MANUAL_SPIN_INTERVAL,
+  requestManualSpin,
   PAYOUT,
   type GameEvent,
   type MatchState,
@@ -67,7 +69,7 @@ app.innerHTML = `
   </div>
   <footer>
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
-      <small>60 SECONDS · 30 SPINS</small>
+      <small id="resultRounds">60 SECONDS</small>
       <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>
       <div class="result-score" id="resultScore"><div><small>あなたのコイン</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>ライバルのコイン</small><strong id="resultRival"></strong></div></div>
       <p id="resultGap"></p>
@@ -75,6 +77,7 @@ app.innerHTML = `
       <p class="result-again" id="resultAgain">改造を変えて、もう一度。</p>
     </section>
     <button id="start" disabled>勝負する</button>
+    <span id="spinHint" aria-live="polite">クリック / SPACE で回す</span>
     <div id="paytable" aria-label="3つそろうとチェリー120、ベル240、7は1200点"><span><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><i class="symbol-icon seven"></i>1,200</span></div>
     <div id="upgradeProgress">⚙ リール改造<small>20秒・40秒で選択</small></div>
   </footer>
@@ -83,9 +86,9 @@ app.innerHTML = `
   <div class="gate-card">
     <div class="eyebrow">SLOT-CHAN · 60 SECOND DUEL</div>
     <h2 id="gateTitle">回して、改造して。<br><em>ライバルを超えろ。</em></h2>
-    <p>60秒のスロット対戦。<br>20秒・40秒でリールを改造し、<br>ライバルより多くのコインを手に入れよう。</p>
+    <p>押すたび、両者のリールが回る。<br>60秒のあいだに回して、改造して、<br>ライバルより多くのコインを手に入れよう。</p>
     <p class="gate-strategy">安定型で小当たりを増やすか、<br>大勝負で1,200点を狙うか。<br>改造の5秒前から、効果を見比べられます。</p>
-    <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>回転は自動。選ぶのは、勝ち方。</span></div>
+    <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>クリック / SPACE で回す。<br>回転中も次の1回を予約。</span></div>
     <button id="practice" class="primary">CPUライバルと対戦 <span>→</span></button>
     <small>PC用・無料・マイク不要。横画面1280×720以上で遊べます。</small>
     <details class="voice-options"><summary>音声・映像もつける（任意）</summary>
@@ -148,6 +151,13 @@ let assistantResetTimer = 0;
 let revision = 0;
 let starting = false;
 let effectsMuted = false;
+let spinQueued = false;
+let spinPending = false;
+let spinAnimating = false;
+let spinNextAt = 0;
+let spinRequestId: string | undefined;
+let spinQueueTimer = 0;
+let spinRequestTimer = 0;
 let warnedTime = false;
 let previousLeader: 'player' | 'rival' | null = null;
 const rivalReactions = new RivalReactions();
@@ -178,6 +188,7 @@ function later(action: () => void, delay: number): void {
 function cancelBattle(): void {
   revision += 1;
   starting = false;
+  clearSpinInput();
   stopPracticeTimer();
   battleTimers.forEach(clearTimeout);
   battleTimers.clear();
@@ -283,6 +294,94 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
     q('#upgradeClockFill').style.transform = `scaleX(${Math.min(1, left / 4)})`;
     if (left <= 0) hideUpgrade();
   }
+  if (snapshot.status === 'result' || snapshot.status === 'aborted') clearSpinInput();
+  refreshSpinControl();
+}
+
+function isMatchPlaying(): boolean {
+  return (mode === 'practice' ? practiceState?.status : mode === 'live' ? liveSnapshot?.status : undefined) === 'playing';
+}
+
+function clearSpinInput(): void {
+  clearTimeout(spinQueueTimer);
+  clearTimeout(spinRequestTimer);
+  spinQueueTimer = 0;
+  spinRequestTimer = 0;
+  spinQueued = false;
+  spinPending = false;
+  spinAnimating = false;
+  spinRequestId = undefined;
+  spinNextAt = 0;
+  delete startButton.dataset.spin;
+}
+
+function refreshSpinControl(): void {
+  if (!isMatchPlaying()) {
+    if (latestSnapshot?.status === 'result' && resultPanel.hidden) {
+      startButton.disabled = true;
+      startButton.textContent = '最終停止中';
+    }
+    q('#spinHint').textContent = latestSnapshot?.status === 'result' ? `${latestSnapshot.round}回転の勝負` : 'クリック / SPACE で回す';
+    return;
+  }
+  startButton.disabled = false;
+  const busy = spinPending || spinAnimating || performance.now() < spinNextAt;
+  startButton.dataset.spin = spinQueued ? 'queued' : busy ? 'spinning' : 'ready';
+  startButton.textContent = spinQueued ? '予約済み' : busy ? '次も回す' : '回す';
+  q('#spinHint').textContent = spinQueued ? '次の1回を予約しました' : busy ? 'もう一度押すと、次を予約' : 'クリック / SPACE · 両者が1回転';
+}
+
+function flushSpinQueue(): void {
+  clearTimeout(spinQueueTimer);
+  spinQueueTimer = 0;
+  if (!isMatchPlaying() || document.hidden) {
+    spinQueued = false;
+    refreshSpinControl();
+    return;
+  }
+  if (!spinQueued || spinPending || spinAnimating) return;
+  const delay = spinNextAt - performance.now();
+  if (delay > 0) {
+    spinQueueTimer = window.setTimeout(flushSpinQueue, delay + 1);
+    return;
+  }
+  performManualSpin();
+}
+
+function performManualSpin(): void {
+  if (!isMatchPlaying()) return;
+  spinQueued = false;
+  spinPending = true;
+  spinNextAt = performance.now() + MANUAL_SPIN_INTERVAL * 1000 + 10;
+  if (mode === 'practice' && practiceState) {
+    const events = requestManualSpin(practiceState, (performance.now() - practiceStartedAt) / 1000);
+    spinPending = false;
+    events.forEach(handlePracticeEvent);
+    renderSnapshot(getSnapshot(practiceState));
+  } else if (mode === 'live') {
+    spinRequestId = liveClient?.sendSpin();
+    if (spinRequestId) {
+      spinRequestTimer = window.setTimeout(() => {
+        // A lost response must not strand the button or replay a stale reservation.
+        spinPending = false;
+        spinQueued = false;
+        spinRequestId = undefined;
+        liveClient?.send({ type: 'snapshot' });
+        refreshSpinControl();
+      }, 6000);
+    } else spinPending = false;
+  }
+  refreshSpinControl();
+}
+
+function requestSpinInput(): void {
+  if (!isMatchPlaying()) return;
+  void effects.unlock();
+  if (spinPending || spinAnimating || performance.now() < spinNextAt) {
+    spinQueued = true;
+    refreshSpinControl();
+    flushSpinQueue();
+  } else performManualSpin();
 }
 
 function announce(text: string, sound: 'lead' | 'warning' | 'jackpot'): void {
@@ -378,6 +477,7 @@ function showResult(snapshot: MatchSnapshot): void {
   effects.play('result');
   resultPanel.hidden = false;
   resultPanel.dataset.outcome = snapshot.winner ?? 'draw';
+  q('#resultRounds').textContent = `60 SECONDS · ${snapshot.round} SPINS`;
   q<HTMLDetailsElement>('#resultDetails').open = false;
   q('#resultEnglish').textContent = snapshot.winner === 'player' ? 'VICTORY' : snapshot.winner === 'rival' ? 'NEXT TIME' : 'DRAW';
   q('#resultTitle').textContent = snapshot.winner === 'player' ? '勝利！' : snapshot.winner === 'rival' ? '敗北' : '引き分け';
@@ -423,6 +523,7 @@ function showResult(snapshot: MatchSnapshot): void {
 }
 
 function resetBattleUi(): void {
+  clearSpinInput();
   playerChoices = {};
   liveReelUpgrades = { player: [], rival: [] };
   upgradeReceiptUntil = 0;
@@ -457,8 +558,13 @@ function resetBattleUi(): void {
 function handleSpin(player: SpinView, rival: SpinView, upgrades = latestSnapshot?.upgrades): void {
   // Boundary rounds use the old pool, including when catching up from a newer snapshot.
   const applied = UPGRADE_CLOSE_SECONDS.filter(at => at < player.round * SPIN_INTERVAL).length;
-  scene.setUpgrades(upgrades?.player.slice(0, applied) ?? [], upgrades?.rival.slice(0, applied) ?? []);
+  scene.setUpgrades(player.upgrades ?? upgrades?.player.slice(0, applied) ?? [], rival.upgrades ?? upgrades?.rival.slice(0, applied) ?? []);
   if (presentation.spin(player, rival)) {
+    spinAnimating = true;
+    spinPending = false;
+    spinRequestId = undefined;
+    clearTimeout(spinRequestTimer);
+    refreshSpinControl();
     q('#pay').textContent = '';
     clearTimeout(cueTimer);
     q('#eventCue').hidden = true;
@@ -467,12 +573,14 @@ function handleSpin(player: SpinView, rival: SpinView, upgrades = latestSnapshot
 }
 
 function revealRound(player: SpinView, rival: SpinView, celebrate: boolean): void {
+  spinAnimating = false;
   q('#lastSpin').textContent = glyphs(player);
   q('#rivalReels').textContent = glyphs(rival);
   const leader = player.total > rival.total ? 'player' : player.total < rival.total ? 'rival' : null;
   const comeback = leader && previousLeader && leader !== previousLeader;
   if (leader) previousLeader = leader;
   if (latestSnapshot) renderSnapshot(latestSnapshot);
+  flushSpinQueue();
   const stale = !celebrate || document.hidden || (latestSnapshot?.round ?? player.round) > player.round;
   if (stale) return;
   q('#pay').textContent = player.payout ? `+${player.payout.toLocaleString()}` : '';
@@ -543,12 +651,12 @@ function handlePracticeEvent(event: GameEvent): void {
 function startPractice(): void {
   stopPracticeTimer();
   resetBattleUi();
-  practiceState = createMatch(Math.floor(Math.random() * 0xffff_ffff));
+  practiceState = createMatch(Math.floor(Math.random() * 0xffff_ffff), undefined, 'manual');
   startMatch(practiceState);
   practiceStartedAt = performance.now();
   renderSnapshot(getSnapshot(practiceState));
-  startButton.disabled = true;
-  startButton.textContent = '自動回転中';
+  refreshSpinControl();
+  startButton.focus();
   practiceTimer = window.setInterval(() => {
     if (!practiceState) return;
     const elapsed = (performance.now() - practiceStartedAt) / 1000;
@@ -565,6 +673,19 @@ function stopPracticeTimer(): void {
 }
 
 function onLiveMessage(message: ServerMessage): void {
+  if (message.type === 'spin_status') {
+    if (message.commandId !== spinRequestId) return;
+    if (!message.accepted) {
+      clearTimeout(spinRequestTimer);
+      spinRequestId = undefined;
+      spinPending = false;
+      spinQueued = message.retryAfterMs > 0 && isMatchPlaying();
+      spinNextAt = performance.now() + message.retryAfterMs + 10;
+      refreshSpinControl();
+      flushSpinQueue();
+    }
+    return;
+  }
   if (message.type === 'voice_status') {
     q('#connection').textContent = message.status === 'ready' ? 'マイク接続中 / AI会話 READY' : message.status === 'connecting' ? 'AIキャラクター接続中…' : message.status === 'closed' ? '会話接続終了' : message.message ?? '会話エラー';
     voiceReady = message.status === 'ready';
@@ -587,11 +708,13 @@ function onLiveMessage(message: ServerMessage): void {
     return;
   }
   if (message.type === 'snapshot') {
+    const enteringPlay = liveSnapshot?.status !== 'playing' && message.snapshot.status === 'playing';
     prepareLiveResult(message.snapshot);
     liveSnapshot = message.snapshot;
     liveReelUpgrades = { player: [...message.snapshot.upgrades.player], rival: [...message.snapshot.upgrades.rival] };
     if (message.lastSpin) handleSpin(message.lastSpin.player, message.lastSpin.rival, message.snapshot.upgrades);
     renderSnapshot(message.snapshot);
+    if (enteringPlay) startButton.focus();
     if (message.snapshot.status === 'result') presentation.end(message.snapshot);
     if (message.snapshot.status === 'playing' && !activeOffer) {
       const elapsed = message.snapshot.elapsed;
@@ -715,7 +838,7 @@ async function startLiveOrRematch(): Promise<void> {
   starting = true;
   resetBattleUi();
   startButton.disabled = true;
-  startButton.textContent = '自動回転中';
+  startButton.textContent = '準備中';
   await countdownThen(() => liveClient?.send({ type: 'start' }));
 }
 
@@ -740,7 +863,7 @@ q<HTMLButtonElement>('#liveConnect').onclick = async () => {
   }
 };
 
-function prepareCpuMatch(message = 'CPU対戦 · 自動回転 · 改造チャンスは2回'): void {
+function prepareCpuMatch(message = 'クリック / SPACE で回す · 改造チャンスは20秒・40秒'): void {
   cancelBattle();
   resetBattleUi();
   renderSnapshot(getSnapshot(createMatch(1, 'preview')));
@@ -765,6 +888,7 @@ q<HTMLButtonElement>('#practice').onclick = () => {
 
 startButton.onclick = async () => {
   if (starting || startButton.disabled) return;
+  if (isMatchPlaying()) { requestSpinInput(); return; }
   void effects.unlock();
   starting = true;
   startButton.disabled = true;
@@ -802,6 +926,13 @@ upgradePanel.addEventListener('click', (event) => {
 });
 
 addEventListener('keydown', (event) => {
+  if (event.code === 'Space' && isMatchPlaying() && gate.hidden) {
+    const control = event.target instanceof Element ? event.target.closest('input,textarea,select,summary,button') : null;
+    if (control && control !== startButton) return;
+    event.preventDefault();
+    if (!event.repeat) requestSpinInput();
+    return;
+  }
   if (!activeOffer || (event.key !== '1' && event.key !== '2')) return;
   const id: UpgradeId = event.key === '1' ? 'steady' : 'jackpot';
   const button = upgradePanel.querySelector<HTMLButtonElement>(`button[data-up="${id}"]`);
@@ -826,6 +957,7 @@ q<HTMLButtonElement>('#effects').onclick = () => {
 };
 
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { spinQueued = false; clearTimeout(spinQueueTimer); }
   if (!document.hidden && mode === 'live') liveClient?.send({ type: 'snapshot' });
 });
 

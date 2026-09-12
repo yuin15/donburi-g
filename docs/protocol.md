@@ -14,6 +14,7 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 ## Client messages
 
 - `start` — start the authoritative 60-second match once voice/avatar is ready.
+- `spin` — `{matchId, commandId}`. Requests one simultaneous player/rival spin. The server advances elapsed deadlines first, rejects duplicate IDs and requests less than 1.1 seconds apart, and never draws at or after 60 seconds.
 - `upgrade` — `{matchId, commandId, offerIndex, upgradeId}`. LiveClient supplies its authenticated match ID. A different match ID is rejected; duplicate command IDs are ignored. Player and asynchronous rival choices are checked against arrival time, not a delayed interval tick.
 - `mic` — base64 PCM16/24kHz audio. Size limited.
 - `voice_close` — release optional media while preserving the match.
@@ -30,6 +31,7 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 - `voice_status`
 - `snapshot`
 - `spin`
+- `spin_status` — `{commandId, accepted, retryAfterMs}` acknowledges a manual request, including rejected requests. The client keeps at most one queued input and drops it on result, exit, or hidden page.
 - `upgrade_offer`
 - `upgrade_applied`
 - `rival_line`
@@ -39,7 +41,9 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 
 Snapshots never contain RNG state, unrevealed choices, reel pools, API credentials, or future results.
 
-`snapshot.stats` is required for both sides: `wins: {cherry, bell, seven}` contains confirmed winning-spin counts; `bestSpin` is `{round, payout}` for the first highest payout, or null when there were no wins. Counts are bounded by the completed round count, their payout sum must equal the score, and the best spin must be consistent with those counts. All 30 rounds remain available after snapshot recovery; the browser does not derive the result from its animation history. Servers and new clients must both support this field.
+`snapshot.stats` is required for both sides: `wins: {cherry, bell, seven}` contains confirmed winning-spin counts; `bestSpin` is `{round, payout}` for the first highest payout, or null when there were no wins. Counts are bounded by the completed round count, their payout sum must equal the score, and the best spin must be consistent with those counts. Manual matches allow 0–55 rounds and up to 66,000 points. Every confirmed round remains accounted for after recovery; results are not derived from animation history. A zero-spin match can end in a zero-score draw.
+
+Each new `SpinView` includes its side's confirmed `upgrades` at the time of that draw. This keeps a delayed animation on the correct display strip even when a newer snapshot includes a later upgrade. The field is optional when validating older fixture messages; it contains no random state or future result.
 
 After authentication, every server message includes `sessionId`, `streamSeq` and `serverTime` (Unix milliseconds). `streamSeq` is a contiguous per-connection delivery sequence and is separate from the domain's `snapshot.eventSeq`. The first message is `hello` at sequence 1. The client validates message shapes, lengths, numbers, symbols and match identity before updating UI or starting media. Initial unauthenticated rejection may have no envelope and is treated as a failed connection.
 

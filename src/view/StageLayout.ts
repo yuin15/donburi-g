@@ -24,6 +24,7 @@ export const OVERLAYS: Record<string, Rect> = {
   rivalMood: { x: 1030, y: 181, w: 530, h: 35 },
   miniLabel: { x: 1030, y: 636, w: 495, h: 37 },
   start: { x: 364, y: 686, w: 247, h: 104 },
+  spinHint: { x: 301, y: 812, w: 377, h: 28 },
   paytable: { x: 122, y: 721, w: 194, h: 63 },
   upgradeProgress: { x: 655, y: 717, w: 253, h: 72 },
   builds: { x: 1030, y: 797, w: 500, h: 93 },
