@@ -7,6 +7,8 @@ import {
   advanceMatch,
   createMatch,
   getSnapshot,
+  MANUAL_SPIN_INTERVAL,
+  requestManualSpin,
   startMatch,
   submitUpgrade,
   type GameEvent,
@@ -20,6 +22,7 @@ import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('start') }),
+  z.object({ type: z.literal('spin'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100) }),
   z.object({
     type: z.literal('upgrade'),
     matchId: z.string().min(1).max(100),
@@ -81,9 +84,10 @@ export class MatchSession {
     private readonly frontend: WebSocket,
     private readonly sessionId: string,
     releaseQuota: () => Promise<void>,
+    deps: { spinMode?: 'automatic' | 'manual' } = {},
   ) {
     const seed = randomBytes(4).readUInt32BE(0);
-    this.state = createMatch(seed, sessionId);
+    this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual');
     this.releaseQuota = releaseQuota;
   }
 
@@ -171,6 +175,9 @@ export class MatchSession {
     }
     const result = ClientMessageSchema.safeParse(parsed);
     if (!result.success) {
+      // A recognizable request still gets an ACK so its waiting UI can release.
+      const spin = z.object({ type: z.literal('spin'), commandId: z.string().min(1).max(80) }).safeParse(parsed);
+      if (spin.success) this.emitSpinStatus(spin.data.commandId, false, 0);
       this.emitSafeError('bad_message', '不正な操作です。', true);
       return;
     }
@@ -261,6 +268,25 @@ export class MatchSession {
       this.beginMatch();
       return;
     }
+    if (message.type === 'spin') {
+      if (message.matchId !== this.sessionId) {
+        this.emitSpinStatus(message.commandId, false, 0);
+        return;
+      }
+      const round = this.state.round;
+      let accepted = false;
+      if (this.commands.has(message.commandId)) this.tick();
+      else {
+        this.commands.add(message.commandId);
+        this.publishEvents(requestManualSpin(this.state, Math.max(0, (Date.now() - this.startedAt) / 1000)));
+        accepted = this.state.round > round;
+      }
+      const retryAfterMs = this.state.status === 'playing' && this.state.lastManualSpinAt !== null
+        ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
+        : 0;
+      this.emitSpinStatus(message.commandId, accepted, retryAfterMs);
+      return;
+    }
     if (message.type === 'upgrade') {
       if (message.matchId !== this.sessionId) {
         this.emitSafeError('wrong_match', '別の対戦への操作は受付できません。', true);
@@ -298,7 +324,10 @@ export class MatchSession {
   private tick(): void {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
-    const events = advanceMatch(this.state, elapsed);
+    this.publishEvents(advanceMatch(this.state, elapsed));
+  }
+
+  private publishEvents(events: GameEvent[]): void {
     // A delayed tick can settle several spins. Pair the current scores with the
     // latest confirmed spin before any context or reaction can be sent.
     for (const event of events) {
@@ -323,8 +352,9 @@ export class MatchSession {
       return;
     }
     if (event.type === 'leader_change') {
-      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', Math.floor(event.at / 2));
-      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', Math.floor(event.at / 2));
+      const round = this.state.spinMode === 'manual' ? this.state.round : Math.floor(event.at / 2);
+      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', round);
+      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', round);
       return;
     }
     if (event.type === 'upgrade_open') {
@@ -443,6 +473,10 @@ export class MatchSession {
   private emitSnapshot(): void {
     this.lastSnapshotAt = Date.now();
     this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), lastSpin: this.lastSpin });
+  }
+
+  private emitSpinStatus(commandId: string, accepted: boolean, retryAfterMs: number): void {
+    this.emit({ type: 'spin_status', commandId, accepted, retryAfterMs });
   }
 
   private emitSafeError(code: string, message: string, recoverable: boolean): void {

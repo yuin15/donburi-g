@@ -9,12 +9,12 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 ## Play loop
 
 1. Click **CPUライバルと対戦**. No key, invitation, microphone, or external AI service is needed.
-2. Both sides auto-spin every 2 seconds for 60 seconds.
+2. Click **回す** or press **Space** to spin both sides once. During a spin, press again to queue the next one; repeated presses keep at most one reservation. The match lasts 60 seconds and accepts at most one spin per 1.1 seconds.
 3. Preview the upgrade odds at 15s and 35s, then choose at 20s and 40s: **steady** adds cherries; **jackpot** adds 7s. Each selection window lasts 4 seconds; no selection applies steady.
 4. The CPU chooses its own legal upgrades. In optional voice/video mode, the rival can also respond to speech and game events.
 5. Highest confirmed coin total at 60 seconds wins.
 
-Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. The scoreboard shows the point difference, while the rival panel shows both upgrade histories. The cabinet shows when the next upgrade becomes available. The result panel appears after the final reels have stopped and both scores have been confirmed.
+Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. Both reels move downward using their confirmed upgraded symbol composition. The rival panel shows both upgrade histories and symbol counts. Upgrade choices appear on the right, leaving the reels and spin button available. The result panel shows the actual spin count and appears after the last accepted reels have stopped and both scores have been confirmed.
 
 The result also compares symbol payouts, each side's upgrade order, and the first highest-paying spin. CPU dialogue responds to both sides' confirmed outcomes, including simultaneous jackpots and close finishes. It does not interrupt live speech captions.
 

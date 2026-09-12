@@ -217,6 +217,15 @@ export class LiveClient extends EventTarget {
     this.ws.send(JSON.stringify(payload));
   }
 
+  sendSpin(): string | undefined {
+    if (!this.connected || this.closed || this.ws?.readyState !== WebSocket.OPEN || !this.sync.sessionId) return;
+    const commandId = crypto.randomUUID();
+    try {
+      this.send({ type: 'spin', commandId, matchId: this.sync.sessionId });
+      return commandId;
+    } catch { return undefined; }
+  }
+
   setMuted(muted: boolean): void {
     this.audioElement.muted = muted;
   }

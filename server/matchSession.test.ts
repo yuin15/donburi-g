@@ -38,12 +38,12 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-function setup(id = 'test-match') {
+function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic') {
   const messages: ServerMessage[] = [];
   const close = vi.fn();
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
-  return { session: new MatchSession(socket, id, release), messages, release, close };
+  return { session: new MatchSession(socket, id, release, { spinMode }), messages, release, close };
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -61,6 +61,66 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('live match cleanup', () => {
+  it('runs only requested manual spins and acknowledges cooldowns, invalid matches and replayed commands', async () => {
+    const { session, messages } = setup('test-match', 'manual');
+    const spin = (commandId: string, matchId = 'test-match') => session.handleRaw(JSON.stringify({ type: 'spin', commandId, matchId }));
+    const status = () => messages.filter(message => message.type === 'spin_status').at(-1);
+    await session.initialize();
+    spin('before-start');
+    expect(status()).toMatchObject({ commandId: 'before-start', accepted: false, retryAfterMs: 0 });
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(messages.filter(message => message.type === 'spin')).toHaveLength(0);
+    spin('wrong-match', 'another-match');
+    expect(status()).toMatchObject({ commandId: 'wrong-match', accepted: false });
+    session.handleRaw('{"type":"spin","commandId":"invalid-match","matchId":42}');
+    expect(status()).toMatchObject({ commandId: 'invalid-match', accepted: false });
+    spin('first');
+    expect(status()).toMatchObject({ commandId: 'first', accepted: true, retryAfterMs: 1100 });
+    const first = messages.find(message => message.type === 'spin');
+    if (first?.type !== 'spin') throw new Error('missing manual spin');
+    expect(first.player.round).toBe(1);
+    expect(first.rival.round).toBe(1);
+    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、絵柄[${first.player.symbols.join(',')}]、配当${first.player.payout}点`);
+    const contextOrder = provider.context.mock.invocationCallOrder.at(-1)!;
+    session.handleRaw('{"type":"mic","audio":"AQID"}');
+    expect(provider.mic.mock.invocationCallOrder.at(-1)).toBeGreaterThan(contextOrder);
+    spin('first');
+    expect(status()).toMatchObject({ commandId: 'first', accepted: false, retryAfterMs: 1100 });
+    await vi.advanceTimersByTimeAsync(1099);
+    spin('too-soon');
+    expect(status()).toMatchObject({ commandId: 'too-soon', accepted: false, retryAfterMs: 1 });
+    await vi.advanceTimersByTimeAsync(1);
+    spin('second');
+    expect(status()).toMatchObject({ commandId: 'second', accepted: true, retryAfterMs: 1100 });
+    await vi.advanceTimersByTimeAsync(1100);
+    spin('first');
+    spin('too-soon');
+    expect(status()).toMatchObject({ commandId: 'too-soon', accepted: false, retryAfterMs: 0 });
+    expect(messages.filter(message => message.type === 'spin')).toHaveLength(2);
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.at(-1)).toMatchObject({ type: 'snapshot', snapshot: { round: 2 }, lastSpin: { player: { round: 2 }, rival: { round: 2 } } });
+    await session.shutdown('test');
+  });
+
+  it('settles an overdue manual match before answering a last-second click, without drawing or reopening the result', async () => {
+    const { session, messages } = setup('test-match', 'manual');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    // Leave interval callbacks delayed: the arriving command must enforce the deadline.
+    vi.setSystemTime(Date.now() + 60_000);
+    session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
+    expect(messages.filter(message => message.type === 'spin')).toHaveLength(0);
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', round: 0, remaining: 0, winner: 'draw' } });
+    expect(messages.at(-1)).toMatchObject({ type: 'spin_status', commandId: 'at-deadline', accepted: false, retryAfterMs: 0 });
+    session.handleRaw('{"type":"spin","commandId":"after-result","matchId":"test-match"}');
+    session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
+    expect(messages.filter(message => message.type === 'match_ended')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'spin_status')).toHaveLength(3);
+    expect(messages.filter(message => message.type === 'spin')).toHaveLength(0);
+    await session.shutdown('test');
+  });
+
   it.each(['close', 'clear'])('waits for both old close and buffer ACK when %s finishes first', async (first) => {
     const oldClose = deferred<void>(), clear = deferred<boolean>();
     provider.gptClose.mockReturnValueOnce(oldClose.promise);

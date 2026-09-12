@@ -1,29 +1,31 @@
 import { z } from 'zod';
 import type { ServerEnvelope } from './protocol.js';
+import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_ROUNDS } from './protocol.js';
 
 const id = z.string().min(1).max(100);
 const upgrade = z.enum(['steady', 'jackpot']);
 const index = z.union([z.literal(0), z.literal(1)]);
-const score = z.number().int().min(0).max(36000);
-const winCount = z.number().int().min(0).max(30);
+const score = z.number().int().min(0).max(MAX_MATCH_ROUNDS * 1200);
+const winCount = z.number().int().min(0).max(MAX_MATCH_ROUNDS);
 const sideStats = z.object({
   wins: z.object({ cherry: winCount, bell: winCount, seven: winCount }),
-  bestSpin: z.object({ round: z.number().int().min(1).max(30), payout: z.union([z.literal(120), z.literal(240), z.literal(1200)]) }).nullable(),
+  bestSpin: z.object({ round: z.number().int().min(1).max(MAX_MATCH_ROUNDS), payout: z.union([z.literal(120), z.literal(240), z.literal(1200)]) }).nullable(),
 });
 const spin = z.object({
-  side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(30),
+  side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_MATCH_ROUNDS),
   symbols: z.tuple([z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven'])]),
   payout: z.union([z.literal(0), z.literal(120), z.literal(240), z.literal(1200)]), total: score,
+  upgrades: z.array(upgrade).max(2).optional(),
 });
 const pair = z.object({ player: spin, rival: spin }).refine(v => v.player.side === 'player' && v.rival.side === 'rival' && v.player.round === v.rival.round);
 const snapshot = z.object({
   matchId: id, status: z.enum(['ready', 'countdown', 'playing', 'result', 'aborted']),
-  elapsed: z.number().min(0).max(60), remaining: z.number().min(0).max(60), round: z.number().int().min(0).max(30),
+  elapsed: z.number().min(0).max(MATCH_SECONDS), remaining: z.number().min(0).max(MATCH_SECONDS), round: z.number().int().min(0).max(MAX_MATCH_ROUNDS),
   scores: z.object({ player: score, rival: score }),
   stats: z.object({ player: sideStats, rival: sideStats }),
   upgrades: z.object({ player: z.array(upgrade).max(2), rival: z.array(upgrade).max(2) }),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
-}).refine(v => v.status !== 'result' || (v.round === 30 && v.elapsed === 60 && v.remaining === 0 && v.winner !== undefined))
+}).refine(v => v.status !== 'result' || (v.elapsed === MATCH_SECONDS && v.remaining === 0 && v.winner !== undefined))
   .refine(v => (['player', 'rival'] as const).every(side => {
     const { wins, bestSpin } = v.stats[side];
     const count = wins.cherry + wins.bell + wins.seven;
@@ -42,6 +44,7 @@ const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('voice_status'), status: z.enum(['connecting', 'ready', 'closed', 'error']), message: z.string().max(1000).optional() }),
   z.object({ type: z.literal('snapshot'), snapshot, lastSpin: pair.optional() }),
   z.object({ type: z.literal('spin'), player: spin, rival: spin }),
+  z.object({ type: z.literal('spin_status'), commandId: id, accepted: z.boolean(), retryAfterMs: z.number().int().min(0).max(MANUAL_SPIN_INTERVAL * 1000) }),
   z.object({ type: z.literal('upgrade_offer'), offerIndex: index, closesAtElapsed: z.union([z.literal(24), z.literal(44)]) }),
   z.object({ type: z.literal('upgrade_applied'), offerIndex: index, player: upgrade, rival: upgrade }),
   z.object({ type: z.literal('rival_line'), text: z.string().max(1000), reason: z.string().max(100) }),

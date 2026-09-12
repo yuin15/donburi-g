@@ -1,13 +1,17 @@
 /* PC stage panels: game decisions and the final score take visual priority. */
 .upgrade {
   position: absolute; z-index: 6; display: grid;
-  top: 68.7%; height: 22%; left: 6.5%; width: 50.5%;
-  grid-template-columns: .72fr 1fr 1fr; gap: .65cqw; padding: .65cqw;
+  top: 21%; height: 42%; left: 60%; width: 34.5%;
+  grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: .65cqw; padding: .8cqw;
   background: linear-gradient(120deg,#211b12f5,#0c1017fa);
   border: 1px solid #d7b671; border-radius: .65cqw;
   box-shadow: inset 0 0 0 3px #140f08, 0 8px 24px #000b;
 }
-.upgrade .upgrade-heading { display: flex; flex-direction: column; justify-content: center; padding: .15cqw .35cqw; gap: .3cqw; }
+.upgrade .upgrade-heading { display: grid; grid-column: 1 / -1; grid-template-columns: 1fr auto; align-items: center; padding: .15cqw .35cqw; gap: .3cqw; }
+.upgrade #upgradeNo { grid-column: 1 / -1; }
+.upgrade #upgradeTitle { grid-column: 1; grid-row: 2; }
+.upgrade #upgradeRemain { grid-column: 2; grid-row: 2; }
+.upgrade .upgrade-clock,.upgrade #upgradeChoice { grid-column: 1 / -1; }
 .upgrade #upgradeNo { font: 700 .67cqw/1.2 Georgia,serif; letter-spacing: .14em; color: #ba9b5f; }
 .upgrade #upgradeTitle { font-size: 1.35cqw; color: #ffe8b8; }
 .upgrade #upgradeRemain { font-size: 1.13cqw; font-variant-numeric: tabular-nums; color: #fff0c8; }
@@ -44,7 +48,7 @@
 .upgrade[data-phase=preview] #upgradeTitle { font-size: 1.2cqw; }
 .upgrade[data-phase=preview] #upgradeRemain { font-size: .98cqw; }
 .upgrade[data-phase=preview] kbd { opacity: .55; }
-.shell[data-upgrading=true] #start,.shell[data-upgrading=true] #paytable,.shell[data-upgrading=true] #upgradeProgress { visibility: hidden; }
+.shell[data-upgrading=true] #upgradeProgress { color: #fff0b5; }
 
 .result {
   position: absolute; z-index: 5; display: flex; flex-direction: column;

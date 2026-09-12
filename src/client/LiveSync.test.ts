@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ServerEnvelope, ServerMessage } from '../../shared/protocol';
+import { MANUAL_SPIN_INTERVAL, MAX_MATCH_ROUNDS } from '../../shared/protocol';
 import { parseServerEnvelope } from '../../shared/wire';
-import { advanceMatch, createMatch, getSnapshot, startMatch } from '../domain/game';
+import { advanceMatch, createMatch, getSnapshot, requestManualSpin, startMatch } from '../domain/game';
 import { LiveSync } from './LiveSync';
 
 const wrap = (message: ServerMessage, streamSeq: number, sessionId = 'match-a'): ServerEnvelope => ({ ...message, sessionId, streamSeq, serverTime: 1000 });
@@ -67,7 +68,7 @@ describe('live wire validation and recovery', () => {
   it.each([
     { name: 'negative wins', stats: { wins: { cherry: -1, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1200 } } },
     { name: 'fractional wins', stats: { wins: { cherry: 0, bell: 0, seven: 2.5 }, bestSpin: { round: 10, payout: 1200 } } },
-    { name: 'more than 30 wins', stats: { wins: { cherry: 0, bell: 0, seven: 31 }, bestSpin: { round: 1, payout: 1200 } } },
+    { name: 'more wins than the match limit', stats: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS + 1 }, bestSpin: { round: 1, payout: 1200 } } },
     { name: 'score mismatch', stats: { wins: { cherry: 1, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1200 } } },
     { name: 'missing winning symbol', stats: { wins: { cherry: 0, bell: 0 }, bestSpin: { round: 10, payout: 1200 } } },
     { name: 'missing highest hit', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: null } },
@@ -87,5 +88,57 @@ describe('live wire validation and recovery', () => {
   it('rejects a highest hit when no winning spins were recorded', () => {
     const invalid = { ...wrap(result, 2), snapshot: { ...result.snapshot, scores: { ...result.snapshot.scores, player: 0 }, stats: { ...result.snapshot.stats, player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: { round: 5, payout: 120 } } } }, lastSpin: { ...spin, player: { ...spin.player, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } } };
     expect(parseServerEnvelope(JSON.stringify(invalid))).toBeNull();
+  });
+
+  it.each([0, MAX_MATCH_ROUNDS])('recovers a manual result with %i spins and preserves its confirmed reel composition', (rounds) => {
+    const state = createMatch(123, 'match-a', 'manual');
+    startMatch(state);
+    const spins = Array.from({ length: rounds }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL))
+      .flat().filter(event => event.type === 'spin');
+    expect(spins).toHaveLength(rounds);
+    advanceMatch(state, 60);
+    const last = spins.at(-1);
+    const message: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(state), ...(last ? { lastSpin: { player: last.player, rival: last.rival } } : {}) };
+    const sync = new LiveSync();
+    sync.accept(hello);
+    const parsed = parseServerEnvelope(JSON.stringify(wrap(message, 4)));
+    expect(parsed).not.toBeNull();
+    expect(sync.accept(parsed!).message).toEqual(message);
+    expect(state.round).toBe(rounds);
+    expect(state.status).toBe('result');
+    if (last) expect(last.player.upgrades).toEqual(['steady', 'steady']);
+    expect(parseServerEnvelope(JSON.stringify(wrap({ type: 'match_ended', snapshot: getSnapshot(state) }, 5)))).not.toBeNull();
+  });
+
+  it('accepts the maximum manual score and rejects a consistent breakdown beyond the match limit', () => {
+    const maximum: ServerMessage = {
+      ...result,
+      snapshot: {
+        ...result.snapshot, round: MAX_MATCH_ROUNDS,
+        scores: { player: MAX_MATCH_ROUNDS * 1200, rival: 0 },
+        stats: { player: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS }, bestSpin: { round: 1, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } },
+      },
+      lastSpin: { player: { ...spin.player, round: MAX_MATCH_ROUNDS, total: MAX_MATCH_ROUNDS * 1200 }, rival: { ...spin.rival, round: MAX_MATCH_ROUNDS, total: 0 } },
+    };
+    expect(parseServerEnvelope(JSON.stringify(wrap(maximum, 2)))).not.toBeNull();
+    const excessive = structuredClone(maximum);
+    excessive.snapshot.round += 1;
+    excessive.snapshot.scores.player += 1200;
+    excessive.snapshot.stats.player.wins.seven += 1;
+    excessive.lastSpin!.player.round += 1;
+    excessive.lastSpin!.player.total += 1200;
+    excessive.lastSpin!.rival.round += 1;
+    expect(parseServerEnvelope(JSON.stringify(wrap(excessive, 2)))).toBeNull();
+  });
+
+  it('validates spin acknowledgements without dropping their retry time', () => {
+    for (const accepted of [true, false]) {
+      const message: ServerMessage = { type: 'spin_status', commandId: 'click-1', accepted, retryAfterMs: accepted ? MANUAL_SPIN_INTERVAL * 1000 : 500 };
+      expect(parseServerEnvelope(JSON.stringify(wrap(message, 2)))).toEqual(wrap(message, 2));
+    }
+    for (const retryAfterMs of [-1, 0.5, MANUAL_SPIN_INTERVAL * 1000 + 1]) {
+      expect(parseServerEnvelope(JSON.stringify(wrap({ type: 'spin_status', commandId: 'click-1', accepted: false, retryAfterMs }, 2)))).toBeNull();
+    }
+    expect(parseServerEnvelope(JSON.stringify(wrap({ type: 'spin_status', commandId: '', accepted: false, retryAfterMs: 0 }, 2)))).toBeNull();
   });
 });
