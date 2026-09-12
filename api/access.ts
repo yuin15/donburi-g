@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { isAllowedOrigin, issueTicket } from '../server/auth';
-import { assertLiveConfiguration } from '../server/env';
+import { isAllowedOrigin, issueTicket } from '../server/auth.js';
+import { assertLiveConfiguration } from '../server/env.js';
 
 function json(res: ServerResponse, status: number, body: Record<string, unknown>): void {
   res.statusCode = status;

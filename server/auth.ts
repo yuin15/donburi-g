@@ -1,5 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { env } from './env';
+import { env } from './env.js';
 
 interface TicketPayload {
   sid: string;

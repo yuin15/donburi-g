@@ -27,4 +27,5 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      - run: npm run check:server-runtime
       - run: npm run build

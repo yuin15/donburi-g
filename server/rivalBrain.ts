@@ -1,6 +1,6 @@
-import type { MatchSnapshot, UpgradeId } from '../shared/protocol';
-import { env } from './env';
-import { PAYOUT, UPGRADE_DEFINITIONS } from '../src/domain/game';
+import type { MatchSnapshot, UpgradeId } from '../shared/protocol.js';
+import { env } from './env.js';
+import { PAYOUT, UPGRADE_DEFINITIONS } from '../src/domain/game.js';
 
 interface ChoiceResult {
   upgradeId: UpgradeId;

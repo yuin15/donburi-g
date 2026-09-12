@@ -1,9 +1,9 @@
 import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { isAllowedOrigin, verifyTicket } from '../server/auth';
-import { assertLiveConfiguration } from '../server/env';
-import { MatchSession } from '../server/matchSession';
-import { claimQuota } from '../server/quota';
+import { isAllowedOrigin, verifyTicket } from '../server/auth.js';
+import { assertLiveConfiguration } from '../server/env.js';
+import { MatchSession } from '../server/matchSession.js';
+import { claimQuota } from '../server/quota.js';
 
 const server = createServer((_req, res) => {
   res.statusCode = 426;
@@ -31,7 +31,7 @@ wss.on('connection', (ws, request) => {
       const ticket = url.searchParams.get('ticket') ?? '';
       const payload = verifyTicket(ticket, origin);
       const releaseQuota = await claimQuota(payload.sid, payload.exp);
-      // A socket may close while the shared store is allocating its lease.
+      // A socket may close while its quota lease is being allocated.
       if (ws.readyState !== WebSocket.OPEN) {
         await releaseQuota();
         return;

@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { env } from './env';
+import { env } from './env.js';
 
 export interface LiveEvents {
   onReady(): void;
