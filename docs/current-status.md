@@ -18,14 +18,14 @@
 ## Still required for the MVP
 
 - Verify browser microphone-denial and live disconnect recovery against the deployed service, and check Edge/mobile layout. Local provider mocks are not a real live-session test.
-- Verify deployed HTTP/WebSocket rejection after the Node ESM import fix. Server-only environment configuration is saved; Git-based automatic deployment remains unconnected.
+- Git-based automatic deployment remains unconnected. Manual deployments through the connected Vercel API are available; server-only environment configuration and deployed API rejection have been verified.
 - Verify three complete real-provider matches, 90-second connection survival, interruptions, teardown, latency, and measured usage. Local mocked tests are not evidence for these items.
 - Complete first-time playtests and record the observations required by Issue #12.
 
 ## Deployment state
 
-- Production deployment `dpl_BZyoJCLHSq3cQuuhXWSpdtYw9Pvg` reached READY and rendered the Slot-chan page at `https://slot-chan.vercel.app`, with PR #19 balance changes. API smoke checks found HTTP 500: runtime logs identify `ERR_MODULE_NOT_FOUND` for extensionless server imports. READY alone did not establish API health. The import fix needs deployment and another smoke check.
-- PR #17, #18, and #19 are merged; main commit `768841d335e30996fc85ae43d17db8356b313b21` passed post-merge CI. Git-based automatic deployment is not connected; the GitHub account-selection popup did not respond to browser automation. Deployments can still be created using the connected Vercel API.
+- Production deployment `dpl_HMZTim5PWQ1jSXxsWBMHrJKkSqha` reached READY at `https://slot-chan.vercel.app`, with PR #20's Node ESM import fix. A public smoke check confirmed `/api/access` returns HTTP 401 with `invalid_access`; `/api/ws` completes the WebSocket handshake, returns `session_rejected`, and closes with code 1008 while live mode is disabled. These checks do not start provider sessions.
+- PR #17 through #20 are merged; deployed main commit `fadcf71d938c41f598f0788b07f7893b4f39713e` passed post-merge CI (run `34662021563`). The preceding deployment's HTTP 500 was traced to extensionless server imports; emitted JavaScript startup is now covered in CI. Git-based automatic deployment is not connected; the GitHub account-selection popup did not respond to browser automation. Deployments can still be created using the connected Vercel API.
 - OpenAI/LiveAvatar keys, signing key, and invite code are saved as Vercel Secrets for Production and Preview. Live mode is explicitly disabled, allowed origin is the public Slot-chan URL, and per-process demo limits are configured. Actual API use is awaiting confirmation of the bounded test budget.
 - A free Upstash database was created during setup; it is not connected to this game and is not required by the current code. No paid plan was selected. No Vercel Firewall rule has been added by these changes.
 
