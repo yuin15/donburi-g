@@ -5,9 +5,13 @@ export const STOP_TIMES = [820, 940, 1060] as const;
 export interface ReelTravel { from: number; to: number; duration: number }
 
 /** Display strip only. It never draws an outcome or changes the game's pool. */
-export function planTravel(from: number, symbol: SymbolId, column: number): ReelTravel {
-  const target = SYMBOLS.indexOf(symbol);
-  return { from, to: Math.ceil((from + 7 + target) / 3) * 3 - target, duration: STOP_TIMES[column] };
+export function planTravel(from: number, symbol: SymbolId, column: number, strip: readonly SymbolId[] = SYMBOLS): ReelTravel {
+  let to = Infinity;
+  strip.forEach((candidate, index) => {
+    if (candidate === symbol) to = Math.min(to, Math.ceil((from + 7 + index) / strip.length) * strip.length - index);
+  });
+  if (!Number.isFinite(to)) throw new Error('Requested symbol is missing from the display strip.');
+  return { from, to, duration: STOP_TIMES[column] };
 }
 
 /** Positive travel means screen-down; acceleration, cruise, then a soft stop. */
@@ -22,6 +26,11 @@ export function travelAt(travel: ReelTravel, elapsed: number): number {
   return travel.from + (travel.to - travel.from) * distance / area;
 }
 
-export function settledOffset(symbol: SymbolId): number {
-  return (3 - SYMBOLS.indexOf(symbol)) % 3;
+export function settledOffset(symbol: SymbolId, strip: readonly SymbolId[] = SYMBOLS): number {
+  return (strip.length - strip.indexOf(symbol)) % strip.length;
+}
+
+export function symbolAtOffset(offset: number, strip: readonly SymbolId[] = SYMBOLS): SymbolId {
+  const index = Math.floor(-offset + .5);
+  return strip[((index % strip.length) + strip.length) % strip.length];
 }

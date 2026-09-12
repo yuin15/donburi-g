@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import type { SpinView, SymbolId } from '../../shared/protocol';
+import type { SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
 import { CabinetArt } from './CabinetArt';
-import { planTravel, settledOffset, travelAt, type ReelTravel } from './ReelMotion';
+import { planTravel, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
+import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
 import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
 
 export type RivalExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
@@ -14,11 +15,14 @@ const fragmentShader = `
   uniform float winning;
   uniform float mini;
   uniform float cellAspect;
+  uniform float stripLength;
+  uniform float strip[${MAX_REEL_STRIP_LENGTH}];
   void main(){
     // UVs are a continuous display strip. Increasing offset moves ink DOWN.
     float row = mini > .5 ? (.5-vUv.y) : asin((.5-vUv.y)*1.7)/asin(.85)*1.53;
     float position = row-offset;
-    float symbol = mod(floor(position+.5),3.);
+    int cellIndex = int(mod(floor(position+.5),stripLength));
+    float symbol = strip[cellIndex];
     float cell = fract(position+.5);
     // The small window is wider than one square symbol: keep ivory margins,
     // rather than stretching the atlas cell to the full window width.
@@ -62,6 +66,9 @@ export class ReelScene {
   private cabinet: CabinetArt;
   private loaded = 0;
   private lastRound = 0;
+  private upgradeKey = '|';
+  private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
+  private activeStrips = this.stagedStrips;
 
   constructor(private readonly host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -85,8 +92,11 @@ export class ReelScene {
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
     const atlas = this.load('/art/symbols.webp');
     [...REEL_RECTS, ...MINI_RECTS].forEach((rect, i) => {
+      const strip = this.activeStrips[i < 3 ? 0 : 1];
+      const cells = new Float32Array(MAX_REEL_STRIP_LENGTH);
+      cells.set(strip.map(symbol => SYMBOLS.indexOf(symbol)));
       const material = new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(['cherry', 'bell', 'seven'][i % 3] as SymbolId) }, winning: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h } },
+        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(SYMBOLS[i % 3], strip) }, winning: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h }, stripLength: { value: strip.length }, strip: { value: cells } },
         vertexShader, fragmentShader,
       });
       const geometry = new THREE.PlaneGeometry(rect.w, rect.h, 1, i >= 3 ? 1 : 32);
@@ -131,13 +141,40 @@ export class ReelScene {
     mesh.position.set(rect.x + rect.w / 2, STAGE_HEIGHT - rect.y - rect.h / 2, z);
   }
 
+  /** Confirmed upgrades are staged until the next spin or explicit still view. */
+  setUpgrades(player: readonly UpgradeId[], rival: readonly UpgradeId[]): void {
+    if (this.disposed) return;
+    const key = `${player.join(',')}|${rival.join(',')}`;
+    if (key === this.upgradeKey) return;
+    this.upgradeKey = key;
+    this.stagedStrips = [buildReelStrip(player), buildReelStrip(rival)];
+  }
+
+  private applyStagedStrips(): void {
+    if (this.activeStrips === this.stagedStrips) return;
+    this.materials.forEach((material, index) => {
+      const side = index < 3 ? 0 : 1;
+      const offset = material.uniforms.offset.value as number;
+      const symbol = symbolAtOffset(offset, this.activeStrips[side]);
+      const strip = this.stagedStrips[side];
+      // Rebase around the same visible center, including a fractional position
+      // when a newer round supersedes an unfinished animation.
+      const fraction = offset + Math.floor(-offset + .5);
+      material.uniforms.offset.value = settledOffset(symbol, strip) + fraction;
+      (material.uniforms.strip.value as Float32Array).set(strip.map(cell => SYMBOLS.indexOf(cell)));
+      material.uniforms.stripLength.value = strip.length;
+    });
+    this.activeStrips = this.stagedStrips;
+  }
+
   play(player: SpinView, rival: SpinView, complete: (celebrate: boolean) => void): void {
     if (this.disposed || player.round <= this.lastRound) return;
     this.lastRound = player.round;
     this.clearWin();
+    this.applyStagedStrips();
     this.pending = {
       player, rival, complete, started: performance.now(),
-      travel: player.symbols.map((symbol, i) => planTravel(this.materials[i].uniforms.offset.value, symbol, i)),
+      travel: [...player.symbols, ...rival.symbols].map((symbol, i) => planTravel(this.materials[i].uniforms.offset.value, symbol, i % 3, this.activeStrips[i < 3 ? 0 : 1])),
     };
     this.host.dataset.spinning = 'true';
     this.requestRender();
@@ -148,7 +185,8 @@ export class ReelScene {
     if (this.disposed) return;
     this.pending = null;
     this.lastRound = 0;
-    [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol); });
+    this.applyStagedStrips();
+    [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol, this.activeStrips[i < 3 ? 0 : 1]); });
     this.host.dataset.spinning = 'false';
     this.flash(payout, still);
     this.requestRender();
@@ -192,7 +230,7 @@ export class ReelScene {
 
   stop(): void {
     if (this.disposed) return;
-    if (this.pending) this.pending.player.symbols.forEach((s, i) => { this.materials[i].uniforms.offset.value = settledOffset(s); });
+    if (this.pending) this.pending.travel.forEach((travel, i) => { this.materials[i].uniforms.offset.value = travel.to; });
     this.pending = null;
     this.lastRound = 0;
     this.host.dataset.spinning = 'false';
@@ -251,11 +289,10 @@ export class ReelScene {
       const elapsed = now - pending.started;
       const reduced = this.motionPreference.matches;
       const finished = elapsed >= (reduced ? 120 : pending.travel[2].duration);
-      this.materials.slice(0, 3).forEach((m, i) => {
+      this.materials.forEach((m, i) => {
         if (!reduced || finished) m.uniforms.offset.value = finished ? pending.travel[i].to : travelAt(pending.travel[i], elapsed);
       });
       if (finished) {
-        pending.rival.symbols.forEach((s, i) => { this.materials[i + 3].uniforms.offset.value = settledOffset(s); });
         this.pending = null;
         this.host.dataset.spinning = 'false';
         this.host.dataset.round = String(pending.player.round);
