@@ -138,14 +138,35 @@ describe('stage rendering and cleanup', () => {
       }
     }
   });
+  it('overlaps independent spins without a player start or stop clearing the rival win', () => {
+    const { view, host } = setup();
+    const playerDone = vi.fn(), rivalDone = vi.fn();
+    const rival = { ...spin(8, ['seven', 'seven', 'seven'], 1200), side: 'rival' as const };
+    view.playSide(rival, rivalDone);
+    frame(300);
+    view.playSide(spin(1), playerDone);
+    expect(host.dataset).toMatchObject({ playerSpinning: 'true', rivalSpinning: 'true' });
+    frame(760);
+    expect(rivalDone).toHaveBeenCalledOnce();
+    expect(playerDone).not.toHaveBeenCalled();
+    expect(host.dataset).toMatchObject({ playerSpinning: 'true', rivalSpinning: 'false', rivalRound: '8', rivalWin: 'true' });
+    frame(300);
+    expect(playerDone).toHaveBeenCalledOnce();
+    expect(host.dataset).toMatchObject({ playerRound: '1', rivalRound: '8', rivalWin: 'true' });
+    view.playSide(spin(2), vi.fn());
+    expect(host.dataset).toMatchObject({ rivalWin: 'true' });
+    expect(reelCenters().slice(3)).toEqual(rival.symbols);
+    frame(900);
+    expect(host.dataset).toMatchObject({ rivalWin: 'false' });
+  });
   it('replaces obsolete rounds and ignores duplicate/older updates', () => {
     const { view } = setup();
     const old = vi.fn(), latest = vi.fn(), duplicate = vi.fn();
-    view.play(spin(1), spin(1), old);
+    view.playSide(spin(1), old);
     frame(300);
-    view.play(spin(4), spin(4), latest);
-    view.play(spin(2), spin(2), duplicate);
-    view.play(spin(4), spin(4), duplicate);
+    view.playSide(spin(4), latest);
+    view.playSide(spin(2), duplicate);
+    view.playSide(spin(4), duplicate);
     frame(1100);
     expect(old).not.toHaveBeenCalled();
     expect(duplicate).not.toHaveBeenCalled();
@@ -172,7 +193,7 @@ describe('stage rendering and cleanup', () => {
   it('honors reduced motion even when changed during a spin', () => {
     const { view } = setup();
     const done = vi.fn();
-    view.play(spin(), spin(), done);
+    view.playSide(spin(), done);
     frame(140);
     motion.matches = true;
     motion.dispatchEvent(new Event('change'));
@@ -183,7 +204,7 @@ describe('stage rendering and cleanup', () => {
   it('cancels a pending completion and repaints resize without restarting', () => {
     const { view, host } = setup();
     const done = vi.fn();
-    view.play(spin(), spin(), done);
+    view.playSide(spin(), done);
     view.stop();
     host.clientWidth = 1920;
     host.clientHeight = 1080;
@@ -299,10 +320,10 @@ describe('stage rendering and cleanup', () => {
     });
     const disposals = [...resources].map(r => vi.spyOn(r, 'dispose'));
     const done = vi.fn();
-    view.play(spin(), spin(), done);
+    view.playSide(spin(), done);
     view.dispose();
     view.dispose();
-    view.play(spin(2), spin(2), done);
+    view.playSide(spin(2), done);
     view.show(['cherry', 'cherry', 'cherry']);
     view.stop();
     viewport.dispatchEvent(new Event('resize'));

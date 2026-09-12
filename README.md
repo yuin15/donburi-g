@@ -1,6 +1,6 @@
 # Slot-chan
 
-**リールを改造して、CPUライバルに60秒で勝ちきれ。**
+**回して、そろえて。CPUライバルに60秒で勝ちきれ。**
 
 Game jam project by team **donburi**. The core game uses Vite, TypeScript and Three.js. GPT voice and LiveAvatar video are optional additions.
 
@@ -9,14 +9,13 @@ Game jam project by team **donburi**. The core game uses Vite, TypeScript and Th
 ## Play loop
 
 1. Click **CPUライバルと対戦**. No key, invitation, microphone, or external AI service is needed.
-2. Click **回す** or press **Space** to spin both sides once. During a spin, press again to queue the next one; repeated presses keep at most one reservation. The match lasts 60 seconds and accepts at most one spin per 1.1 seconds.
-3. Preview the upgrade odds at 15s and 35s, then choose at 20s and 40s: **steady** adds cherries; **jackpot** adds 7s. Each selection window lasts 4 seconds; no selection applies steady.
-4. The CPU chooses its own legal upgrades. In optional voice/video mode, the rival can also respond to speech and game events.
-5. Highest confirmed coin total at 60 seconds wins.
+2. Click **回す** or press **Space** to spin your reels. Press during a spin to queue the next one; repeated presses keep at most one reservation. Player spins are accepted at least 1.1 seconds apart.
+3. The rival automatically spins every 2 seconds, even when you do nothing. Your input never triggers or delays its spins.
+4. Highest confirmed coin total at 60 seconds wins. Both final animations settle before the result appears.
 
-Only the highlighted **middle line** pays; the faded upper/lower symbols are visual decoration. Both reels move downward using their confirmed upgraded symbol composition. The rival panel shows both upgrade histories and symbol counts. Upgrade choices appear on the right, leaving the reels and spin button available. The result panel shows the actual spin count and appears after the last accepted reels have stopped and both scores have been confirmed.
+Only the highlighted **middle line** pays. Both sides keep the same base reel composition for the entire match; upgrades and timed choices are currently removed. Reels move downward and stop independently. The result compares each side's actual spin count, symbol payouts and first highest-paying spin.
 
-The result also compares symbol payouts, each side's upgrade order, and the first highest-paying spin. CPU dialogue responds to both sides' confirmed outcomes, including simultaneous jackpots and close finishes. It does not interrupt live speech captions.
+The rival completes 30 spins; the player can complete 0–55 depending on input. CPU dialogue reacts to the side that just stopped without repeating the other side's previous payout. See [independent duel verification](./docs/independent-duel.md).
 
 The game rules are authoritative on the server in live mode. The browser never decides payouts, future spins, the timer, or the rival's score.
 
@@ -24,7 +23,7 @@ The game rules are authoritative on the server in live mode. The browser never d
 
 ### Normal CPU match (no external APIs)
 
-Runs fully in the browser without API calls. It is the normal game, including both upgrades, results and rematch. Short synthesized effects distinguish spins, wins, jackpots, lead changes and the last ten seconds; **効果音 ON/OFF** controls them separately from optional AI speech.
+Runs fully in the browser without API calls. It is the normal game, including independent rival spins, results and rematch. Short synthesized effects distinguish spins, wins, jackpots, lead changes and the last ten seconds; **効果音 ON/OFF** controls them separately from optional AI speech.
 
 ```bash
 npm ci
@@ -33,7 +32,7 @@ npm run dev
 
 ### Optional voice and video
 
-Open **音声・映像もつける（任意）** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. Once connected, a voice/video failure closes the media and microphone, cancels pending AI reasoning, and keeps the same match running with CPU upgrade choices. The core game's completion does not depend on real-provider voice/video validation.
+Open **音声・映像もつける（任意）** only when you want that addition. If permission or initial connection fails, a CPU match is prepared instead. Once connected, a voice/video failure closes the media and microphone, cancels pending AI reasoning, and keeps the same match running with the independent CPU rival. The core game's completion does not depend on real-provider voice/video validation.
 
 Live mode requires server-side environment variables. Copy `.env.example` to a local ignored environment file and fill it locally, or configure the variables in Vercel. **Never commit real values.**
 
@@ -49,7 +48,6 @@ Optional:
 
 - `LIVEAVATAR_AVATAR_ID` — otherwise the first active public avatar is used
 - `ALLOWED_ORIGINS` — comma-separated allowed browser origins
-- `RIVAL_REASONING_MODEL` — default `gpt-5.6-luna`
 - `GPT_LIVE_MODEL` — default `gpt-live-1`
 - `GPT_LIVE_VOICE` — default `marin`
 - `MAX_DAILY_SESSIONS` — default `10`, per running process
@@ -61,7 +59,7 @@ Live path:
 
 `browser mic → /api/ws → GPT-Live → LiveAvatar media server → LiveKit → browser`
 
-The game WebSocket carries authoritative match updates independently of optional voice/video health. Losing that game transport itself aborts the match with a visible explanation; the app never silently substitutes a new match or seed. Optional media failure preserves the existing timer, score, upgrades, and result.
+The game WebSocket carries authoritative match updates independently of optional voice/video health. Losing that game transport itself aborts the match with a visible explanation; the app never silently substitutes a new match or seed. Optional media failure preserves the existing timer, scores, spins, and result.
 
 ## Commands
 

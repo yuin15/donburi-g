@@ -46,6 +46,7 @@ export class MatchSession {
   private readonly commands = new Set<string>();
   private streamSeq = 0;
   private lastSpin: { player: SpinView; rival: SpinView } | undefined;
+  private lastSpins: Partial<Record<'player' | 'rival', SpinView>> = {};
   private messageWindow = 0;
   private messagesInWindow = 0;
   private audioInWindow = 0;
@@ -84,10 +85,10 @@ export class MatchSession {
     private readonly frontend: WebSocket,
     private readonly sessionId: string,
     releaseQuota: () => Promise<void>,
-    deps: { spinMode?: 'automatic' | 'manual' } = {},
+    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean } = {},
   ) {
     const seed = randomBytes(4).readUInt32BE(0);
-    this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual');
+    this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual', { upgrades: deps.upgrades });
     this.releaseQuota = releaseQuota;
   }
 
@@ -331,7 +332,8 @@ export class MatchSession {
     // A delayed tick can settle several spins. Pair the current scores with the
     // latest confirmed spin before any context or reaction can be sent.
     for (const event of events) {
-      if (event.type === 'spin') this.lastSpin = { player: event.player, rival: event.rival };
+      if (event.type === 'spin') this.lastSpin = this.lastSpins = { player: event.player, rival: event.rival };
+      if (event.type === 'side_spin') this.lastSpins[event.spin.side] = event.spin;
     }
     // Ordinary wins and the clock matter to user-led conversation as well as reactions.
     this.pushContext();
@@ -344,6 +346,16 @@ export class MatchSession {
   }
 
   private handleGameEvent(event: GameEvent): void {
+    if (event.type === 'side_spin') {
+      this.emit({ type: 'side_spin', spin: event.spin });
+      if (event.spin.payout >= 1200) {
+        const player = event.spin.side === 'player';
+        this.react(player ? 'player_jackpot' : 'rival_jackpot', player
+          ? 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。'
+          : 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.spin.round, event.spin.side);
+      }
+      return;
+    }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
       if (event.player.payout >= 1200 && event.rival.payout >= 1200) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した得点差を踏まえて短く反応して。', event.player.round);
@@ -352,9 +364,10 @@ export class MatchSession {
       return;
     }
     if (event.type === 'leader_change') {
-      const round = this.state.spinMode === 'manual' ? this.state.round : Math.floor(event.at / 2);
-      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', round);
-      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', round);
+      const side = event.leader === 'rival' ? 'rival' : 'player';
+      const round = this.state.spinMode === 'manual' ? this.state.rounds[side] : Math.floor(event.at / 2);
+      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', round, side);
+      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', round, side);
       return;
     }
     if (event.type === 'upgrade_open') {
@@ -442,10 +455,10 @@ export class MatchSession {
     }
   }
 
-  private react(reason: string, instruction: string, round: number): void {
-    if (round !== this.state.round) return;
-    this.reactions.offer(`${reason}:${round}`, instruction, reason.includes('jackpot') ? 80 : 60, () => {
-      if (this.state.status !== 'playing' || this.state.round !== round) return false;
+  private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {
+    if (round !== this.state.rounds[side]) return;
+    this.reactions.offer(`${reason}:${side}:${round}`, instruction, reason.includes('jackpot') ? 80 : 60, () => {
+      if (this.state.status !== 'playing' || this.state.rounds[side] !== round) return false;
       if (reason === 'player_leads') return this.state.scores.player > this.state.scores.rival;
       if (reason === 'rival_leads') return this.state.scores.rival > this.state.scores.player;
       return true;
@@ -464,15 +477,22 @@ export class MatchSession {
     const snapshot = getSnapshot(this.state);
     // Whole seconds keep the 100ms match tick and incoming mic chunks from resending
     // identical context. A confirmed spin, score, upgrade or result updates immediately.
-    const recentSpin = this.lastSpin
-      ? `直近の確定回転: プレイヤー${this.lastSpin.player.round}回目、絵柄[${this.lastSpin.player.symbols.join(',')}]、配当${this.lastSpin.player.payout}点;あなた${this.lastSpin.rival.round}回目、絵柄[${this.lastSpin.rival.symbols.join(',')}]、配当${this.lastSpin.rival.payout}点。`
+    const recentSpin = Object.keys(this.lastSpins).length
+      ? `直近の確定回転: ${(['player', 'rival'] as const).map(side => {
+        const spin = this.lastSpins[side];
+        const name = side === 'player' ? 'プレイヤー' : 'あなた';
+        return spin ? `${name}${spin.round}回目、絵柄[${spin.symbols.join(',')}]、配当${spin.payout}点` : `${name}はまだ回転していない`;
+      }).join(';')}。`
       : '直近の確定回転: まだ回転していない。';
-    return `ゲーム確定情報: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}],状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${recentSpin}`;
+    const reelContext = this.state.upgradesEnabled
+      ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
+      : '両者とも同じ基本リール。プレイヤーは手動、あなたは2秒ごとに独立して自動回転する。60秒の獲得コインで勝負し、追加の選択操作はない。';
+    return `ゲーム確定情報: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {
     this.lastSnapshotAt = Date.now();
-    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), lastSpin: this.lastSpin });
+    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), ...(this.state.spinMode === 'manual' ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
   }
 
   private emitSpinStatus(commandId: string, accepted: boolean, retryAfterMs: number): void {

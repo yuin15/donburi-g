@@ -1,10 +1,10 @@
-import type { SpinView } from '../../shared/protocol';
+import type { Side, SpinView } from '../../shared/protocol';
 import { PAYOUT } from '../domain/game';
 
 export type RivalReactionKind =
   | 'both-jackpot' | 'player-jackpot' | 'rival-jackpot'
   | 'player-lead' | 'rival-lead' | 'both-win' | 'player-win' | 'rival-win'
-  | 'close-finish' | 'quiet';
+  | 'close-finish' | 'quiet' | 'player-miss' | 'rival-miss';
 
 export interface RivalReaction {
   kind: RivalReactionKind;
@@ -56,6 +56,14 @@ const SCENES: Record<RivalReactionKind, {
     expression: 'neutral',
     lines: ['今回は、お互い空振りだね。', 'ふたりともおあずけ。この間も緊張するね。'],
   },
+  'player-miss': {
+    expression: 'neutral',
+    lines: ['惜しいね。次はどうかな？', 'そろわなかったね。まだ勝負はこれから。'],
+  },
+  'rival-miss': {
+    expression: 'neutral',
+    lines: ['ああ、惜しい！ 次こそ。', '私も、もう一回いくよ。'],
+  },
 };
 
 function selectKind(
@@ -86,7 +94,18 @@ export class RivalReactions {
   }
 
   next(player: SpinView, rival: SpinView, remaining: number, comeback: 'player' | 'rival' | null): RivalReaction {
-    const kind = selectKind(player, rival, remaining, comeback);
+    return this.select(selectKind(player, rival, remaining, comeback));
+  }
+
+  nextSpin(spin: SpinView, scores: Record<Side, number>, remaining: number, comeback: Side | null): RivalReaction {
+    const otherSide = spin.side === 'player' ? 'rival' : 'player';
+    // Only this stop can announce a payout; never repeat the other side's previous hit.
+    const other: SpinView = { ...spin, side: otherSide, payout: 0, total: scores[otherSide] };
+    const kind = spin.side === 'player' ? selectKind(spin, other, remaining, comeback) : selectKind(other, spin, remaining, comeback);
+    return this.select(kind === 'quiet' ? spin.side === 'player' ? 'player-miss' : 'rival-miss' : kind);
+  }
+
+  private select(kind: RivalReactionKind): RivalReaction {
     const scene = SCENES[kind];
     const variant = this.variants.get(kind) ?? 0;
     this.variants.set(kind, (variant + 1) % scene.lines.length);

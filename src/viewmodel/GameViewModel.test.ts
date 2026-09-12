@@ -67,6 +67,7 @@ function playingSnapshot(last?: RoundPair, result = false): MatchSnapshot {
   snapshot.remaining = 60 - snapshot.elapsed;
   if (last) {
     snapshot.round = last.player.round;
+    snapshot.rounds = { player: last.player.round, rival: last.rival.round };
     snapshot.scores = { player: last.player.total, rival: last.rival.total };
     snapshot.stats = {
       player: { wins: { cherry: 0, bell: 0, seven: snapshot.round }, bestSpin: { round: 1, payout: 1200 } },
@@ -80,9 +81,10 @@ function playingSnapshot(last?: RoundPair, result = false): MatchSnapshot {
 function setup(factory?: LiveSessionFactory) {
   const clock = new Clock();
   const sessions: Session[] = [];
-  const rounds: Array<RoundPair & { stopped: (celebrate?: boolean) => void }> = [];
+  const rounds: Array<{ spin: SpinView; stopped: (celebrate?: boolean) => void }> = [];
+  const rivalRounds: typeof rounds = [];
   const presentation: GamePresentation = {
-    playRound: vi.fn((player: SpinView, rival: SpinView, stopped: (celebrate?: boolean) => void) => { rounds.push({ player, rival, stopped }); }),
+    playSpin: vi.fn((spin: SpinView, stopped: (celebrate?: boolean) => void) => { (spin.side === 'player' ? rounds : rivalRounds).push({ spin, stopped }); }),
     resetScene: vi.fn(), stopScene: vi.fn(), celebrateResult: vi.fn(), playSound: vi.fn(), stopSound: vi.fn(), setEffectsMuted: vi.fn(), focus: vi.fn(),
   };
   let visible = true;
@@ -90,7 +92,7 @@ function setup(factory?: LiveSessionFactory) {
     clock, random: () => 0.25, isVisible: () => visible, presentation,
     liveFactory: factory ?? (async handlers => { const session = new Session(handlers); sessions.push(session); return session; }),
   });
-  return { vm, clock, rounds, sessions, presentation, setVisible: (value: boolean) => { visible = value; vm.visibilityChanged(); } };
+  return { vm, clock, rounds, rivalRounds, sessions, presentation, setVisible: (value: boolean) => { visible = value; vm.visibilityChanged(); } };
 }
 
 async function beginCpu(h: ReturnType<typeof setup>) {
@@ -111,7 +113,7 @@ async function beginLive(h: ReturnType<typeof setup>) {
 }
 
 describe('game view model', () => {
-  it('runs a complete manual match without automatically spinning', async () => {
+  it('runs the rival for a whole match without any player input and waits for its final stop', async () => {
     const h = setup();
     const observed = vi.fn();
     const unsubscribe = h.vm.subscribe(observed);
@@ -120,7 +122,11 @@ describe('game view model', () => {
     expect(h.vm.state.startControl).toMatchObject({ disabled: false, label: '回す' });
     await h.clock.advance(60000);
     expect(h.rounds).toHaveLength(0);
-    expect(h.vm.state.result).toMatchObject({ round: 0, winner: 'draw', scores: { player: 0, rival: 0 } });
+    expect(h.rivalRounds).toHaveLength(30);
+    expect(h.vm.state.startControl.label).toBe('最終停止中');
+    expect(h.vm.state.result).toBeNull();
+    h.rivalRounds.at(-1)!.stopped();
+    expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 30 }, scores: { player: 0, rival: h.rivalRounds.at(-1)!.spin.total } });
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
     unsubscribe();
     h.vm.dispose();
@@ -138,7 +144,7 @@ describe('game view model', () => {
     expect(h.vm.state.scores).toEqual({ player: 0, rival: 0 });
     await h.clock.advance(1060);
     first.stopped();
-    expect(h.vm.state.scores).toEqual({ player: first.player.total, rival: first.rival.total });
+    expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 0 });
     await h.clock.advance(52);
     expect(h.rounds).toHaveLength(2);
     const obsolete = h.rounds[1];
@@ -159,18 +165,14 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
-  it('keeps upgrade authority on the injected clock and cancels a queued spin when hidden', async () => {
+  it('keeps the base reels across former upgrade times and cancels a hidden queued spin', async () => {
     const h = setup();
     await beginCpu(h);
-    await h.clock.advance(20000);
-    expect(h.vm.state.upgrade).toMatchObject({ phase: 'open', index: 0 });
-    h.vm.chooseUpgrade('jackpot');
-    h.vm.chooseUpgrade('steady');
-    expect(h.vm.state.upgrade?.choice).toBe('jackpot');
-    await h.clock.advance(4000);
-    expect(h.vm.state.snapshot.upgrades.player).toEqual(['jackpot']);
+    await h.clock.advance(44000);
+    expect(h.vm.state.snapshot.upgrades).toEqual({ player: [], rival: [] });
     h.vm.requestSpin();
-    expect(h.rounds[0].player.upgrades).toEqual(['jackpot']);
+    expect(h.rounds[0].spin.upgrades).toEqual([]);
+    expect(h.rivalRounds.at(-1)!.spin.upgrades).toEqual([]);
     h.vm.requestSpin();
     h.setVisible(false);
     await h.clock.advance(1200);
@@ -203,6 +205,8 @@ describe('game view model', () => {
     session.emit({ type: 'snapshot', snapshot: final, lastSpin: last });
     session.emit({ type: 'transcript', role: 'assistant', delta: '勝負だったね。' });
     h.rounds[0].stopped();
+    expect(h.vm.state.result).toBeNull();
+    h.rivalRounds[0].stopped();
     expect(h.vm.state.scores).toEqual(final.scores);
     expect(h.vm.state.result).toEqual(final);
     expect(h.vm.state.line).toBe('「いい勝負だったね。」');
@@ -224,6 +228,7 @@ describe('game view model', () => {
     session.emit({ type: 'spin', ...pair(1) });
     await h.clock.advance(1060);
     h.rounds[0].stopped();
+    h.rivalRounds[0].stopped();
     expect(h.vm.state.payout).toEqual({ player: 1200, rival: 120 });
     await h.clock.advance(52);
     h.vm.requestSpin();
@@ -231,12 +236,36 @@ describe('game view model', () => {
     expect(h.vm.state.payout).toEqual({ player: 1200, rival: 120 });
     await h.clock.advance(1060);
     h.rounds[1].stopped();
+    h.rivalRounds[1].stopped();
     await h.clock.advance(100);
     expect(h.vm.state.payout).toEqual({ player: 1200, rival: 120 });
     await h.clock.advance(1100);
     expect(h.vm.state.payout).toBeNull();
     expect(session.spins).toBe(2);
     expect(session.disconnect).not.toHaveBeenCalled();
+    h.vm.dispose();
+  });
+
+  it('a rival stop cannot release a queued player input or clear its winning payout', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const last = pair();
+    h.vm.requestSpin();
+    session.emit({ type: 'side_spin', spin: last.player });
+    h.vm.requestSpin();
+    session.emit({ type: 'side_spin', spin: last.rival });
+    await h.clock.advance(1150);
+    h.rivalRounds[0].stopped();
+    expect(session.spins).toBe(1);
+    expect(h.vm.state.startControl.spinState).toBe('queued');
+    h.rounds[0].stopped();
+    expect(session.spins).toBe(2);
+    expect(h.vm.state.payout?.player).toBe(1200);
+    await h.clock.advance(500);
+    session.emit({ type: 'side_spin', spin: { ...pair(2).rival, payout: 0, total: 120, symbols: ['cherry', 'bell', 'seven'] } });
+    h.rivalRounds[1].stopped();
+    expect(h.vm.state.payout).toEqual({ player: 1200, rival: 0 });
+    expect(h.vm.state.line).not.toContain('7揃い');
     h.vm.dispose();
   });
 

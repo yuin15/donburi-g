@@ -1,65 +1,72 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MatchSnapshot, SpinView } from '../../shared/protocol';
+import type { Side, SpinView } from '../../shared/protocol';
+import { createMatch, getSnapshot } from '../domain/game';
 import { RoundPresentation } from './RoundPresentation';
 
-const spin = (round: number, total = 120): SpinView => ({ round, total, side: 'player', payout: 120, symbols: ['cherry', 'cherry', 'cherry'] });
-const end = (round = 30): MatchSnapshot => ({ matchId: 'test', status: 'result', elapsed: 60, remaining: 0, round, scores: { player: 3600, rival: 3480 }, stats: { player: { wins: { cherry: 30, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: 120 } }, rival: { wins: { cherry: 29, bell: 0, seven: 0 }, bestSpin: { round: 2, payout: 120 } } }, upgrades: { player: ['steady', 'jackpot'], rival: ['steady', 'steady'] }, winner: 'player', eventSeq: 70 });
-
+const spin = (side: Side, round: number, total = 120): SpinView => ({ round, total, side, payout: 120, symbols: ['cherry', 'cherry', 'cherry'] });
+function end(player = 4, rival = 30) {
+  const snapshot = getSnapshot(createMatch(1, 'test'));
+  return { ...snapshot, status: 'result' as const, elapsed: 60, remaining: 0, round: player, rounds: { player, rival }, scores: { player: 480, rival: 3480 }, winner: 'rival' as const };
+}
 function setup() {
   const stopped: Array<(celebrate?: boolean) => void> = [];
   const settled = vi.fn(), ended = vi.fn();
-  const presenter = new RoundPresentation({ play: (_p, _r, done) => { stopped.push(done); }, settled, ended });
+  const presenter = new RoundPresentation({ play: (_spin, done) => { stopped.push(done); }, settled, ended });
   return { presenter, stopped, settled, ended };
 }
-
-describe('round presentation', () => {
-  it('keeps both scores until the stop, then reveals them atomically', () => {
+describe('independent spin presentation', () => {
+  it('reveals only the side that stopped, regardless of overlapping start order', () => {
     const { presenter, stopped, settled } = setup();
-    const p = spin(1, 1200), r = spin(1, 1320);
-    presenter.spin(p, r);
+    const p = spin('player', 4, 480), r = spin('rival', 15, 1320);
+    presenter.spin(p); presenter.spin(r);
     expect(presenter.scores).toEqual({ player: 0, rival: 0 });
-    expect(settled).not.toHaveBeenCalled();
+    stopped[1]();
+    expect(presenter.scores).toEqual({ player: 0, rival: 1320 });
+    expect(settled).toHaveBeenCalledExactlyOnceWith(r, true);
     stopped[0]();
-    expect(presenter.scores).toEqual({ player: 1200, rival: 1320 });
-    expect(settled).toHaveBeenCalledWith(p, r, true);
+    expect(presenter.scores).toEqual({ player: 480, rival: 1320 });
   });
-  it('holds the 60-second result until round 30 stops, then emits it only once', () => {
+  it('holds the final result until both different final counts have stopped, then ends once', () => {
     const { presenter, stopped, ended } = setup();
-    presenter.spin(spin(30, 3600), spin(30, 3480));
+    presenter.spin(spin('player', 4, 480)); presenter.spin(spin('rival', 30, 3480));
     presenter.end(end());
+    stopped[1]();
     expect(ended).not.toHaveBeenCalled();
     stopped[0]();
     expect(ended).toHaveBeenCalledExactlyOnceWith(end());
-    presenter.end(end());
+    presenter.end(end()); stopped[1]();
+    expect(ended).toHaveBeenCalledOnce();
+    expect(presenter.spin(spin('rival', 31))).toBe(false);
+  });
+  it('finishes after the rival stop even when the player never spun', () => {
+    const { presenter, stopped, ended } = setup();
+    presenter.spin(spin('rival', 30, 3480));
+    presenter.end(end(0));
+    expect(ended).not.toHaveBeenCalled();
     stopped[0]();
     expect(ended).toHaveBeenCalledOnce();
-    expect(presenter.spin(spin(31), spin(31))).toBe(false);
   });
-  it('discards delayed callbacks and invalid or repeated round pairs', () => {
+  it('supersedes only older animations from the same side and rejects duplicate stops', () => {
     const { presenter, stopped, settled } = setup();
-    presenter.spin(spin(1), spin(1));
-    presenter.spin(spin(15, 3000), spin(15, 1200));
-    expect(presenter.spin(spin(14), spin(14))).toBe(false);
-    expect(presenter.spin(spin(15), spin(15))).toBe(false);
-    expect(presenter.spin(spin(16), spin(17))).toBe(false);
-    stopped[0]();
-    expect(settled).not.toHaveBeenCalled();
-    stopped[1](false);
-    expect(settled).toHaveBeenCalledOnce();
-    expect(settled.mock.calls[0][2]).toBe(false);
-    expect(presenter.scores).toEqual({ player: 3000, rival: 1200 });
-  });
-  it('reset cancels old wins/results and allows a fresh round 1', () => {
-    const { presenter, stopped, ended, settled } = setup();
-    presenter.spin(spin(30), spin(30));
-    presenter.end(end());
-    presenter.reset();
-    stopped[0]();
-    expect(ended).not.toHaveBeenCalled();
-    expect(settled).not.toHaveBeenCalled();
-    expect(presenter.scores).toEqual({ player: 0, rival: 0 });
-    expect(presenter.spin(spin(1), spin(1))).toBe(true);
+    presenter.spin(spin('player', 1)); presenter.spin(spin('rival', 1));
+    presenter.spin(spin('rival', 15, 1200));
+    expect(presenter.spin(spin('rival', 14))).toBe(false);
+    expect(presenter.spin(spin('rival', 15))).toBe(false);
     stopped[1]();
+    expect(settled).not.toHaveBeenCalled();
+    stopped[0](); stopped[2](false); stopped[2]();
+    expect(settled).toHaveBeenCalledTimes(2);
+    expect(settled.mock.calls[1][1]).toBe(false);
+    expect(presenter.scores).toEqual({ player: 120, rival: 1200 });
+  });
+  it('reset cancels both old callbacks and results and accepts a fresh first spin', () => {
+    const { presenter, stopped, ended, settled } = setup();
+    presenter.spin(spin('player', 4)); presenter.spin(spin('rival', 30));
+    presenter.end(end()); presenter.reset(); stopped[0](); stopped[1]();
+    expect(ended).not.toHaveBeenCalled(); expect(settled).not.toHaveBeenCalled();
+    expect(presenter.scores).toEqual({ player: 0, rival: 0 });
+    expect(presenter.spin(spin('rival', 1))).toBe(true);
+    stopped[2]();
     expect(settled).toHaveBeenCalledOnce();
   });
 });

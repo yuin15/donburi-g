@@ -1,16 +1,16 @@
-import type { MatchSnapshot, SpinView } from '../../shared/protocol';
+import type { MatchSnapshot, Side, SpinView } from '../../shared/protocol';
 
 interface PresentationPort {
-  play: (player: SpinView, rival: SpinView, stopped: (celebrate?: boolean) => void) => void;
-  settled: (player: SpinView, rival: SpinView, celebrate: boolean) => void;
+  play: (spin: SpinView, stopped: (celebrate?: boolean) => void) => void;
+  settled: (spin: SpinView, celebrate: boolean) => void;
   ended: (snapshot: MatchSnapshot) => void;
 }
 
-/** One latest round, never a backlog of obsolete animations after a stalled tab. */
+/** Each side owns its animation and score. A result waits for both final stops. */
 export class RoundPresentation {
   scores = { player: 0, rival: 0 };
-  private latestRound = 0;
-  private revealedRound = 0;
+  private latest: Record<Side, number> = { player: 0, rival: 0 };
+  private revealed: Record<Side, number> = { player: 0, rival: 0 };
   private revision = 0;
   private result: MatchSnapshot | null = null;
   private didEnd = false;
@@ -19,23 +19,23 @@ export class RoundPresentation {
 
   reset(): void {
     this.revision += 1;
-    this.latestRound = 0;
-    this.revealedRound = 0;
+    this.latest = { player: 0, rival: 0 };
+    this.revealed = { player: 0, rival: 0 };
     this.scores = { player: 0, rival: 0 };
     this.result = null;
     this.didEnd = false;
   }
 
-  spin(player: SpinView, rival: SpinView): boolean {
-    if (player.round !== rival.round || player.round <= this.latestRound || this.didEnd) return false;
-    this.latestRound = player.round;
+  spin(spin: SpinView): boolean {
+    const { side, round } = spin;
+    if (round <= this.latest[side] || this.didEnd) return false;
+    this.latest[side] = round;
     const revision = this.revision;
-    this.port.play(player, rival, (celebrate = true) => {
-      if (revision !== this.revision || player.round !== this.latestRound || player.round <= this.revealedRound) return;
-      this.revealedRound = player.round;
-      // Both scores become visible together; no false lead change between sides.
-      this.scores = { player: player.total, rival: rival.total };
-      this.port.settled(player, rival, celebrate);
+    this.port.play(spin, (celebrate = true) => {
+      if (revision !== this.revision || round !== this.latest[side] || round <= this.revealed[side]) return;
+      this.revealed[side] = round;
+      this.scores = { ...this.scores, [side]: spin.total };
+      this.port.settled(spin, celebrate);
       this.flushResult();
     });
     return true;
@@ -47,7 +47,7 @@ export class RoundPresentation {
   }
 
   private flushResult(): void {
-    if (!this.result || this.didEnd || this.revealedRound < this.result.round) return;
+    if (!this.result || this.didEnd || (['player', 'rival'] as const).some(side => this.revealed[side] < this.result!.rounds[side])) return;
     this.didEnd = true;
     this.scores = { ...this.result.scores };
     this.port.ended(this.result);

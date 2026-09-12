@@ -1,6 +1,5 @@
-import type { MatchSnapshot, Side, SpinView, UpgradeId } from '../../shared/protocol';
+import type { MatchSnapshot, Side, SpinView } from '../../shared/protocol';
 import type { LiveSessionFactory } from '../client/LiveSession';
-import type { UpgradePoolPreview } from '../domain/upgradePreview';
 
 export type GameMode = 'idle' | 'practice' | 'live';
 export type GameExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
@@ -11,7 +10,7 @@ export interface GameViewState {
   readonly mode: GameMode;
   readonly snapshot: MatchSnapshot;
   readonly scores: Readonly<Record<Side, number>>;
-  readonly lastSpin: RoundPair | null;
+  readonly lastSpin: Partial<Record<Side, SpinView>> | null;
   readonly gate: { readonly visible: boolean; readonly message: string; readonly connecting: boolean };
   readonly connection: { readonly text: string; readonly voiceReady: boolean; readonly showVoiceControls: boolean };
   readonly modeBadge: { readonly text: string; readonly tone: 'idle' | 'practice' | 'live' };
@@ -22,17 +21,6 @@ export interface GameViewState {
     readonly spinState: 'ready' | 'spinning' | 'queued' | null;
     readonly hint: string;
   };
-  readonly upgrade: {
-    readonly phase: 'preview' | 'open';
-    readonly index: 0 | 1;
-    readonly remainingSeconds: number;
-    readonly progress: number;
-    readonly choice: UpgradeId | null;
-    readonly choiceText: string;
-    readonly options: Record<UpgradeId, { before: UpgradePoolPreview; after: UpgradePoolPreview }>;
-  } | null;
-  readonly upgradeProgress: string;
-  readonly rivalUpgradeNotice: string;
   readonly machineNotice: string;
   readonly result: MatchSnapshot | null;
   readonly payout: Readonly<Record<Side, number>> | null;
@@ -47,7 +35,7 @@ export interface GameViewState {
 
 /** One-shot presentation calls. State subscriptions must not replay these effects. */
 export interface GamePresentation {
-  playRound(player: SpinView, rival: SpinView, stopped: (celebrate?: boolean) => void): void;
+  playSpin(spin: SpinView, stopped: (celebrate?: boolean) => void): void;
   resetScene(): void;
   stopScene(): void;
   celebrateResult(winner: Side | 'draw'): void;
@@ -77,7 +65,6 @@ export interface GameCommands {
   start(): Promise<void>;
   connectLive(inviteCode: string): Promise<void>;
   requestSpin(): void;
-  chooseUpgrade(choice: UpgradeId): void;
   leave(): void;
   toggleVoiceMuted(): void;
   toggleEffectsMuted(): void;

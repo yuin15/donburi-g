@@ -38,12 +38,13 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+// Automatic fixtures retain the old upgrade scenarios; real/manual sessions use base reels.
 function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic') {
   const messages: ServerMessage[] = [];
   const close = vi.fn();
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
-  return { session: new MatchSession(socket, id, release, { spinMode }), messages, release, close };
+  return { session: new MatchSession(socket, id, release, { spinMode, upgrades: spinMode === 'automatic' }), messages, release, close };
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -61,7 +62,27 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('live match cleanup', () => {
-  it('runs only requested manual spins and acknowledges cooldowns, invalid matches and replayed commands', async () => {
+  it('keeps a manual match on base reels and never asks the AI to upgrade', async () => {
+    const { session, messages } = setup('base-only', 'manual');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    let previous = 0;
+    for (const at of [0, 20000, 40000, 59000]) {
+      await vi.advanceTimersByTimeAsync(at - previous);
+      previous = at;
+      session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'base-only', commandId: `old-upgrade-${at}`, offerIndex: at < 40000 ? 0 : 1, upgradeId: 'jackpot' }));
+      session.handleRaw(JSON.stringify({ type: 'spin', matchId: 'base-only', commandId: `spin-${at}` }));
+    }
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', round: 4, upgrades: { player: [], rival: [] } } });
+    expect(messages.some(message => message.type === 'upgrade_offer' || message.type === 'upgrade_applied')).toBe(false);
+    expect(messages.filter(message => message.type === 'error' && message.code === 'upgrade_rejected')).toHaveLength(4);
+    expect(chooseRivalUpgrade).not.toHaveBeenCalled();
+    expect(provider.context.mock.calls.every(([text]) => !text.includes('プレイヤー改造'))).toBe(true);
+    await session.shutdown('test_finished');
+  });
+
+  it('runs independent rival spins and requested player spins and acknowledges cooldowns, invalid matches and replayed commands', async () => {
     const { session, messages } = setup('test-match', 'manual');
     const spin = (commandId: string, matchId = 'test-match') => session.handleRaw(JSON.stringify({ type: 'spin', commandId, matchId }));
     const status = () => messages.filter(message => message.type === 'spin_status').at(-1);
@@ -70,18 +91,18 @@ describe('live match cleanup', () => {
     expect(status()).toMatchObject({ commandId: 'before-start', accepted: false, retryAfterMs: 0 });
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(4000);
-    expect(messages.filter(message => message.type === 'spin')).toHaveLength(0);
+    expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(0);
     spin('wrong-match', 'another-match');
     expect(status()).toMatchObject({ commandId: 'wrong-match', accepted: false });
     session.handleRaw('{"type":"spin","commandId":"invalid-match","matchId":42}');
     expect(status()).toMatchObject({ commandId: 'invalid-match', accepted: false });
     spin('first');
     expect(status()).toMatchObject({ commandId: 'first', accepted: true, retryAfterMs: 1100 });
-    const first = messages.find(message => message.type === 'spin');
-    if (first?.type !== 'spin') throw new Error('missing manual spin');
-    expect(first.player.round).toBe(1);
-    expect(first.rival.round).toBe(1);
-    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、絵柄[${first.player.symbols.join(',')}]、配当${first.player.payout}点`);
+    const first = messages.find(message => message.type === 'side_spin' && message.spin.side === 'player');
+    if (first?.type !== 'side_spin') throw new Error('missing manual spin');
+    expect(first.spin.round).toBe(1);
+    expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'rival')).toHaveLength(2);
+    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、絵柄[${first.spin.symbols.join(',')}]、配当${first.spin.payout}点`);
     const contextOrder = provider.context.mock.invocationCallOrder.at(-1)!;
     session.handleRaw('{"type":"mic","audio":"AQID"}');
     expect(provider.mic.mock.invocationCallOrder.at(-1)).toBeGreaterThan(contextOrder);
@@ -97,27 +118,27 @@ describe('live match cleanup', () => {
     spin('first');
     spin('too-soon');
     expect(status()).toMatchObject({ commandId: 'too-soon', accepted: false, retryAfterMs: 0 });
-    expect(messages.filter(message => message.type === 'spin')).toHaveLength(2);
+    expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(2);
     session.handleRaw('{"type":"snapshot"}');
-    expect(messages.at(-1)).toMatchObject({ type: 'snapshot', snapshot: { round: 2 }, lastSpin: { player: { round: 2 }, rival: { round: 2 } } });
+    expect(messages.at(-1)).toMatchObject({ type: 'snapshot', snapshot: { rounds: { player: 2, rival: 3 } }, lastSpins: { player: { round: 2 }, rival: { round: 3 } } });
     await session.shutdown('test');
   });
 
-  it('settles an overdue manual match before answering a last-second click, without drawing or reopening the result', async () => {
+  it('settles an overdue manual match before answering a last-second click, without a player draw or reopening the result', async () => {
     const { session, messages } = setup('test-match', 'manual');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     // Leave interval callbacks delayed: the arriving command must enforce the deadline.
     vi.setSystemTime(Date.now() + 60_000);
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
-    expect(messages.filter(message => message.type === 'spin')).toHaveLength(0);
-    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', round: 0, remaining: 0, winner: 'draw' } });
+    expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(0);
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 30 }, remaining: 0, winner: 'rival' } });
     expect(messages.at(-1)).toMatchObject({ type: 'spin_status', commandId: 'at-deadline', accepted: false, retryAfterMs: 0 });
     session.handleRaw('{"type":"spin","commandId":"after-result","matchId":"test-match"}');
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
     expect(messages.filter(message => message.type === 'match_ended')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'spin_status')).toHaveLength(3);
-    expect(messages.filter(message => message.type === 'spin')).toHaveLength(0);
+    expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(0);
     await session.shutdown('test');
   });
 

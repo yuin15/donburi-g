@@ -40,7 +40,7 @@ describe('public upgrade preview', () => {
   ];
 
   it.each(sequences)('matches the domain before and after %s then %s', (first, second) => {
-    const state = createMatch(73, 'preview-domain-check');
+    const state = createMatch(73, 'preview-domain-check', 'automatic', { upgrades: true });
     startMatch(state);
     const choices = [first, second] as const;
     for (const index of [0, 1] as const) {

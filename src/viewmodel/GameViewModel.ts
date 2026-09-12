@@ -1,19 +1,17 @@
-import type { MatchSnapshot, ServerMessage, Side, SpinView, UpgradeId } from '../../shared/protocol';
+import type { MatchSnapshot, ServerMessage, Side, SpinView } from '../../shared/protocol';
 import type { LiveSession } from '../client/LiveSession';
 import {
   advanceMatch, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin,
-  SPIN_INTERVAL, startMatch, submitUpgrade, UPGRADE_CLOSE_SECONDS, UPGRADE_DEFINITIONS,
-  UPGRADE_OPEN_SECONDS, type GameEvent, type MatchState,
+  startMatch, type GameEvent, type MatchState,
 } from '../domain/game';
-import { describeUpgrade } from '../domain/upgradePreview';
 import { RoundPresentation } from './RoundPresentation';
 import { RivalReactions } from './RivalReactions';
 import type {
-  GameCommands, GameExpression, GameMode, GameViewModelDependencies, GameViewState, RoundPair,
+  GameCommands, GameExpression, GameMode, GameViewModelDependencies, GameViewState,
 } from './GameViewState';
 
 const INITIAL_LINE = '「60秒。私に勝てる？」';
-const CPU_MESSAGE = 'クリック / SPACE で回す · 改造チャンスは20秒・40秒';
+const CPU_MESSAGE = 'クリック / SPACE · 回転中も次の1回を予約';
 const DEFAULT_NOTICE = '中央の1ラインで判定 · 60秒の獲得コインで勝負';
 
 /** Application state and commands, independent of the browser and renderer. */
@@ -37,12 +35,8 @@ export class GameViewModel implements GameCommands {
   private countdown: GameViewState['countdown'] = null;
   private starting = false;
   private awaitingStart = false;
-  private activeOffer: { index: 0 | 1; closesAt: number } | null = null;
-  private playerChoices: Partial<Record<0 | 1, UpgradeId>> = {};
-  private upgradeReceipt = '';
-  private upgradeReceiptUntil = 0;
   private result: MatchSnapshot | null = null;
-  private lastSpin: RoundPair | null = null;
+  private lastSpin: GameViewState['lastSpin'] = null;
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private line = INITIAL_LINE;
@@ -59,12 +53,11 @@ export class GameViewModel implements GameCommands {
   private spinAnimating = false;
   private spinNextAt = 0;
   private spinRequestId: string | undefined;
-  private commandSequence = 0;
   private practiceTimer: number | undefined;
   private spinQueueTimer: number | undefined;
   private spinRequestTimer: number | undefined;
   private cueTimer: number | undefined;
-  private payoutTimer: number | undefined;
+  private payoutTimers: Partial<Record<Side, number>> = {};
   private assistantTimer: number | undefined;
   private revision = 0;
   private disposed = false;
@@ -75,8 +68,8 @@ export class GameViewModel implements GameCommands {
 
   constructor(private readonly deps: GameViewModelDependencies) {
     this.rounds = new RoundPresentation({
-      play: (player, rival, stopped) => deps.presentation.playRound(player, rival, stopped),
-      settled: (player, rival, celebrate) => this.revealRound(player, rival, celebrate),
+      play: (spin, stopped) => deps.presentation.playSpin(spin, stopped),
+      settled: (spin, celebrate) => this.revealSpin(spin, celebrate),
       ended: snapshot => this.finishPresentation(snapshot),
     });
     this.published = this.buildState();
@@ -145,20 +138,6 @@ export class GameViewModel implements GameCommands {
       this.emit();
       this.flushSpinQueue();
     } else this.performManualSpin();
-  }
-
-  chooseUpgrade(choice: UpgradeId): void {
-    const offer = this.activeOffer;
-    if (this.disposed || !offer || this.playerChoices[offer.index]) return;
-    if (this.mode === 'practice' && this.practiceState) {
-      if (!submitUpgrade(this.practiceState, 'player', offer.index, choice, this.practiceElapsed())) return;
-    } else if (this.mode === 'live') {
-      this.liveSession?.send({ type: 'upgrade', commandId: `${this.revision}-${++this.commandSequence}`, upgradeId: choice, offerIndex: offer.index, matchId: this.snapshot.matchId });
-    } else return;
-    this.playerChoices[offer.index] = choice;
-    this.deps.presentation.playSound('choose');
-    this.emit();
-    this.deps.presentation.focus('start');
   }
 
   leave(): void {
@@ -230,7 +209,8 @@ export class GameViewModel implements GameCommands {
     for (const [id, resolve] of this.waits) { this.deps.clock.clearTimeout(id); resolve(false); }
     this.waits.clear();
     this.practiceTimer = this.spinQueueTimer = this.spinRequestTimer = undefined;
-    this.cueTimer = this.payoutTimer = this.assistantTimer = undefined;
+    this.cueTimer = this.assistantTimer = undefined;
+    this.payoutTimers = {};
   }
 
   private wait(delay: number, current: number): Promise<boolean> {
@@ -268,7 +248,6 @@ export class GameViewModel implements GameCommands {
     this.starting = false;
     this.awaitingStart = false;
     this.countdown = null;
-    this.activeOffer = null;
     this.payout = null;
     this.cue = null;
     this.assistantText = '';
@@ -285,9 +264,6 @@ export class GameViewModel implements GameCommands {
     this.deps.presentation.resetScene();
     this.snapshot = getSnapshot(createMatch(1, 'preview'));
     this.liveReelUpgrades = { player: [], rival: [] };
-    this.playerChoices = {};
-    this.upgradeReceiptUntil = 0;
-    this.activeOffer = null;
     this.result = null;
     this.lastSpin = null;
     this.payout = null;
@@ -329,21 +305,10 @@ export class GameViewModel implements GameCommands {
   }
 
   private processPracticeEvents(events: GameEvent[]): void {
-    const newest = events.filter(event => event.type === 'spin').at(-1);
+    const newest = new Map<Side, GameEvent>();
+    for (const event of events) if (event.type === 'side_spin') newest.set(event.spin.side, event);
     for (const event of events) {
-      if (event.type === 'spin' && event === newest) this.handleSpin(event.player, event.rival, this.practiceState?.upgrades);
-      if (event.type === 'upgrade_open' && (this.practiceState?.elapsed ?? 60) < event.closesAt) {
-        this.openUpgrade(event.offerIndex, event.closesAt);
-        this.schedule(() => {
-          if (!this.practiceState || this.practiceState.status !== 'playing') return;
-          const pick: UpgradeId = this.practiceState.scores.rival < this.practiceState.scores.player || this.deps.random() > 0.5 ? 'jackpot' : 'steady';
-          submitUpgrade(this.practiceState, 'rival', event.offerIndex, pick, this.practiceElapsed());
-        }, 700);
-      }
-      if (event.type === 'upgrade_applied') {
-        this.confirmUpgrade(event.offerIndex, event.player);
-        this.line = event.rival === 'jackpot' ? '「ここから大勝負で行く。」' : '「崩さず取りに行く。」';
-      }
+      if (event.type === 'side_spin' && event === newest.get(event.spin.side)) this.handleSpin(event.spin, this.practiceState?.upgrades);
       if (event.type === 'match_end') {
         this.cancelTimer(this.practiceTimer);
         this.practiceTimer = undefined;
@@ -355,13 +320,10 @@ export class GameViewModel implements GameCommands {
   private consumeSnapshot(snapshot: MatchSnapshot): void {
     this.snapshot = snapshot;
     if (snapshot.status === 'playing' || snapshot.status === 'result' || snapshot.status === 'aborted') this.awaitingStart = false;
-    if (this.activeOffer && snapshot.elapsed >= this.activeOffer.closesAt) this.activeOffer = null;
     if (snapshot.status === 'playing') {
       if (!this.warnedTime && snapshot.remaining <= 10) { this.warnedTime = true; this.announce('残り10秒！ 最後まで勝負', 'warning'); }
-      const index = UPGRADE_OPEN_SECONDS.findIndex((at, index) => snapshot.elapsed >= at && snapshot.elapsed < UPGRADE_CLOSE_SECONDS[index]);
-      if (index >= 0 && !this.activeOffer) this.openUpgrade(index as 0 | 1, UPGRADE_CLOSE_SECONDS[index]);
     }
-    if (snapshot.status === 'result' || snapshot.status === 'aborted') { this.activeOffer = null; this.clearSpinInput(); }
+    if (snapshot.status === 'result' || snapshot.status === 'aborted') this.clearSpinInput();
   }
 
   private clearSpinInput(): void {
@@ -407,11 +369,9 @@ export class GameViewModel implements GameCommands {
     this.emit();
   }
 
-  private handleSpin(player: SpinView, rival: SpinView, upgrades = this.snapshot.upgrades): void {
-    const applied = UPGRADE_CLOSE_SECONDS.filter(at => at < player.round * SPIN_INTERVAL).length;
-    const p = { ...player, upgrades: [...(player.upgrades ?? upgrades.player.slice(0, applied))] };
-    const r = { ...rival, upgrades: [...(rival.upgrades ?? upgrades.rival.slice(0, applied))] };
-    if (this.rounds.spin(p, r)) {
+  private handleSpin(spin: SpinView, upgrades = this.snapshot.upgrades): void {
+    const confirmed = { ...spin, upgrades: [...(spin.upgrades ?? upgrades[spin.side])] };
+    if (this.rounds.spin(confirmed) && spin.side === 'player') {
       this.spinAnimating = true;
       this.spinPending = false;
       this.spinRequestId = undefined;
@@ -421,30 +381,41 @@ export class GameViewModel implements GameCommands {
     }
   }
 
-  private revealRound(player: SpinView, rival: SpinView, celebrate: boolean): void {
-    this.spinAnimating = false;
-    this.lastSpin = { player, rival };
-    const leader = player.total > rival.total ? 'player' : player.total < rival.total ? 'rival' : null;
+  private revealSpin(spin: SpinView, celebrate: boolean): void {
+    const side = spin.side;
+    if (side === 'player') this.spinAnimating = false;
+    this.lastSpin = { ...this.lastSpin, [side]: spin };
+    const scores = this.rounds.scores;
+    const leader = scores.player > scores.rival ? 'player' : scores.player < scores.rival ? 'rival' : null;
     const comeback = leader && this.previousLeader && leader !== this.previousLeader;
     if (leader) this.previousLeader = leader;
-    const stale = !celebrate || !this.deps.isVisible() || this.snapshot.round > player.round;
-    this.cancelTimer(this.payoutTimer);
-    this.payout = null;
+    const stale = !celebrate || !this.deps.isVisible() || this.snapshot.rounds[side] > spin.round;
+    this.clearPayout(side);
     if (!stale) {
-      this.payout = { player: player.payout, rival: rival.payout };
-      if (player.payout || rival.payout) this.payoutTimer = this.schedule(() => { this.payout = null; this.emit(); }, Math.max(player.payout, rival.payout) >= PAYOUT.seven ? 1200 : 650);
+      if (spin.payout) {
+        this.payout = { player: 0, rival: 0, ...this.payout, [side]: spin.payout };
+        this.payoutTimers[side] = this.schedule(() => { this.clearPayout(side); this.emit(); }, spin.payout >= PAYOUT.seven ? 1200 : 650);
+      }
       if (this.cue?.kind !== 'warning') { this.cancelTimer(this.cueTimer); this.cue = null; }
       this.reactionUntil = this.deps.clock.now() + 1600;
-      const reaction = this.rivalReactions.next(player, rival, this.snapshot.remaining, comeback ? leader : null);
+      const reaction = this.rivalReactions.nextSpin(spin, scores, this.snapshot.remaining, comeback ? leader : null);
       this.expression = reaction.expression;
       if (!this.voiceReady) this.line = `「${reaction.text}」`;
-      if (player.payout >= PAYOUT.seven) this.announce(comeback && leader === 'player' ? '逆転！' : '7揃い！', 'jackpot');
+      if (side === 'player' && spin.payout >= PAYOUT.seven) this.announce(comeback && leader === 'player' ? '逆転！' : '7揃い！', 'jackpot');
       else if (comeback) this.announce(leader === 'player' ? '逆転！' : 'ライバルが逆転！', 'lead');
-      else if (player.payout) this.deps.presentation.playSound('win');
-      else if (rival.payout) this.deps.presentation.playSound('rivalWin');
+      else if (spin.payout) this.deps.presentation.playSound(side === 'player' ? 'win' : 'rivalWin');
     }
     this.emit();
-    this.flushSpinQueue();
+    if (side === 'player') this.flushSpinQueue();
+  }
+
+  private clearPayout(side: Side): void {
+    this.cancelTimer(this.payoutTimers[side]);
+    delete this.payoutTimers[side];
+    if (this.payout) {
+      this.payout = { ...this.payout, [side]: 0 };
+      if (!this.payout.player && !this.payout.rival) this.payout = null;
+    }
   }
 
   private announce(text: string, kind: 'lead' | 'warning' | 'jackpot'): void {
@@ -454,25 +425,11 @@ export class GameViewModel implements GameCommands {
     this.cueTimer = this.schedule(() => { this.cue = null; this.emit(); }, 1800);
   }
 
-  private openUpgrade(index: 0 | 1, closesAt: number): void {
-    if (this.activeOffer?.index === index) return;
-    this.activeOffer = { index, closesAt };
-    this.deps.presentation.playSound('choose');
-  }
-
-  private confirmUpgrade(index: 0 | 1, applied: UpgradeId): void {
-    this.upgradeReceipt = this.playerChoices[index] === undefined
-      ? `改造${index + 1}: 未選択のため${UPGRADE_DEFINITIONS[applied].label}を適用 · 次の回転から有効`
-      : `改造${index + 1}: ${UPGRADE_DEFINITIONS[applied].label}を適用 · 次の回転から有効`;
-    this.upgradeReceiptUntil = this.deps.clock.now() + 3500;
-    this.activeOffer = null;
-  }
-
   private finishPresentation(snapshot: MatchSnapshot): void {
     this.consumeSnapshot(snapshot);
     this.result = snapshot;
-    this.activeOffer = null;
-    this.cancelTimer(this.payoutTimer);
+    this.clearPayout('player');
+    this.clearPayout('rival');
     this.cancelTimer(this.cueTimer);
     this.payout = this.cue = null;
     this.expression = snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral';
@@ -570,19 +527,19 @@ export class GameViewModel implements GameCommands {
       this.prepareLiveResult(message.snapshot);
       this.liveSnapshot = message.snapshot;
       this.liveReelUpgrades = { player: [...message.snapshot.upgrades.player], rival: [...message.snapshot.upgrades.rival] };
-      if (message.lastSpin) this.handleSpin(message.lastSpin.player, message.lastSpin.rival, message.snapshot.upgrades);
+      const last = message.lastSpins ?? message.lastSpin;
+      if (last) for (const side of ['player', 'rival'] as const) {
+        if (last[side]) this.handleSpin(last[side], message.snapshot.upgrades);
+      }
       this.consumeSnapshot(message.snapshot);
       if (message.snapshot.status === 'playing') this.awaitingStart = false;
       if (message.snapshot.status === 'result') this.rounds.end(message.snapshot);
       if (enteringPlay) { this.emit(); this.deps.presentation.focus('start'); }
     } else if (message.type === 'spin') {
-      this.handleSpin(message.player, message.rival, this.liveReelUpgrades);
-    } else if (message.type === 'upgrade_offer') {
-      this.openUpgrade(message.offerIndex, message.closesAtElapsed);
-    } else if (message.type === 'upgrade_applied') {
-      this.liveReelUpgrades.player[message.offerIndex] = message.player;
-      this.liveReelUpgrades.rival[message.offerIndex] = message.rival;
-      this.confirmUpgrade(message.offerIndex, message.player);
+      this.handleSpin(message.player, this.liveReelUpgrades);
+      this.handleSpin(message.rival, this.liveReelUpgrades);
+    } else if (message.type === 'side_spin') {
+      this.handleSpin(message.spin, this.liveReelUpgrades);
     } else if (message.type === 'rival_line') {
       if (!this.voiceReady) this.line = `「${message.text}」`;
     } else if (message.type === 'transcript') {
@@ -616,42 +573,17 @@ export class GameViewModel implements GameCommands {
     const playing = this.isPlaying();
     const busy = this.spinPending || this.spinAnimating || now < this.spinNextAt;
     const spinState = playing ? this.spinQueued ? 'queued' : busy ? 'spinning' : 'ready' : null;
-    const hint = playing ? this.spinQueued ? '次の1回を予約しました' : busy ? 'もう一度押すと、次を予約' : 'クリック / SPACE · 両者が1回転' : this.snapshot.status === 'result' ? `${this.snapshot.round}回転の勝負` : 'クリック / SPACE で回す';
+    const hint = playing ? this.spinQueued ? '次の1回を予約しました' : busy ? 'もう一度押すと、次を予約' : 'クリック / SPACE で回す' : this.snapshot.status === 'result' ? `あなた ${this.snapshot.rounds.player}回転 · ライバル ${this.snapshot.rounds.rival}回転` : 'クリック / SPACE で回す';
     const finalStopping = this.snapshot.status === 'result' && !this.result;
     const disabled = playing ? false : this.mode === 'idle' || this.connecting || this.starting || this.awaitingStart || finalStopping || (this.mode === 'live' && !this.gameConnected);
     const label = playing ? this.spinQueued ? '予約済み' : busy ? '次も回す' : '回す' : finalStopping ? '最終停止中' : this.result ? '再戦する' : this.connecting || this.starting || this.awaitingStart ? '準備中' : '勝負する';
-    const preview = this.snapshot.status === 'playing' && !this.activeOffer ? UPGRADE_OPEN_SECONDS.findIndex(at => this.snapshot.elapsed >= at - 5 && this.snapshot.elapsed < at) : -1;
-    const index = this.activeOffer?.index ?? (preview >= 0 ? preview as 0 | 1 : null);
-    let upgrade: GameViewState['upgrade'] = null;
-    if (index !== null) {
-      const open = this.activeOffer !== null;
-      const remainingSeconds = Math.max(0, (open ? UPGRADE_CLOSE_SECONDS[index] : UPGRADE_OPEN_SECONDS[index]) - this.snapshot.elapsed);
-      const choice = this.playerChoices[index] ?? null;
-      upgrade = {
-        phase: open ? 'open' : 'preview', index, remainingSeconds, progress: Math.min(1, remainingSeconds / (open ? 4 : 5)), choice,
-        choiceText: !open ? '見比べよう。受付後に選べます' : choice ? `選択済み: ${UPGRADE_DEFINITIONS[choice].label}` : 'クリック / キー 1・2 で選択',
-        options: { steady: describeUpgrade(this.snapshot.upgrades.player, 'steady'), jackpot: describeUpgrade(this.snapshot.upgrades.player, 'jackpot') },
-      };
-    }
-    let rivalUpgradeNotice = '';
-    if (this.snapshot.status === 'playing') {
-      const choosing = UPGRADE_OPEN_SECONDS.some((open, index) => this.snapshot.elapsed >= open && this.snapshot.elapsed < UPGRADE_CLOSE_SECONDS[index]);
-      const applied = this.snapshot.upgrades.rival;
-      const since = this.snapshot.elapsed - UPGRADE_CLOSE_SECONDS[applied.length - 1];
-      if (choosing) rivalUpgradeNotice = '⚙ リール改造中';
-      else if (applied.length && since >= 0 && since < 3.5) {
-        const definition = UPGRADE_DEFINITIONS[applied[applied.length - 1]];
-        rivalUpgradeNotice = `${definition.addedSymbol === 'cherry' ? 'チェリー' : '7'} +${definition.addedCount} · ${definition.label}`;
-      }
-    }
     return {
       mode: this.mode, snapshot: structuredClone(this.snapshot), scores, lastSpin: this.lastSpin ? structuredClone(this.lastSpin) : null,
       gate: { visible: this.gateVisible, message: this.gateMessage, connecting: this.connecting },
       connection: { text: this.connectionText, voiceReady: this.voiceReady, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
       modeBadge: { text: this.mode === 'idle' ? '未接続' : this.voiceReady ? 'LIVE AI' : 'CPU対戦', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },
-      countdown: this.countdown, startControl: { disabled, label, spinState, hint }, upgrade,
-      upgradeProgress: this.snapshot.status === 'playing' ? this.activeOffer ? '改造を選ぼう！' : this.snapshot.elapsed < 20 ? `改造まで ${Math.ceil(20 - this.snapshot.elapsed)}秒` : this.snapshot.elapsed < 40 ? `次の改造まで ${Math.ceil(40 - this.snapshot.elapsed)}秒` : '改造完了・ラストスパート' : this.snapshot.status === 'result' ? '次は、どの作戦でいく？' : '改造チャンス 20秒・40秒',
-      rivalUpgradeNotice, machineNotice: now < this.upgradeReceiptUntil ? this.upgradeReceipt : DEFAULT_NOTICE,
+      countdown: this.countdown, startControl: { disabled, label, spinState, hint },
+      machineNotice: DEFAULT_NOTICE,
       result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.snapshot.status === 'result' ? gap > 0 ? '次こそ、負けない。' : gap < 0 ? 'もう一度、挑む？' : '決着は、次の勝負で。' : gap > 0 ? 'ここから、巻き返す。' : gap < 0 ? 'このまま、逃げきる。' : '正々堂々、60秒。',

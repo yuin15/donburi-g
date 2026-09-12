@@ -18,7 +18,7 @@ describe('authoritative match domain', () => {
     { seed: 4203543429, winner: 'draw', player: 480, rival: 480 },
     { seed: 1035485675, winner: 'player', player: 720, rival: 600, comeback: true },
   ])('replays the $winner outcome for test seed $seed', (fixture) => {
-    const state = createMatch(fixture.seed, 'test-fixture');
+    const state = createMatch(fixture.seed, 'test-fixture', 'automatic', { upgrades: true });
     startMatch(state);
     for (const [index, time] of [[0, 20], [1, 40]] as const) {
       advanceMatch(state, time);
@@ -59,7 +59,7 @@ describe('authoritative match domain', () => {
   });
 
   it('opens upgrades at 20/40 and applies after 24/44 boundaries', () => {
-    const state = createMatch(10, 'm');
+    const state = createMatch(10, 'm', 'automatic', { upgrades: true });
     startMatch(state);
     advanceMatch(state, 20);
     expect(state.openOffers.has(0)).toBe(true);
@@ -74,7 +74,7 @@ describe('authoritative match domain', () => {
   });
 
   it('rejects early, late, duplicated, and post-result upgrades', () => {
-    const state = createMatch(3, 'm');
+    const state = createMatch(3, 'm', 'automatic', { upgrades: true });
     startMatch(state);
     expect(submitUpgrade(state, 'player', 0, 'steady', 19.99)).toBe(false);
     advanceMatch(state, 20);
@@ -150,94 +150,76 @@ describe('authoritative match domain', () => {
   });
 });
 
-describe('manual match authority', () => {
-  it('advances deadlines and ends without drawing when no spin is requested', () => {
+describe('independent manual match authority', () => {
+  it('keeps base reels, accepts up to 55 player spins, and automatically draws 30 rival spins', () => {
+    const state = createMatch(123, 'base-duel', 'manual');
+    const base = structuredClone(state.pools);
+    startMatch(state);
+    const events = [];
+    for (let round = 0; round < 55; round++) {
+      const elapsed = round * MANUAL_SPIN_INTERVAL;
+      events.push(...requestManualSpin(state, elapsed));
+      expect(submitUpgrade(state, 'player', elapsed < 40 ? 0 : 1, 'jackpot', elapsed)).toBe(false);
+      expect(submitUpgrade(state, 'rival', elapsed < 40 ? 0 : 1, 'steady', elapsed)).toBe(false);
+      expect(state.pools).toEqual(base);
+      expect(state.activePools).toEqual(base);
+    }
+    events.push(...advanceMatch(state, 60));
+    expect(events.some(event => event.type === 'upgrade_open' || event.type === 'upgrade_applied')).toBe(false);
+    expect(getSnapshot(state)).toMatchObject({ status: 'result', rounds: { player: 55, rival: 30 }, upgrades: { player: [], rival: [] } });
+  });
+
+  it('runs the rival every two seconds while an idle player never consumes a draw or gains coins', () => {
     const state = createMatch(123, 'manual-idle', 'manual');
-    const rng = { ...state.rngState };
-    expect(state.lastManualSpinAt).toBeNull();
+    const playerRng = state.rngState.player;
     expect(requestManualSpin(state, 0)).toEqual([]);
     startMatch(state);
     const events = advanceMatch(state, 60);
-    expect(events.filter(event => event.type === 'spin')).toHaveLength(0);
-    expect(events.filter(event => event.type === 'upgrade_applied')).toHaveLength(2);
-    expect(events.filter(event => event.type === 'match_end')).toHaveLength(1);
-    expect(state).toMatchObject({ round: 0, status: 'result', winner: 'draw', scores: { player: 0, rival: 0 }, rngState: rng });
-    expect(getSnapshot(state).stats).toEqual(getSnapshot(createMatch()).stats);
-
-    const automatic = createMatch(123, 'automatic');
-    startMatch(automatic);
-    expect(requestManualSpin(automatic, 0)).toEqual([]);
-    expect(automatic.round).toBe(0);
+    const spins = events.filter(event => event.type === 'side_spin');
+    expect(spins).toHaveLength(30);
+    expect(spins.map(event => event.at)).toEqual(Array.from({ length: 30 }, (_, i) => (i + 1) * 2));
+    expect(spins.every(event => event.spin.side === 'rival')).toBe(true);
+    expect(state).toMatchObject({ round: 0, rounds: { player: 0, rival: 30 }, status: 'result', winner: 'rival', scores: { player: 0 }, rngState: { player: playerRng } });
+    expect(state.scores.rival).toBeGreaterThan(0);
+    expect(state.stats.player).toEqual(getSnapshot(createMatch()).stats.player);
   });
 
-  it('accepts an immediate first spin and exact intervals without letting repeated clicks consume random draws', () => {
+  it('player spam cannot create extra rival spins, change its random sequence, or bypass the player cooldown', () => {
     const clicked = createMatch(777, 'clicked', 'manual');
-    const paced = createMatch(777, 'paced', 'manual');
-    startMatch(clicked);
-    startMatch(paced);
-    for (const time of [0, MANUAL_SPIN_INTERVAL, 2.2, 3.3]) {
-      if (time > 0) {
-        const rng = { ...clicked.rngState };
-        expect(requestManualSpin(clicked, time - 0.001)).toEqual([]);
-        expect(clicked.rngState).toEqual(rng);
-      }
-      const events = requestManualSpin(clicked, time);
-      expect(events).toEqual(requestManualSpin(paced, time));
-      const spins = events.filter(event => event.type === 'spin');
-      expect(spins).toHaveLength(1);
-      expect(spins[0].player.round).toBe(spins[0].rival.round);
-      expect(clicked.lastManualSpinAt).toBe(time);
-      expect(requestManualSpin(clicked, time)).toEqual([]);
-    }
-    expect(clicked.round).toBe(4);
-    expect(clicked.rngState).toEqual(paced.rngState);
-    expect(clicked.scores).toEqual(paced.scores);
-    expect(clicked.stats).toEqual(paced.stats);
+    const idle = createMatch(777, 'idle', 'manual');
+    startMatch(clicked); startMatch(idle);
+    for (let n = 0; n < 550; n++) requestManualSpin(clicked, n / 10);
+    advanceMatch(clicked, 60); advanceMatch(idle, 60);
+    expect(clicked.rounds).toEqual({ player: 50, rival: 30 });
+    expect(clicked.rngState.rival).toBe(idle.rngState.rival);
+    expect(clicked.scores.rival).toBe(idle.scores.rival);
+    expect(clicked.stats.rival).toEqual(idle.stats.rival);
   });
 
-  it('returns the final deadline events but never draws at or after 60 seconds', () => {
+  it('accepts an immediate click and exact 1.1s boundaries without coupling the other side', () => {
+    const state = createMatch(777, 'cooldown', 'manual');
+    startMatch(state);
+    const rivalRng = state.rngState.rival;
+    expect(requestManualSpin(state, 0).filter(e => e.type === 'side_spin').map(e => e.spin.side)).toEqual(['player']);
+    expect(requestManualSpin(state, 1.099)).toEqual([]);
+    expect(requestManualSpin(state, 1.1).filter(e => e.type === 'side_spin').map(e => e.spin.side)).toEqual(['player']);
+    expect(state.rngState.rival).toBe(rivalRng);
+    expect(requestManualSpin(state, 1.1)).toEqual([]);
+    expect(advanceMatch(state, 2).filter(e => e.type === 'side_spin').map(e => e.spin.side)).toEqual(['rival']);
+    expect(state.rounds).toEqual({ player: 2, rival: 1 });
+  });
+
+  it('settles the last scheduled rival spin at 60s, while rejecting deadline and later player clicks', () => {
     const state = createMatch(123, 'last-click', 'manual');
     startMatch(state);
-    expect(requestManualSpin(state, 59.99).filter(event => event.type === 'spin')).toHaveLength(1);
-    const rng = { ...state.rngState };
+    requestManualSpin(state, 59.99);
+    const playerRng = state.rngState.player;
     const events = requestManualSpin(state, 60);
-    expect(events.map(event => event.type)).toEqual(['match_end']);
-    expect(state.status).toBe('result');
-    expect(state.round).toBe(1);
-    expect(state.rngState).toEqual(rng);
-    const ended = events.find(event => event.type === 'match_end');
+    expect(events.filter(e => e.type === 'side_spin').map(e => e.spin.side)).toEqual(['rival']);
+    expect(state.rounds).toEqual({ player: 1, rival: 30 });
+    expect(state.rngState.player).toBe(playerRng);
+    const ended = events.find(e => e.type === 'match_end');
     expect(ended?.snapshot).toEqual(getSnapshot(state));
     expect(requestManualSpin(state, 100)).toEqual([]);
-  });
-
-  it('applies confirmed upgrades before a boundary click and keeps each spin composition independent', () => {
-    const state = createMatch(10, 'manual-upgrades', 'manual');
-    startMatch(state);
-    advanceMatch(state, 20);
-    expect(submitUpgrade(state, 'player', 0, 'jackpot', 20.5)).toBe(true);
-    const before = requestManualSpin(state, 22.9).find(event => event.type === 'spin');
-    expect(before?.player.upgrades).toEqual([]);
-    expect(before?.rival.upgrades).toEqual([]);
-
-    const boundary = requestManualSpin(state, 24);
-    expect(boundary[0].type).toBe('upgrade_applied');
-    const applied = boundary.find(event => event.type === 'spin');
-    expect(applied?.player.upgrades).toEqual(['jackpot']);
-    expect(applied?.rival.upgrades).toEqual(['steady']);
-    expect(getPoolCounts(state, 'player')).toEqual({ cherry: 4, bell: 3, seven: 3 });
-    expect(getPoolCounts(state, 'rival')).toEqual({ cherry: 10, bell: 3, seven: 2 });
-
-    requestManualSpin(state, 43.5);
-    const rng = { ...state.rngState };
-    expect(requestManualSpin(state, 44).map(event => event.type)).toEqual(['upgrade_applied']);
-    expect(state.rngState).toEqual(rng);
-    const later = requestManualSpin(state, 44.6).find(event => event.type === 'spin');
-    expect(later?.player.upgrades).toEqual(['jackpot', 'steady']);
-    expect(later?.rival.upgrades).toEqual(['steady', 'steady']);
-    expect(before?.player.upgrades).toEqual([]);
-    expect(applied?.player.upgrades).toEqual(['jackpot']);
-    applied!.player.upgrades![0] = 'steady';
-    expect(state.upgrades.player).toEqual(['jackpot', 'steady']);
-    expect(later?.player.upgrades).toEqual(['jackpot', 'steady']);
   });
 });

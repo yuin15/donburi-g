@@ -14,8 +14,8 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 ## Client messages
 
 - `start` — start the authoritative 60-second match once voice/avatar is ready.
-- `spin` — `{matchId, commandId}`. Requests one simultaneous player/rival spin. The server advances elapsed deadlines first, rejects duplicate IDs and requests less than 1.1 seconds apart, and never draws at or after 60 seconds.
-- `upgrade` — `{matchId, commandId, offerIndex, upgradeId}`. LiveClient supplies its authenticated match ID. A different match ID is rejected; duplicate command IDs are ignored. Player and asynchronous rival choices are checked against arrival time, not a delayed interval tick.
+- `spin` — `{matchId, commandId}`. Requests one player spin. Rival spins are scheduled independently every two seconds. The server advances elapsed deadlines first, rejects duplicate IDs and requests less than 1.1 seconds apart, and never accepts a player draw at or after 60 seconds.
+- `upgrade` — retained for historical fixtures; current matches reject it without applying a choice or calling the AI.
 - `mic` — base64 PCM16/24kHz audio. Size limited.
 - `voice_close` — release optional media while preserving the match.
 - `snapshot` — request latest safe match snapshot.
@@ -30,10 +30,10 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 - `avatar` — LiveKit URL/client token only; provider API keys never reach the browser.
 - `voice_status`
 - `snapshot`
-- `spin`
+- `side_spin` — `{spin: SpinView}` for only the side that drew. Each side owns its round number.
+- `spin` — paired messages retained for historical automatic simulations.
 - `spin_status` — `{commandId, accepted, retryAfterMs}` acknowledges a manual request, including rejected requests. The client keeps at most one queued input and drops it on result, exit, or hidden page.
-- `upgrade_offer`
-- `upgrade_applied`
+- `upgrade_offer` / `upgrade_applied` — historical simulations only; never emitted by current matches.
 - `rival_line`
 - `transcript`
 - `match_ended`
@@ -41,17 +41,17 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 
 Snapshots never contain RNG state, unrevealed choices, reel pools, API credentials, or future results.
 
-`snapshot.stats` is required for both sides: `wins: {cherry, bell, seven}` contains confirmed winning-spin counts; `bestSpin` is `{round, payout}` for the first highest payout, or null when there were no wins. Counts are bounded by the completed round count, their payout sum must equal the score, and the best spin must be consistent with those counts. Manual matches allow 0–55 rounds and up to 66,000 points. Every confirmed round remains accounted for after recovery; results are not derived from animation history. A zero-spin match can end in a zero-score draw.
+`snapshot.stats` is required for both sides: `wins: {cherry, bell, seven}` contains confirmed winning-spin counts; `bestSpin` is `{round, payout}` for the first highest payout, or null when there were no wins. Counts are bounded by that side's completed `snapshot.rounds[side]` count, their payout sum must equal the score, and the best spin must be consistent with those counts. Player input allows 0–55 rounds and up to 66,000 points; the rival completes 30 scheduled rounds. `snapshot.round` aliases `rounds.player`. Every confirmed round remains accounted for after recovery; results are not derived from animation history. A player with zero spins still faces the rival's independent score.
 
-Each new `SpinView` includes its side's confirmed `upgrades` at the time of that draw. This keeps a delayed animation on the correct display strip even when a newer snapshot includes a later upgrade. The field is optional when validating older fixture messages; it contains no random state or future result.
+Each new `SpinView` includes an empty `upgrades` array for the base composition. Historical fixtures may contain their explicitly enabled upgrade composition; no random state or future result is included.
 
 After authentication, every server message includes `sessionId`, `streamSeq` and `serverTime` (Unix milliseconds). `streamSeq` is a contiguous per-connection delivery sequence and is separate from the domain's `snapshot.eventSeq`. The first message is `hello` at sequence 1. The client validates message shapes, lengths, numbers, symbols and match identity before updating UI or starting media. Initial unauthenticated rejection may have no envelope and is treated as a failed connection.
 
-Duplicate/older deliveries are ignored. A sequence gap requests one current snapshot on the same connection and suppresses incomplete game updates until recovery; optional-media shutdown is still processed immediately. Recovery must arrive within five seconds or the client explicitly ends the interrupted transport. A snapshot contains the most recent confirmed player/rival spin, so missing final-spin or result messages cannot leave the display waiting forever. Results follow that final settled frame. Active upgrade windows can also be reconstructed from snapshot time. This mechanism never reconnects or starts a different match silently.
+Duplicate/older deliveries are ignored. A sequence gap requests one current snapshot on the same connection and suppresses incomplete game updates until recovery; optional-media shutdown is still processed immediately. Recovery must arrive within five seconds or the client explicitly ends the interrupted transport. A snapshot contains `lastSpins`, keyed by side, with the most recent confirmed spin for each side that has drawn. It omits a side with zero spins. The wire validator checks each count, side and total independently; missing or inconsistent final spins are rejected. Results wait for both sides' final settled frames. This mechanism never reconnects or starts a different match silently.
 
 ## Failure model
 
-The MVP intentionally does not resume a disconnected live match. WebSocket loss aborts it and tears down upstream services. UI can start a fresh rematch explicitly. AI latency never pauses the game timer; rival inference uses a bounded deterministic fallback on timeout/failure, and a late answer cannot overwrite the closed choice window.
+The MVP intentionally does not resume a disconnected live match. WebSocket loss aborts it and tears down upstream services. UI can start a fresh rematch explicitly. AI latency never pauses either side's game timer or input. No upgrade inference runs in current matches.
 
 Pending live reaction candidates are scoped to one MatchSession, deduplicated by event/round, checked again against current state and expired after 1.8 seconds. A same-round jackpot outranks a lead change. At most five spontaneous in-match requests are sent, with a three-second interval. The final result clears pending commentary and invalidates that GPT connection's audio/transcript callbacks. After its transport closes and LiveAvatar acknowledges the matching buffer-clear event, a second GPT connection receives the final state and a short, explicitly untrusted user quote in its startup context and one final reaction request. Failure skips the reaction. No third connection is attempted.
 

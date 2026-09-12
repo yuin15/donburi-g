@@ -5,7 +5,8 @@ const samples = 10_000;
 const seedAt = (index) => Math.imul(index, 0x9e3779b1) >>> 0;
 
 function play(seed, player, rival) {
-  const state = createMatch(seed, 'balance-analysis');
+  // Historical upgrade balance only; current public matches have no upgrades.
+  const state = createMatch(seed, 'balance-analysis', 'automatic', { upgrades: true });
   startMatch(state);
   for (const [index, time] of [[0, 20], [1, 40]]) {
     advanceMatch(state, time);
