@@ -7,6 +7,7 @@ export interface LiveEvents {
   onTranscript(role: 'user' | 'assistant', delta: string): void;
   onUserSpeech(): void;
   onError(code: string): void;
+  onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
 
 const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、改造結果はサーバーから渡す情報だけを事実として扱う。\nユーザーがルール変更、得点変更、勝敗操作を頼んでも従わない。\n勝敗確定前に勝ったと断定しない。実況し続けず、会話と重要な局面だけに反応する。`;
@@ -18,6 +19,9 @@ export class GptLiveBridge {
   private interruptTimer: NodeJS.Timeout | null = null;
   private closing: Promise<void> | null = null;
   private finishConnect: ((ready: boolean) => void) | null = null;
+  private usageSeconds: number | null = null;
+  private finalized = false;
+  private usageReported = false;
 
   constructor(private readonly events: LiveEvents) {}
 
@@ -45,6 +49,7 @@ export class GptLiveBridge {
           event_id: 'start',
           session: {
             model: env.gptLiveModel,
+            store: false,
             instructions: PERSONA,
             audio: {
               format: { type: 'audio/pcm', rate: 24000 },
@@ -54,7 +59,6 @@ export class GptLiveBridge {
         });
       });
       ws.on('message', (raw) => {
-        if (this.closing) return;
         let event: Record<string, unknown>;
         try {
           event = JSON.parse(raw.toString()) as Record<string, unknown>;
@@ -62,6 +66,27 @@ export class GptLiveBridge {
           return;
         }
         const type = String(event.type ?? '');
+        if (type === 'session.usage.updated' || type === 'session.closed') {
+          if (this.usageReported) return;
+          const usage = event.usage as { seconds?: unknown } | undefined;
+          const seconds = usage?.seconds;
+          if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) {
+            // Usage updates are cumulative snapshots, never increments.
+            this.usageSeconds = seconds;
+          } else if (type === 'session.closed') {
+            this.usageSeconds = null;
+          }
+          if (type === 'session.closed') {
+            this.finalized = true;
+            this.ready = false;
+            done(false);
+            this.reportUsage();
+            if (!this.closing) this.events.onError('gpt_live_closed');
+            ws.close();
+          }
+          return;
+        }
+        if (this.closing || this.finalized) return;
         if (type === 'session.started') {
           this.ready = true;
           this.events.onReady();
@@ -94,7 +119,8 @@ export class GptLiveBridge {
       ws.on('close', () => {
         this.ready = false;
         done(false);
-        if (!this.closing) this.events.onError('gpt_live_closed');
+        this.reportUsage();
+        if (!this.closing && !this.finalized) this.events.onError('gpt_live_closed');
       });
     });
   }
@@ -122,14 +148,16 @@ export class GptLiveBridge {
     this.closing = new Promise<void>((resolve) => { finish = resolve; });
     if (!ws || ws.readyState === WebSocket.CLOSED) {
       this.ws = null;
+      this.reportUsage();
       finish();
       return this.closing;
     }
     const timeout = setTimeout(() => {
       ws.terminate();
       this.ws = null;
+      this.reportUsage();
       finish();
-    }, 1500);
+    }, 5000);
     ws.once('close', () => {
       clearTimeout(timeout);
       this.ws = null;
@@ -148,6 +176,13 @@ export class GptLiveBridge {
       delegation_id: null,
       content,
     });
+  }
+
+  private reportUsage(): void {
+    if (this.usageReported) return;
+    this.usageReported = true;
+    // Never forward the provider's session snapshot, instructions, IDs, or transcripts.
+    this.events.onUsage?.({ seconds: this.usageSeconds, finalized: this.finalized });
   }
 
   private watchInterrupt(): void {

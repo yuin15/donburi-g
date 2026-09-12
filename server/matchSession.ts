@@ -96,6 +96,7 @@ export class MatchSession {
         },
         onUserSpeech: () => this.media?.interrupt(),
         onError: () => this.failVoice(),
+        onUsage: (usage) => console.info(JSON.stringify({ event: 'voice_session_usage', ...usage })),
       });
       if (!(await this.gpt.connect())) throw new Error('gpt_not_ready');
       if (this.closed) return;

@@ -27,6 +27,12 @@ Input transcripts start an interruption watch. If the live model yields, queued 
 
 ## Required production verification
 
+### Shutdown evidence
+
+The voice transport sends `session.close`, keeps reading `session.closed`, then closes its WebSocket. It allows up to five seconds before forced cleanup. `voice_session_usage` runtime logs contain only `seconds` and `finalized`: cumulative updates replace earlier values; they are not added together. Without the terminal event, the last observed duration is marked unconfirmed. No session configuration, provider ID, audio, or transcript is logged. See [OpenAI usage and graceful close](https://developers.openai.com/api/docs/guides/live-conversations#usage-and-graceful-close).
+
+LiveAvatar `error` and `session.state_updated: disconnected` events now end the media leg and notify the match. Cancellation suppresses late readiness events, and a nonresponsive media socket is terminated after 1.5 seconds. See [LiveAvatar LITE events](https://docs.liveavatar.com/docs/lite-mode/events).
+
 Code integration is present, but real-provider validation must be run with deployment secrets and account access before claiming the live path verified. Record, without conversation content or credentials:
 
 - deployment/commit
