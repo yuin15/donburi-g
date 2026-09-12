@@ -46,6 +46,15 @@ function frame(ms = 16) {
   pending.forEach(callback => callback(performance.now()));
 }
 function scene(): Scene { return graphics.render.mock.calls.at(-1)![0] as Scene; }
+function reelWins() {
+  return scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial)
+    .map(mesh => mesh.material.uniforms.winning.value as number);
+}
+function coins() {
+  const result: Mesh[] = [];
+  scene().traverse(node => { if (node instanceof Mesh && node.name === 'win-coin') result.push(node); });
+  return result;
+}
 function reelCenters() {
   return scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial)
     .map(m => {
@@ -146,7 +155,7 @@ describe('stage rendering and cleanup', () => {
     const { view, host } = setup();
     frame();
     const done = vi.fn();
-    view.play(spin(1, ['seven', 'seven', 'seven'], 1200), spin(), done);
+    view.play(spin(1, ['seven', 'seven', 'seven'], 1200), { ...spin(1, ['seven', 'seven', 'seven'], 1200), side: 'rival' }, done);
     page.hidden = true;
     page.dispatchEvent(new Event('visibilitychange'));
     expect(frames.size).toBe(0);
@@ -156,7 +165,8 @@ describe('stage rendering and cleanup', () => {
     page.dispatchEvent(new Event('visibilitychange'));
     frame();
     expect(done).toHaveBeenCalledOnce();
-    expect(host.dataset).toMatchObject({ spinning: 'false', jackpot: 'false' });
+    expect(host.dataset).toMatchObject({ spinning: 'false', jackpot: 'false', rivalWin: 'false', rivalJackpot: 'false' });
+    expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(frames.size).toBe(0);
   });
   it('honors reduced motion even when changed during a spin', () => {
@@ -200,6 +210,79 @@ describe('stage rendering and cleanup', () => {
     frame();
     expect(coins.every(c => !c.visible)).toBe(true);
     frame(180);
+    expect(frames.size).toBe(0);
+  });
+  it.each([[1200, 0], [0, 1200], [120, 1200]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
+    const { view, host } = setup();
+    const player = spin(1, playerPayout === 1200 ? ['seven', 'seven', 'seven'] : playerPayout ? ['cherry', 'cherry', 'cherry'] : ['cherry', 'bell', 'seven'], playerPayout);
+    const rival = { ...spin(1, rivalPayout ? ['seven', 'seven', 'seven'] : ['bell', 'cherry', 'seven'], rivalPayout), side: 'rival' as const };
+    view.play(player, rival, vi.fn());
+    frame(1060);
+    expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]);
+    expect(reelWins()).toEqual([playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0]);
+    expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= 1200) });
+    expect(coins().some(coin => coin.visible)).toBe(playerPayout >= 1200);
+    frame(650);
+    if (playerPayout === 120) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
+    if (rivalPayout > 0) expect(reelWins().slice(3)).toEqual([1, 1, 1]);
+    frame(550);
+    expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(frames.size).toBe(0);
+  });
+  it('clears both reel highlights on the next play while a previous player burst keeps its original lifetime', () => {
+    const { view, host } = setup();
+    view.play(spin(1, ['seven', 'seven', 'seven'], 1200), { ...spin(1, ['seven', 'seven', 'seven'], 1200), side: 'rival' }, vi.fn());
+    frame(1060);
+    frame(50);
+    view.play(spin(2), { ...spin(2), side: 'rival' }, vi.fn());
+    frame(16);
+    expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(host.dataset).toMatchObject({ win: 'false', rivalWin: 'false', rivalJackpot: 'false' });
+    expect(coins().some(coin => coin.visible)).toBe(true);
+    frame(1044); // The following miss stops 90ms before the previous burst ends.
+    expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
+    expect(coins().some(coin => coin.visible)).toBe(true);
+    frame(89);
+    expect(coins().some(coin => coin.visible)).toBe(true);
+    frame(1);
+    expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(frames.size).toBe(0);
+    view.show(['seven', 'seven', 'seven'], 1200, ['bell', 'cherry', 'seven'], true);
+    frame();
+    view.play(spin(3), { ...spin(3), side: 'rival' }, vi.fn());
+    frame();
+    expect(coins().every(coin => !coin.visible)).toBe(true);
+  });
+  it('bounds rival-only flashes, supports a still preview, and clears them on reset, stop and disposal', () => {
+    const { view, host } = setup();
+    const symbols: [SymbolId, SymbolId, SymbolId] = ['bell', 'bell', 'bell'];
+    view.show(symbols, 0, symbols, false, 240);
+    frame();
+    expect(reelWins()).toEqual([0, 0, 0, 1, 1, 1]);
+    expect(coins().every(coin => !coin.visible)).toBe(true);
+    frame(650);
+    expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(frames.size).toBe(0);
+    motion.matches = true;
+    view.show(symbols, 0, symbols, false, 1200);
+    frame(180);
+    expect(host.dataset).toMatchObject({ rivalWin: 'false', rivalJackpot: 'false' });
+    expect(frames.size).toBe(0);
+    view.show(symbols, 0, symbols, true, 240);
+    frame();
+    expect(reelWins().slice(3)).toEqual([1, 1, 1]);
+    expect(frames.size).toBe(0);
+    view.show(symbols);
+    frame();
+    expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
+    view.show(symbols, 0, symbols, true, 240);
+    view.stop();
+    frame();
+    expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
+    view.show(symbols, 0, symbols, true, 240);
+    view.dispose();
+    expect(host.dataset).toMatchObject({ rivalWin: 'false', rivalJackpot: 'false' });
     expect(frames.size).toBe(0);
   });
   it('disposes all shared resources once, without a late callback or revived loop', () => {
