@@ -36,7 +36,7 @@ The 120-second deadline starts teardown; it is not proof that provider billing o
 
 On 2026-09-12, the user-authorized GPT-Live-1 demo was enabled on production using the existing Vercel Secret variables. The allowed origin is `https://slot-chan.vercel.app`. The real production transport check finalized 76 seconds for play plus 4 seconds for the result; these are usage measurements, not a currency charge or a provider quota guarantee. See [verification and remaining checks](voice-spike.md).
 
-The demo remains invitation-only. Cross-instance global quotas and provider-side remaining-session/billing inspection are still tracked in #11; do not describe the process-local limits as a public service spending cap.
+The demo remains invitation-only. LiveAvatar's corresponding historic session was 95 seconds / 1.6 credits with an end timestamp; the active-session list was empty after teardown. Cross-instance global quotas, a provider-enforced maximum duration, and currency-based billing remain tracked in #11; do not describe the process-local limits as a public service spending cap.
 
 ## Kill switch
 

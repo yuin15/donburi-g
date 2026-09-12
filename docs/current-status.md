@@ -30,7 +30,7 @@
 - 公開コード: `108f6440625b35b02848a22691606741b7da0b19`（PR #84）。#82の英語UI・大型スコア・左右別BIG WINに、無音PCMの滞留解消、会話優先、割り込みACK待ち、マイク低遅延化、字幕連結を追加。
 - Vercel READY: `dpl_CbGsUkzyfk3RyRdNExqzLE5N9geK`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
 - #84のPR CI: https://github.com/yuin15/donburi-g/actions/runs/34690618750 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34690704198 （success）。
-- 公開実APIの通し接続は97.761秒、準備4.665秒、388イベントの連番欠落0。手動16回/240点対自動30回/600点、配当内訳一致、WebSocket正常終了1000。VercelログでGPTの76秒＋結果4秒をともにfinalized=trueと確認。[公開Liveの記録](voice-spike.md)。
+- 公開実APIの通し接続は97.761秒、準備4.665秒、388イベントの連番欠落0。手動16回/240点対自動30回/600点、配当内訳一致、WebSocket正常終了1000。VercelログでGPTの76秒＋結果4秒をともにfinalized=trueと確認。LiveAvatarは履歴95秒/1.6クレジット・終了時刻あり、残存接続0件。[公開Liveの記録](voice-spike.md)。
 - #82の公開Chromeで8回/0点対30回/1,440点の60秒対戦、配当内訳、再戦初期化、Space予約、退出を確認。外部/API要求なし。[英語版の公開確認](english-win-presentation.md)。
 - #80の公開Chromeで4回だけ手動回転後に無操作とし、プレイヤー4回/0点、ライバル30回/840点で決着。任意Live/API要求なし。[公開確認](independent-duel.md)。
 - #75の公開Chrome確認で、Space先行入力・開始後の両者回転・クリック/Tab/Enter取消が成功。主JS `index-CS9XBjIE.js`、CSS `index-aE-Q_cR0.css`。外部/API要求と任意Liveクライアントの読み込みなし。[開始操作の公開確認](countdown-start.md)。
@@ -52,7 +52,7 @@
 | #7 | 連番/ID/実行時スキーマ、欠落時snapshot復旧、期限・頻度・データ量制限、2試合分離、実localhost WebSocket＋MatchSessionの通常/音声停止2経路 | Vercel実接続での画面との通し照合。認証・利用枠・外部プロバイダーは結合試験で代替 |
 | #3 | ローカル実API動画・人による音声再生、公開97秒接続と完走、match/resultのusage確定 | 公開ブラウザでの3回の開始/終了、実音声・映像・割り込み・遅延 |
 | #8 | 実況候補の選別、会話優先、文脈更新の集約、PCM発話区切り、音声消去ACK、字幕断片の連結、結果音声の世代分離 | 実際の発声内容と遅延、聞こえる割り込み、既にブラウザへ到達した再生音声の扱い |
-| #11 | 秘密保護、認証、停止スイッチ、入力制限、120秒以内の終了開始、1試合最大2GPT接続と両世代のusage、後始末テスト | 実サービスの残存セッション/利用量、一般開放する場合の全体上限 |
+| #11 | 秘密保護、認証、停止スイッチ、入力制限、120秒以内の終了開始、両世代GPTのusage確定、LiveAvatarの終了履歴と残存0件、後始末テスト | プロバイダー側の最大寿命設定、一般開放する場合の全体上限 |
 | #12 | 実Chromeの通し対戦とPC描画 | 実Edge、初見の方の遊びやすさ・音質評価、実マイク拒否 |
 
 Chromeの権限設定画面への移動はブラウザの安全規則で拒否されたため、実マイク拒否の操作は行っていない。模擬テストを実機確認とは扱わない。

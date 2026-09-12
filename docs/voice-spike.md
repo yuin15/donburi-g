@@ -65,8 +65,12 @@ A real authenticated public WebSocket used synthesized question audio, held a re
 | WebSocket close | 1000, no reported errors |
 | GPT-Live match usage from Vercel logs | 76 seconds, finalized=true |
 | GPT-Live result usage from Vercel logs | 4 seconds, finalized=true |
+| LiveAvatar historic record | LITE/API, 95 seconds, 1.6 credits, ended timestamp present |
+| LiveAvatar active sessions after teardown | 0 |
 
-The 22-second ready hold was only to exercise the 90-second transport acceptance case; the normal browser starts its countdown after connection readiness. The production runtime region was `iad1`. Vercel status and the terminal usage logs were checked separately from the client's normal close. LiveAvatar residual-session inspection and actual browser audio/video timing remain open.
+The 22-second ready hold was only to exercise the 90-second transport acceptance case; the normal browser starts its countdown after connection readiness. The production runtime region was `iad1`. Vercel status and the terminal usage logs were checked separately from the client's normal close. The provider's historic record had `end_reason=UNKNOWN`; the end timestamp plus zero active sessions confirms no residual session at that inspection, not a more specific provider end reason. Actual browser audio/video timing remains open. The checks used the [session listing](https://docs.liveavatar.com/api-reference/sessions/list-sessions) endpoint and retained no provider IDs.
+
+The free sandbox supports LITE session tokens, but the documented avatar is Wayne and sessions end after about one minute. That limit does not cover normal connection startup, countdown, the 60-second game, and the final reaction. It is suitable for short development checks; it has not replaced the production path. See [sandbox constraints](https://docs.liveavatar.com/docs/sandbox-mode).
 
 Production browser verification remains open. Record, without conversation content or credentials:
 
