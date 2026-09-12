@@ -20,7 +20,9 @@ def build_geometry(geo, segments=64, reeds=48):
 
     def face(vertices, normals, group):
         polygon = geo.createPolygon()
-        for position, direction in zip(vertices, normals):
+        # Houdini's OBJ exporter reverses polygon order. Keep exported faces
+        # aligned with the outward normals for Three.js front-face culling.
+        for position, direction in reversed(list(zip(vertices, normals))):
             point = geo.createPoint()
             point.setPosition(position)
             point.setAttribValue(normal, direction)

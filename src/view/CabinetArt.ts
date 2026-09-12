@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import type { Side } from '../../shared/protocol';
 import { STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
+import { createGoldCoinEnvironment, createGoldCoinGeometry } from './GoldCoin';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false });
 const sides: Side[] = ['player', 'rival'];
 
-/** Two independent win lanes, sharing one renderer, texture and 24 reusable coins. */
+/** Two independent win lanes, sharing one renderer and 24 reusable 3D coins. */
 export class CabinetArt {
   readonly group = new THREE.Group();
-  private coinGeometry = new THREE.PlaneGeometry(44, 44);
+  private coinGeometry = createGoldCoinGeometry();
+  private coinEnvironment = createGoldCoinEnvironment();
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
-  private coinMaterials: Record<Side, THREE.MeshBasicMaterial>;
+  private coinMaterials: Record<Side, THREE.MeshStandardMaterial>;
   private coins: THREE.Mesh[];
   private bursts: Record<Side, Burst> = { player: emptyBurst(), rival: emptyBurst() };
   private glows: Record<Side, THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>>;
@@ -27,12 +29,12 @@ export class CabinetArt {
   private resultStarted = 0;
   private resultUntil = 0;
 
-  constructor(coinTexture: THREE.Texture) {
-    const coin = () => {
-      const material = new THREE.MeshBasicMaterial({ map: coinTexture, color: new THREE.Color(1.3, 1.15, .9), transparent: true, depthWrite: false, side: THREE.DoubleSide });
-      material.forceSinglePass = true;
-      return material;
-    };
+  constructor() {
+    const coin = () => new THREE.MeshStandardMaterial({
+      vertexColors: true, metalness: .86, roughness: .27,
+      envMap: this.coinEnvironment, envMapIntensity: 1.6,
+      transparent: true,
+    });
     this.coinMaterials = { player: coin(), rival: coin() };
     this.coins = Array.from({ length: 24 }, (_, index) => {
       const mesh = new THREE.Mesh(this.coinGeometry, this.coinMaterials[index < 12 ? 'player' : 'rival']);
@@ -242,7 +244,7 @@ export class CabinetArt {
         const x = u * u * startX + 2 * u * t * controlX + t * t * endX;
         const y = u * u * startY + 2 * u * t * (player ? 20 + i % 6 * 33 : 380) + t * t * (player ? 112 + i % 6 * 24 : 112);
         coin.position.set(x, STAGE_HEIGHT - y, 40 + i);
-        coin.rotation.set(.14, i * .62 + t * 5.6, (right ? 1 : -1) * (.3 + t));
+        coin.rotation.set(.32 + Math.sin(i + t * 4) * .18, i * .62 + t * 5.6, (right ? 1 : -1) * (.3 + t));
         coin.scale.setScalar((player && burst.jackpot ? 1.35 : .85) + (i % 3) * .23);
       }
     }
@@ -252,6 +254,7 @@ export class CabinetArt {
   dispose(): void {
     this.stop();
     this.coinGeometry.dispose();
+    this.coinEnvironment.dispose();
     this.bulbGeometry.dispose();
     this.sparkleGeometry.dispose();
     this.timerGeometry.dispose();
