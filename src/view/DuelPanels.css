@@ -26,7 +26,7 @@
 .upgrade button>strong { display: block; font-size: 1.4cqw; margin: .1cqw 1.6cqw .2cqw 0; }
 .upgrade button>small { display: block; line-height: 1.4; }
 .upgrade button .upgrade-pitch { font-size: .82cqw; color: #f4dfbd; }
-.upgrade button kbd { top: .45cqw; right: .45cqw; display: grid; place-items: center; width: 1.35cqw; height: 1.35cqw; padding: 0; font: 700 .9cqw/1 system-ui; color: #ffe9b5; background: #08080bae; border: 1px solid #c8ad75; border-bottom-width: 3px; }
+.upgrade button kbd { position: absolute; top: .45cqw; right: .45cqw; display: grid; place-items: center; width: 1.35cqw; height: 1.35cqw; padding: 0; font: 700 .9cqw/1 system-ui; color: #ffe9b5; background: #08080bae; border: 1px solid #c8ad75; border-bottom-width: 3px; }
 .upgrade .upgrade-odds { display: grid; gap: .12cqw; clear: both; padding-top: .45cqw; margin: .35cqw 0 .25cqw; }
 .upgrade .upgrade-odds>span { display: flex; align-items: baseline; justify-content: space-between; gap: .25cqw; font-size: .79cqw; line-height: 1.5; color: #d6c7b0; }
 .upgrade .upgrade-odds strong { display: inline; white-space: nowrap; font-size: 1.05cqw; color: #fff0c9; }

@@ -11,7 +11,7 @@
 
 [勝利・金貨](evidence/duel-polish/victory-1280.webp)、[敗北](evidence/duel-polish/defeat-1280.webp)、[引き分け](evidence/duel-polish/draw-1280.webp)、[改造選択](evidence/duel-polish/upgrade-1280.webp) は1280×720のDEV表示。固定結果は本番に含まれない。[表示値](evidence/duel-polish/fixture-cases.json)も記録した。
 
-1920×1080の通常CPU対戦では、予告中のキー2を受け付けず、20秒に大勝負、40秒に安定型を選択。カード内の「この作戦でいく」を確認した。[選択直後](evidence/duel-polish/selected-1920.webp)。
+1920×1080の通常CPU対戦では、予告中のキー2を受け付けず、20秒に大勝負、40秒に安定型を選択。カード内の「この作戦でいく」を確認した。[最終調整後の選択表示（DEV）](evidence/duel-polish/selected-1920.webp)。
 
 60秒後は720対240の勝利。プレイヤーはチェリー480点＋ベル240点、ライバルはチェリー240点で表示合計と一致。内訳を開いたパネル下端760.7px、再戦ボタン上端787.4pxで重なりなし。[結果の内訳](evidence/duel-polish/local-details-1920.webp)。再戦で0点・60秒・内訳0行・折りたたみ初期化、Enterでカウントダウン取消を確認。[操作記録](evidence/duel-polish/local-flow.json)。JavaScriptエラー0。
 
