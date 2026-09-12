@@ -2,7 +2,7 @@
 
 ## Verified locally (2026-09-12)
 
-- TypeScript, ESLint, 36 unit/integration tests, and the production build pass.
+- TypeScript, ESLint, 47 unit/integration tests, and the production build pass.
 - Six lifecycle regressions were reproduced before the fix: disconnects during avatar/media/OpenAI startup, result cleanup, fatal voice errors, and repeated initialization.
 - A real loopback WebSocket test verifies that a disconnect during quota allocation returns the lease without starting providers.
 - Mock provider tests verify startup-error cleanup, bounded transport shutdown, the live kill switch, ticket expiry, and the final 60-second snapshot.
@@ -10,6 +10,8 @@
 - The invitation-only demo requires no Redis/Upstash. Its in-process admission guard defaults to 10 starts/day and one active session, retains used tickets after cleanup, and expires abandoned leases. Tests verify concurrency, replay, late cleanup, daily rollover, and expiry. These counters are not global limits across Vercel instances or restarts.
 - Browser connection tests verify late microphone permission, refused access, early socket closure, combined readiness, late avatar tracks, and audio startup failure. The UI can exit, return to the gate on failure, and preserve AI-audio mute on reconnect.
 - Chrome practice verification covered start, both upgrade choices (20s/40s), selected-button feedback, the 60-second result, and rematch. Start is disabled during countdown. Screenshots identified and verified a fix for clipped reels; the visible title is Slot-chan.
+- Both upgrade strategies were measured across 10,000 hashed seeds with both seat assignments (20,000 games per pairing). Effects are now cherry +6 / seven +1; see `docs/game-balance.md`. Winning, losing, drawing, and last-10-second comeback fixtures are in the domain tests.
+- Upgrade choices lock after the first submission, matching server rules. Server receipt time decides the deadline even if its interval is delayed. Rival output must be an exact legal choice; ambiguous, truncated, or timed-out responses use a deterministic fallback.
 - These tests do not use paid APIs, real microphone input, or real avatar playback.
 
 ## Still required for the MVP
@@ -21,7 +23,9 @@
 
 ## Deployment state
 
-- The Vercel project exists but is still deployed through the CLI, without a Git repository connection.
+- Vercel preview deployment `dpl_77ApJFP1fR2FhN8jo5asMmeD1ACc` reached READY and rendered the Slot-chan page. It contains the PR #18 version; subsequent balance changes need a fresh deployment.
+- PR #18 and #17 are merged; main commit `4897912eaa880dd86fc78bf46268586de93c2b60` passed post-merge CI. Git-based automatic deployment is not connected; the GitHub account-selection popup did not respond to browser automation. Deployments can still be created using the connected Vercel API.
+- OpenAI/LiveAvatar keys, signing key, and invite code are saved as Vercel Secrets for Production and Preview. Live mode is explicitly disabled, allowed origin is the public Slot-chan URL, and per-process demo limits are configured. Actual API use is awaiting confirmation of the bounded test budget.
 - A free Upstash database was created during setup; it is not connected to this game and is not required by the current code. No paid plan was selected. No Vercel Firewall rule has been added by these changes.
 
 ## Provider references

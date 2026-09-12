@@ -46,20 +46,20 @@ export const UPGRADE_DEFINITIONS: Record<UpgradeId, UpgradeDefinition> = {
   steady: {
     id: 'steady',
     label: '安定型',
-    description: 'チェリーを2枚追加',
+    description: 'チェリーを6枚追加',
     addedSymbol: 'cherry',
-    addedCount: 2,
+    addedCount: 6,
   },
   jackpot: {
     id: 'jackpot',
     label: '大勝負',
-    description: '7を2枚追加',
+    description: '7を1枚追加',
     addedSymbol: 'seven',
-    addedCount: 2,
+    addedCount: 1,
   },
 };
 
-const PAYOUT: Record<SymbolId, number> = { cherry: 120, bell: 240, seven: 1200 };
+export const PAYOUT: Record<SymbolId, number> = { cherry: 120, bell: 240, seven: 1200 };
 const BASE_POOL: SymbolId[] = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'];
 
 function makeId(): string {

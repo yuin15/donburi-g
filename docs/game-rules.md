@@ -24,8 +24,10 @@ Therefore the spin completing at 24s uses the pre-upgrade pool; the next spin us
 
 Unselected or timed-out upgrades default to `steady`.
 
-- `steady`: add two cherries to that side's reel pool.
-- `jackpot`: add two sevens to that side's reel pool.
+- `steady`: add six cherries to that side's reel pool, favoring frequent small payouts.
+- `jackpot`: add one seven to that side's reel pool, favoring rare 1,200-point payouts.
+
+Each upgrade choice is final once submitted. Buttons lock after selection; there is no change-of-mind submission. The same definitions drive the game and the UI labels.
 
 Both sides have the same legal choices and number of upgrades. The rival does not receive the player's current pending choice, RNG state, or future results.
 

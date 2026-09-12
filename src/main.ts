@@ -6,6 +6,8 @@ import {
   getSnapshot,
   startMatch,
   submitUpgrade,
+  UPGRADE_DEFINITIONS,
+  PAYOUT,
   type GameEvent,
   type MatchState,
 } from './domain/game';
@@ -42,13 +44,14 @@ app.innerHTML = `
   </div>
   <div class="upgrade" id="upgrade" hidden>
     <div><b>リール改造を選べ！</b><span id="upgradeNo"></span><small id="upgradeRemain"></small><small id="upgradeChoice" aria-live="polite"></small></div>
-    <button data-up="steady" aria-pressed="false"><strong>🍒 安定型</strong><small>チェリーを2枚追加</small><kbd>1</kbd></button>
-    <button data-up="jackpot" aria-pressed="false"><strong>7 大勝負</strong><small>7を2枚追加</small><kbd>2</kbd></button>
+    <button data-up="steady" aria-pressed="false"><strong>🍒 安定型</strong><small>${UPGRADE_DEFINITIONS.steady.description}</small><kbd>1</kbd></button>
+    <button data-up="jackpot" aria-pressed="false"><strong>7 大勝負</strong><small>${UPGRADE_DEFINITIONS.jackpot.description}</small><kbd>2</kbd></button>
   </div>
   <div class="result" id="result" hidden><strong id="resultTitle"></strong><span id="resultScore"></span></div>
   <footer>
     <button id="start" disabled>60秒で勝ちきれ！</button>
     <p>自動で回る。20秒・40秒でリールを改造。多く稼いだ方が勝ち。</p>
+    <p>3つそろうと 🍒 ${PAYOUT.cherry} ／ 🔔 ${PAYOUT.bell} ／ 7 ${PAYOUT.seven.toLocaleString()} 点</p>
   </footer>
 </section>
 <div class="gate" id="gate">
@@ -151,8 +154,11 @@ function renderSnapshot(snapshot: MatchSnapshot): void {
 function showUpgrade(index: 0 | 1, closesAt: number): void {
   activeOffer = { index, closesAt };
   q('#upgradeNo').textContent = `${index + 1}/2`;
-  q('#upgradeChoice').textContent = '時間内なら選び直せます';
-  upgradePanel.querySelectorAll('button').forEach((button) => button.setAttribute('aria-pressed', 'false'));
+  q('#upgradeChoice').textContent = 'どちらか1つを選んで確定';
+  upgradePanel.querySelectorAll('button').forEach((button) => {
+    button.disabled = false;
+    button.setAttribute('aria-pressed', 'false');
+  });
   upgradePanel.hidden = false;
 }
 
@@ -278,7 +284,10 @@ function onLiveMessage(message: ServerMessage): void {
     window.clearTimeout(assistantResetTimer);
     assistantText = `${assistantText}${message.delta}`.slice(-120);
     q('#line').textContent = `「${assistantText}」`;
-    assistantResetTimer = window.setTimeout(() => (assistantText = ''), 2500);
+    assistantResetTimer = window.setTimeout(() => {
+      assistantText = '';
+      q('#line').textContent = '「次の一手、どうする？」';
+    }, 2500);
     return;
   }
   if (message.type === 'match_ended') {
@@ -411,12 +420,15 @@ q<HTMLButtonElement>('#leave').onclick = () => returnToGate('退出しました�
 
 upgradePanel.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-up]');
-  if (!button || !activeOffer) return;
+  if (!button || button.disabled || !activeOffer) return;
   const upgradeId = button.dataset.up as UpgradeId;
-  if (mode === 'practice' && practiceState) submitUpgrade(practiceState, 'player', activeOffer.index, upgradeId, practiceState.elapsed);
+  if (mode === 'practice' && practiceState && !submitUpgrade(practiceState, 'player', activeOffer.index, upgradeId, practiceState.elapsed)) return;
   if (mode === 'live') liveClient?.send({ type: 'upgrade', commandId: crypto.randomUUID(), upgradeId, offerIndex: activeOffer.index });
-  upgradePanel.querySelectorAll('button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
-  q('#upgradeChoice').textContent = `選択中: ${upgradeId === 'steady' ? '🍒 安定型' : '7 大勝負'}`;
+  upgradePanel.querySelectorAll('button').forEach((item) => {
+    item.disabled = true;
+    item.setAttribute('aria-pressed', String(item === button));
+  });
+  q('#upgradeChoice').textContent = `選択済み: ${upgradeId === 'steady' ? '🍒 安定型' : '7 大勝負'}`;
   button.blur();
 });
 

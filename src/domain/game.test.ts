@@ -9,6 +9,25 @@ import {
 } from './game';
 
 describe('authoritative match domain', () => {
+  it.each([
+    { seed: 2654435761, winner: 'rival', player: 600, rival: 1680 },
+    { seed: 3668339987, winner: 'player', player: 1800, rival: 240 },
+    { seed: 4203543429, winner: 'draw', player: 480, rival: 480 },
+    { seed: 1035485675, winner: 'player', player: 720, rival: 600, comeback: true },
+  ])('replays the $winner outcome for test seed $seed', (fixture) => {
+    const state = createMatch(fixture.seed, 'test-fixture');
+    startMatch(state);
+    for (const [index, time] of [[0, 20], [1, 40]] as const) {
+      advanceMatch(state, time);
+      submitUpgrade(state, 'player', index, 'steady');
+      submitUpgrade(state, 'rival', index, 'jackpot');
+    }
+    advanceMatch(state, 50);
+    if (fixture.comeback) expect(state.scores.player).toBeLessThan(state.scores.rival);
+    advanceMatch(state, 60);
+    expect(state.winner).toBe(fixture.winner);
+    expect(state.scores).toEqual({ player: fixture.player, rival: fixture.rival });
+  });
   it('runs exactly 30 rounds and resolves at 60 seconds', () => {
     const state = createMatch(123, 'm1');
     startMatch(state);
@@ -46,7 +65,7 @@ describe('authoritative match domain', () => {
     const before = getPoolCounts(state, 'player');
     advanceMatch(state, 24);
     const after = getPoolCounts(state, 'player');
-    expect(after.seven - before.seven).toBe(2);
+    expect(after.seven - before.seven).toBe(1);
     expect(state.upgrades.player).toEqual(['jackpot']);
     expect(state.upgrades.rival).toEqual(['steady']);
   });
