@@ -15,14 +15,15 @@ The core game is a free, local 60-second CPU slot battle with two upgrades and r
 - Optional-media failures are isolated from an already connected game. Tests verify the same match completes 30 spins and its second upgrade after media shutdown. Initial connection failure prepares CPU play. Game-WebSocket loss is reported as a separate interruption (PR #25).
 - Tests cover token rejection, quota/replay, emitted Node ESM startup, WebSocket lifecycle, bounded provider cleanup, late microphone/SDK callbacks, sound resources and Three.js lifecycle. The current local suite has 75 passing tests; lint, TypeScript/build and emitted-server checks pass. The build retains a large-chunk warning.
 
-## Latest verified publication before the #30 correction
+## Latest verified game publication
 
 - Public URL: https://slot-chan.vercel.app
-- main: `64d9b6d63d4bd9ccf46fe643beb3801ad103df44` (PR #29)
-- Vercel READY: `dpl_42J1Z6YZNdRvrMVCDgbvrf39WxwW`
-- Post-merge CI: https://github.com/yuin15/donburi-g/actions/runs/34665647443 (success)
+- main: `15dd8091113add0bebe5db6c43f811f9809dc431` (PR #31)
+- Vercel READY: `dpl_7SZytpFKzrNqpwgw7cDpcaMCTWjD`
+- Post-merge CI: https://github.com/yuin15/donburi-g/actions/runs/34666048223 (success)
 - Public CPU start and Three.js graphics were checked. Disabled-live smoke returned HTTP 401 `invalid_access` and WebSocket `session_rejected` / close 1008, without starting providers.
-- The #30 correction's release evidence will be recorded in its PR after CI and deployment. Git-based automatic deployment is not connected; manual deployment through the connected Vercel API is available.
+- Actual Windows Chrome 152 completed three consecutive published CPU matches: 600–3,480 loss, 600–120 win and 1,080–1,080 draw. Both upgrades were manually chosen in match two; default choices, rematch reset, effect mute and countdown cancellation were also checked. See `browser-release-check.md` for scope and remaining gaps.
+- Git-based automatic deployment is not connected; manual deployment through the connected Vercel API is available.
 
 ## Remaining core verification
 
