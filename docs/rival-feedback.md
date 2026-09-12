@@ -11,6 +11,7 @@ Issue #68。相手の当たりを小リールの青い縁光と加点で知ら�
 - 型検査・lint・208テスト・生成済みNode ESMの起動／拒否応答・本番ビルド成功。主JSは138.00KB gzip、CSSは5.48KB gzip。既存の500KB超ビルド警告は残る。
 - DEV固定出目で相手だけの7揃いと両者7揃いを1280×720で目視。相手だけの場合は自分の加点なし、両者の場合は金と青の加点を別の場所に表示する。固定出目は本番に含まれない。
 - 通常CPU対戦を前面のChromeでSpace連打。127回のDOM観測で、回転中にも自分・相手・両者の加点が残ることを確認。相手の改造中→「7 +1 · 大勝負」→通常の構成表示への復帰も確認。JavaScriptエラー0。観測はローカル実行で、実APIを使用していない。
+- この対戦は23回転、600対480で終了。再戦開始で両加点・相手改造通知が空になり、両側の発光と7揃い状態も解除された。
 - 描画テストで片側／両側の発光期限、次回転での発光解除と金貨の寿命、非表示からの復帰、停止・破棄、静止プレビューを確認。
 
 ![相手だけの7揃い](evidence/rival-feedback/rival-jackpot-1280.webp)
@@ -18,3 +19,13 @@ Issue #68。相手の当たりを小リールの青い縁光と加点で知ら�
 ![次の回転中にも残る相手の加点](evidence/rival-feedback/queued-payout-1280.webp)
 
 実プレイ観測: [local-flow.json](evidence/rival-feedback/local-flow.json)。
+
+## 公開確認
+
+PR #69のコード `a6de68a7a403df0796cf1d95ab6564c91f542209` をVercel `dpl_8gu4QNRcDsmVMb6qpvY5K8ezv51p`（READY）へ反映。マージ後CI [34679815187](https://github.com/yuin15/donburi-g/actions/runs/34679815187) 成功。
+
+公開Chromeで35回転、1,440対1,920の結果まで確認。相手の加点が次回転中に残る観測28回、相手の改造中→「チェリー +6 · 安定型」→通常表示への復帰を確認した。再戦で両加点・改造通知・発光・回転数が初期化された。外部/API通信0、JavaScriptエラー0。新JS `index-DQeqvdet.js`、CSS `index-BgFTt2wz.css`、DEV検収ツールなし。
+
+![公開版の回転中の加点と改造通知](evidence/rival-feedback/public-payout-1280.webp)
+
+公開観測: [public-flow.json](evidence/rival-feedback/public-flow.json)。この操作で、改造開始時の自動フォーカスによりSpaceが安定型の選択へ切り替わる既存問題を発見した。加点表示とは別に修正する。

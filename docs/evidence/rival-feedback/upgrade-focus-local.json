@@ -1,0 +1,219 @@
+{
+  "observations": [
+    {
+      "ms": 31,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "24",
+      "round": "0"
+    },
+    {
+      "ms": 211,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "0"
+    },
+    {
+      "ms": 379,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "0"
+    },
+    {
+      "ms": 549,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "0"
+    },
+    {
+      "ms": 721,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "0"
+    },
+    {
+      "ms": 890,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "23",
+      "round": "0"
+    },
+    {
+      "ms": 1061,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "0"
+    },
+    {
+      "ms": 1230,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "1"
+    },
+    {
+      "ms": 1402,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "1"
+    },
+    {
+      "ms": 1574,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "1"
+    },
+    {
+      "ms": 1744,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "1"
+    },
+    {
+      "ms": 1913,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "22",
+      "round": "1"
+    },
+    {
+      "ms": 2084,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "1"
+    },
+    {
+      "ms": 2253,
+      "button": "次も回す",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "2"
+    },
+    {
+      "ms": 2423,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "2"
+    },
+    {
+      "ms": 2592,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "2"
+    },
+    {
+      "ms": 2762,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "2"
+    },
+    {
+      "ms": 2929,
+      "button": "予約済み",
+      "choice": "見比べよう。受付後に選べます",
+      "focus": "start",
+      "remaining": "21",
+      "round": "2"
+    },
+    {
+      "ms": 3101,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "2"
+    },
+    {
+      "ms": 3270,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "2"
+    },
+    {
+      "ms": 3445,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "3"
+    },
+    {
+      "ms": 3613,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "3"
+    },
+    {
+      "ms": 3786,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "3"
+    },
+    {
+      "ms": 3958,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "20",
+      "round": "3"
+    },
+    {
+      "ms": 4127,
+      "button": "予約済み",
+      "choice": "クリック / キー 1・2 で選択",
+      "focus": "start",
+      "remaining": "19",
+      "round": "3"
+    }
+  ],
+  "selected": {
+    "choice": "選択済み: 大勝負",
+    "focus": "upgradeChoice",
+    "pressed": [
+      {
+        "id": "steady",
+        "selected": "false"
+      },
+      {
+        "id": "jackpot",
+        "selected": "true"
+      }
+    ],
+    "remaining": "19"
+  }
+}

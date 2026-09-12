@@ -489,7 +489,8 @@ function showUpgrade(index: 0 | 1, closesAt: number): void {
   });
   upgradePanel.hidden = false;
   q('.shell').dataset.upgrading = 'true';
-  upgradePanel.querySelector<HTMLButtonElement>('button')?.focus();
+  // This panel is not modal: keep Space on the player's current spin control.
+  // Choices remain reachable with Tab, number keys 1/2, or a click.
 }
 
 function hideUpgrade(): void {
