@@ -268,6 +268,11 @@ export class MatchSession {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
     const events = advanceMatch(this.state, elapsed);
+    // A delayed tick can settle several spins. Pair the current scores with the
+    // latest confirmed spin before any context or reaction can be sent.
+    for (const event of events) {
+      if (event.type === 'spin') this.lastSpin = { player: event.player, rival: event.rival };
+    }
     // Ordinary wins and the clock matter to user-led conversation as well as reactions.
     this.pushContext();
     for (const event of events) this.handleGameEvent(event);
@@ -280,7 +285,6 @@ export class MatchSession {
 
   private handleGameEvent(event: GameEvent): void {
     if (event.type === 'spin') {
-      this.lastSpin = { player: event.player, rival: event.rival };
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
       if (event.player.payout >= 1200 && event.rival.payout >= 1200) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した得点差を踏まえて短く反応して。', event.player.round);
       else if (event.player.payout >= 1200) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
@@ -353,8 +357,11 @@ export class MatchSession {
     if (!this.voiceReady || this.voiceDisabled || this.closed || !this.gpt) return;
     const snapshot = getSnapshot(this.state);
     // Whole seconds keep the 100ms match tick and incoming mic chunks from resending
-    // identical context. A score, upgrade or final-result change still updates immediately.
-    const context = `ゲーム確定情報: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}],状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。`;
+    // identical context. A confirmed spin, score, upgrade or result updates immediately.
+    const recentSpin = this.lastSpin
+      ? `直近の確定回転: プレイヤー${this.lastSpin.player.round}回目、絵柄[${this.lastSpin.player.symbols.join(',')}]、配当${this.lastSpin.player.payout}点;あなた${this.lastSpin.rival.round}回目、絵柄[${this.lastSpin.rival.symbols.join(',')}]、配当${this.lastSpin.rival.payout}点。`
+      : '直近の確定回転: まだ回転していない。';
+    const context = `ゲーム確定情報: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}],状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${recentSpin}`;
     if (context === this.lastGameContext) return;
     this.gpt.updateGameContext(context);
     this.lastGameContext = context;
