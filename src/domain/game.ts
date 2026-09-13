@@ -258,6 +258,8 @@ function processSecond(state: MatchState, second: number, events: GameEvent[], r
     events.push({ type: 'upgrade_applied', seq: nextSeq(state), at: second, offerIndex, player, rival });
   }
   if (second === state.duration) {
+    // A result snapshot must never advertise a pause that cannot outlive the match.
+    state.rivalDistraction = null;
     state.status = 'result';
     state.winner = currentLeader(state.scores);
     state.remaining = 0;
@@ -278,13 +280,13 @@ export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDe
   }
   state.elapsed = Math.min(target, state.duration);
   state.remaining = Math.max(0, state.duration - state.elapsed);
-  if (state.rivalDistraction && state.elapsed >= state.rivalDistraction.untilElapsed) state.rivalDistraction = null;
+  if (state.rivalDistraction && (state.elapsed >= state.rivalDistraction.untilElapsed || state.elapsed >= state.duration)) state.rivalDistraction = null;
   return events;
 }
 
 /** The server may apply only the exact short pause selected by its allowlist. */
 export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot | null {
-  if (state.status !== 'playing' || state.rivalDistraction || (seconds !== 2 && seconds !== 4)) return null;
+  if (state.status !== 'playing' || state.rivalDistraction || (seconds !== 2 && seconds !== 4) || state.elapsed + seconds > state.duration) return null;
   state.rivalDistraction = { seconds, untilElapsed: state.elapsed + seconds };
   nextSeq(state);
   return getSnapshot(state);
@@ -321,6 +323,9 @@ export function abortMatch(state: MatchState): void {
   if (state.status !== 'result') state.status = 'aborted';
 }
 export function getSnapshot(state: MatchState): MatchSnapshot {
+  const distraction = state.status === 'playing' && state.rivalDistraction && state.rivalDistraction.untilElapsed <= state.duration
+    ? state.rivalDistraction
+    : null;
   return {
     matchId: state.matchId,
     status: state.status,
@@ -335,7 +340,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     stats: cloneMatchStats(state.stats),
     upgradeSpent: state.upgradeSpent,
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
-    ...(state.rivalDistraction ? { rivalDistraction: { ...state.rivalDistraction } } : {}),
+    ...(distraction ? { rivalDistraction: { ...distraction } } : {}),
     winner: state.winner,
     eventSeq: state.eventSeq,
   };

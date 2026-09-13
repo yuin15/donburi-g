@@ -394,6 +394,16 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('clears a rival distraction when the authoritative result arrives', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({ type: 'rival_distraction', state: 'started', seconds: 2, line: 'え？' });
+    const final = playingSnapshot(undefined, true);
+    session.emit({ type: 'match_ended', snapshot: final });
+    expect(h.vm.state).toMatchObject({ snapshot: { status: 'result' }, rivalDistraction: null });
+    h.vm.dispose();
+  });
+
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {
     const h = setup();
     const session = await beginLive(h);

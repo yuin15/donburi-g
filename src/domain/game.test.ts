@@ -231,6 +231,29 @@ describe('authoritative match domain', () => {
     expect(paused.rngState.player).toBe(baseline.rngState.player);
     expect(paused.rngState.rival).not.toBe(baseline.rngState.rival);
   });
+
+  it('never starts a pause that outlasts the normal or extended match, and clears stale state before each result snapshot', () => {
+    const normal = createMatch(123, 'normal-final', 'manual');
+    startMatch(normal);
+    advanceMatch(normal, 59);
+    expect(distractRival(normal, 2)).toBeNull();
+    normal.rivalDistraction = { seconds: 4, untilElapsed: 63 };
+    const normalEnd = advanceMatch(normal, 60).find(event => event.type === 'match_end');
+    expect(normalEnd?.snapshot.rivalDistraction).toBeUndefined();
+
+    const extended = createMatch(123, 'extended-final', 'manual');
+    startMatch(extended);
+    advanceMatch(extended, 54);
+    expect(applyTimeExtension(extended)).not.toBeNull();
+    advanceMatch(extended, 69);
+    expect(distractRival(extended, 2)).toBeNull();
+    extended.rivalDistraction = { seconds: 4, untilElapsed: 73 };
+    const held = advanceMatch(extended, 70, true);
+    expect(held.some(event => event.type === 'match_end')).toBe(false);
+    expect(getSnapshot(extended).rivalDistraction).toBeUndefined();
+    const extendedEnd = advanceMatch(extended, 70).find(event => event.type === 'match_end');
+    expect(extendedEnd?.snapshot.rivalDistraction).toBeUndefined();
+  });
 });
 
 describe('independent manual match authority', () => {

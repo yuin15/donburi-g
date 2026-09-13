@@ -738,6 +738,7 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'match_ended') {
       this.prepareLiveResult(message.snapshot);
       this.liveSnapshot = message.snapshot;
+      this.syncRivalDistraction(message.snapshot);
       this.consumeSnapshot(message.snapshot);
       this.rounds.end(message.snapshot);
     } else if (message.type === 'error') {

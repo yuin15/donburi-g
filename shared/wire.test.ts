@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bet, MatchSnapshot, ServerEnvelope, ServerMessage, SpinView } from './protocol';
 import { parseServerEnvelope } from './wire';
-import { evaluateGrid, gridFromStops } from '../src/domain/game';
+import { advanceMatch, createMatch, evaluateGrid, gridFromStops, startMatch } from '../src/domain/game';
 
 function envelope(message: ServerMessage): ServerEnvelope {
   return {
@@ -77,5 +77,17 @@ describe('bankroll reel wire', () => {
     const message: ServerMessage = { type: 'rival_distraction', state: 'started', seconds: 4, line: 'え？ 後ろに誰かいるの？' };
     expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
     expect(parseServerEnvelope(JSON.stringify({ ...envelope(message), seconds: 3 }))).toBeNull();
+  });
+
+  it('round-trips a final snapshot after stale rival-distraction state is cleared', () => {
+    const state = createMatch(123, 'wire-grid', 'manual');
+    startMatch(state);
+    advanceMatch(state, 59);
+    state.rivalDistraction = { seconds: 4, untilElapsed: 63 };
+    const ended = advanceMatch(state, 60).find(event => event.type === 'match_end');
+    if (!ended || ended.type !== 'match_end') throw new Error('missing final match event');
+    const message: ServerMessage = { type: 'match_ended', snapshot: ended.snapshot };
+    expect(message.snapshot.rivalDistraction).toBeUndefined();
+    expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
   });
 });
