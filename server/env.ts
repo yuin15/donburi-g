@@ -25,6 +25,19 @@ export const env = {
   maxConcurrentSessions: intEnv('MAX_CONCURRENT_SESSIONS', 1),
 };
 
+const developmentLoopbackOrigins = new Set<string>();
+
+/** Adds only the local browser aliases for the port actually bound by Vite. */
+export function addDevelopmentLoopbackOrigins(address: string, port: number): void {
+  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost'].includes(address.toLowerCase())) return;
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) return;
+  for (const hostname of ['127.0.0.1', 'localhost']) developmentLoopbackOrigins.add(`http://${hostname}:${port}`);
+}
+
+export function getDevelopmentLoopbackOrigins(): ReadonlySet<string> {
+  return developmentLoopbackOrigins;
+}
+
 export function assertLiveConfiguration(voiceMode: 'audio' | 'avatar' = 'avatar'): void {
   if (!env.liveEnabled) throw new Error('live_mode_disabled');
   const missing: string[] = [];

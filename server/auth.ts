@@ -1,5 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { env } from './env.js';
+import { env, getDevelopmentLoopbackOrigins } from './env.js';
 
 interface TicketPayload {
   sid: string;
@@ -23,6 +23,7 @@ function sign(encoded: string): string {
 export function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
   if (!origin) return false;
   const candidates = new Set(env.allowedOrigins);
+  for (const localOrigin of getDevelopmentLoopbackOrigins()) candidates.add(localOrigin);
   if (env.vercelUrl) candidates.add(`https://${env.vercelUrl}`);
   if (candidates.size > 0) return candidates.has(origin);
   if (!host) return false;
