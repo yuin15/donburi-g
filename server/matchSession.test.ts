@@ -830,8 +830,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('offers a rival loan once, accepts a clear reply, and ignores an expired reply', async () => {
-    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+  it('offers a rival loan once, transfers a clear reply immediately, and ignores an expired reply', async () => {
     const first = setup('rival-loan', 'manual', 'audio');
     await first.session.initialize();
     first.session.handleRaw('{"type":"start"}');
@@ -844,16 +843,17 @@ describe('live match cleanup', () => {
     firstState.remaining = 10;
     first.session.handleRaw('{"type":"snapshot"}');
     expect(provider.confirmedLine).toHaveBeenCalledWith('お金がなくなっちゃった。5ドル貸してくれない？');
+    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
     await vi.advanceTimersByTimeAsync(1_000);
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'rival-loan-delegation', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
-    expect(chooseLoanDecision).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 10, rival: 0 } }), 'player_to_rival', 'Sure!', expect.any(String), expect.any(AbortSignal), true);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
     expect(first.messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
     firstState.scores.player = 10;
     firstState.scores.rival = 0;
     first.session.handleRaw('{"type":"snapshot"}');
-    expect(provider.confirmedLine).toHaveBeenCalledTimes(1);
+    expect(provider.confirmedLine.mock.calls.filter(([line]) => line === 'お金がなくなっちゃった。5ドル貸してくれない？')).toHaveLength(1);
     await first.session.shutdown('test_finished');
 
     const second = setup('expired-rival-loan', 'manual', 'audio');
@@ -863,6 +863,7 @@ describe('live match cleanup', () => {
     secondState.scores.player = 10;
     secondState.scores.rival = 0;
     second.session.handleRaw('{"type":"snapshot"}');
+    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
     await vi.advanceTimersByTimeAsync(6_001);
     second.session.handleRaw('{"type":"snapshot"}');
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
@@ -870,6 +871,48 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(second.messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await second.session.shutdown('test_finished');
+  });
+
+  it('immediately transfers a clear reply to a spoken rival loan offer without AI judgment', async () => {
+    const { session, messages } = setup('immediate-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 59;
+    state.remaining = 1;
+    session.handleRaw('{"type":"snapshot"}');
+    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 0, endMs: 100 });
+    const transfers = messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 101, endMs: 200 });
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('does not immediately transfer a negative or expired rival-loan reply', async () => {
+    const { session, messages } = setup('guarded-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いや', { startMs: 0, endMs: 100 });
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await vi.advanceTimersByTimeAsync(5_001);
+    session.handleRaw('{"type":"snapshot"}');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 200, endMs: 300 });
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
   });
 
   it('keeps legacy latest-spin recovery snapshots valid across a loan and the next spin', async () => {
@@ -894,6 +937,7 @@ describe('live match cleanup', () => {
     pair.rival.total = 0;
     session.handleRaw('{"type":"snapshot"}');
     expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
     await vi.advanceTimersByTimeAsync(1_000);
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'loan-recovery-delegation', offsetMs: 400 });
@@ -929,6 +973,7 @@ describe('live match cleanup', () => {
     playerSpin.total = 10;
     rivalSpin.total = 0;
     await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
     await vi.advanceTimersByTimeAsync(1_000);
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'loan-recovery-manual-delegation', offsetMs: 400 });

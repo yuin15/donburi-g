@@ -23,7 +23,7 @@ import {
 import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
-import { chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
+import { acceptsImmediateLoanOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
 import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
 
@@ -64,7 +64,6 @@ const EXTENSION_OFFER_CHANCE = 0.2;
 const EXTENSION_OFFER_AUDIBLE_DELAY_MS = 1000;
 const EXTENSION_OFFER_REPLY_MS = 5000;
 const EXTENSION_OFFER_LINE = 'もう少し時間が欲しい？ 伸ばしてあげようか？';
-const LOAN_OFFER_AUDIBLE_DELAY_MS = 1000;
 const LOAN_OFFER_REPLY_MS = 5000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
@@ -117,10 +116,13 @@ export class MatchSession {
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
   private loanOffer: { acceptAfter: number; expiresAt: number } | null = null;
+  private loanOfferTranscript = '';
+  private loanOfferTranscriptAfter = 0;
   private userSpeaking = false;
   private userSpeechTurn = 0;
   private assistantOutputUntil = 0;
-  private transcriptHistory: Array<{ role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
+  private transcriptSequence = 0;
+  private transcriptHistory: Array<{ sequence: number; role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
   private extensionDelegation: { id: string; generation: number; offsetMs: number } | null = null;
   private readonly seenDelegations = new Set<string>();
   private readonly delegationSettles = new Set<NodeJS.Timeout>();
@@ -231,18 +233,20 @@ export class MatchSession {
       },
       onTranscript: (role, delta, timing) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
-        this.transcriptHistory.push({ role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: role === 'user' ? this.userSpeechTurn : null });
+        this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: role === 'user' ? this.userSpeechTurn : null });
         if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
         if (role === 'user') {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.reactions.conversationActivity();
         } else {
+          this.startLoanOfferWhenSpoken(delta);
           this.assistantOutputUntil = Date.now() + 750;
         }
         // While the authoritative decision is pending, do not display an untrusted
         // normal reply that could grant time before the match actually does.
         if (role === 'assistant' && (this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript())) return;
         this.emit({ type: 'transcript', role, delta });
+        if (role === 'user') this.acceptRivalLoanFromCurrentTurn();
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
@@ -689,8 +693,10 @@ export class MatchSession {
 
   /** A bankrupt rival asks once, only after audio has had a moment to start its line. */
   private maybeOfferLoan(): void {
-    if (this.loanOffer && Date.now() >= this.loanOffer.expiresAt) {
+    if (this.loanOffer && Number.isFinite(this.loanOffer.acceptAfter) && Date.now() >= this.loanOffer.expiresAt) {
       this.loanOffer = null;
+      this.loanOfferTranscript = '';
+      this.loanOfferTranscriptAfter = 0;
       this.pushContext();
     }
     if (
@@ -708,9 +714,13 @@ export class MatchSession {
       || this.userSpeaking
       || Date.now() < this.assistantOutputUntil
     ) return;
-    const now = Date.now();
     this.loanOfferConsidered = true;
-    this.loanOffer = { acceptAfter: now + LOAN_OFFER_AUDIBLE_DELAY_MS, expiresAt: now + LOAN_OFFER_AUDIBLE_DELAY_MS + LOAN_OFFER_REPLY_MS };
+    // The offer is not answerable until its exact line reaches the rival's
+    // transcript. Keep it pending rather than expiring while queued speech is
+    // still unheard.
+    this.loanOffer = { acceptAfter: Number.POSITIVE_INFINITY, expiresAt: Number.POSITIVE_INFINITY };
+    this.loanOfferTranscript = '';
+    this.loanOfferTranscriptAfter = this.transcriptSequence;
     this.pushContext();
     this.gpt?.requestConfirmedLine(LOAN_OFFER_LINE);
   }
@@ -780,6 +790,57 @@ export class MatchSession {
 
   private isLoanOfferActive(now: number): boolean {
     return Boolean(this.loanOffer && now >= this.loanOffer.acceptAfter && now < this.loanOffer.expiresAt);
+  }
+
+  /** Start the reply window only after the fixed offer is present in live output. */
+  private startLoanOfferWhenSpoken(delta: string): void {
+    if (!this.loanOffer || Number.isFinite(this.loanOffer.acceptAfter)) return;
+    this.loanOfferTranscript = `${this.loanOfferTranscript}${delta}`.slice(-300);
+    const normalized = this.loanOfferTranscript.normalize('NFKC').replaceAll(/\s/g, '').replaceAll('$5', '5ドル');
+    const exact = LOAN_OFFER_LINE.normalize('NFKC').replaceAll(/\s/g, '').replaceAll('$5', '5ドル');
+    if (!normalized.includes(exact) && !/(?:お金.*)?5ドル.*貸して(?:くれない)?/.test(normalized)) return;
+    const now = Date.now();
+    this.loanOffer = { acceptAfter: now, expiresAt: now + LOAN_OFFER_REPLY_MS };
+    this.loanOfferTranscript = '';
+    this.loanOfferTranscriptAfter = this.transcriptSequence;
+    this.pushContext();
+  }
+
+  /** Return only the current spoken turn, never an older affirmative. */
+  private currentUserTurnTranscript(): string {
+    return this.transcriptHistory
+      .filter(item => item.sequence > this.loanOfferTranscriptAfter && item.role === 'user' && item.userTurn === this.userSpeechTurn)
+      .map(item => item.delta)
+      .join('')
+      .slice(-240);
+  }
+
+  /** A live, clear reply to the rival's own offer transfers without AI delay. */
+  private acceptRivalLoanFromCurrentTurn(): void {
+    const pendingRivalLoan = this.loanDecisionPending && this.loanDelegation?.direction === 'player_to_rival';
+    if (
+      this.closed
+      || this.voiceDisabled
+      || !this.voiceReady
+      || this.state.status !== 'playing'
+      || (this.sessionDeadline > 0 && Date.now() >= this.sessionDeadline)
+      || !this.isLoanOfferActive(Date.now())
+      || this.extensionOffer
+      || this.extensionDecisionPending
+      || this.extensionNegotiation
+      || this.extensionSpeech
+      || (this.loanDecisionPending && !pendingRivalLoan)
+      || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript())
+    ) return;
+    this.tick();
+    if (this.state.status !== 'playing') return;
+    if (pendingRivalLoan) {
+      this.loanDecisionPending = false;
+      this.loanDelegation = null;
+    }
+    const line = '助かった、$5借りるよ。ここから巻き返す。';
+    if (!this.completeLoanTransfer('player_to_rival', line)) return;
+    this.gpt?.requestConfirmedLine(line);
   }
 
   private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {
@@ -864,18 +925,26 @@ export class MatchSession {
       this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
       return;
     }
-    const transfer = transferLoan(this.state, direction);
-    if (!transfer) {
+    if (!this.completeLoanTransfer(direction, line)) {
       const line = '今はその話はなしで、勝負を続けよう。';
       this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
       return;
     }
+    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+  }
+
+  /** Apply the authoritative transfer before any speech can describe it. */
+  private completeLoanTransfer(direction: LoanDirection, line: string): boolean {
+    const transfer = transferLoan(this.state, direction);
+    if (!transfer) return false;
     this.loanOffer = null;
+    this.loanOfferTranscript = '';
+    this.loanOfferTranscriptAfter = 0;
     this.syncLoanWithLatestSpins(direction);
     this.pushContext();
     this.emit({ type: 'loan_transfer', direction, amount: LOAN_AMOUNT, before: transfer.before, after: transfer.after, line });
     this.emitSnapshot();
-    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+    return true;
   }
 
   /** Keep recovery snapshots self-consistent after a transfer between spins. */

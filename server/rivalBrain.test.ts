@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsLoan, requestsTimeExtension } from './rivalBrain';
+import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsLoan, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -122,6 +122,14 @@ describe('loan choice', () => {
 
   it.each(['no', 'いや', 'I guess so', 'yes, the timer is short', ''])('does not mistake negative, vague, or unrelated speech for approval: %s', transcript => {
     expect(acceptsLoanOffer(transcript)).toBe(false);
+  });
+
+  it.each(['いいよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
+    expect(acceptsImmediateLoanOffer(transcript)).toBe(true);
+  });
+
+  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、', 'いいよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
+    expect(acceptsImmediateLoanOffer(transcript)).toBe(false);
   });
 
   it.each(['no', 'いいえ'])('recognizes a short direct refusal: %s', transcript => {
