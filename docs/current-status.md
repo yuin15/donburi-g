@@ -46,6 +46,15 @@
 
 ## 公開記録
 
+### 公開結果の最終調整
+
+[PR #114](https://github.com/yuin15/donburi-g/pull/114)で、結果の下に残る得点差を非表示にし、READMEと公開画面を更新した。
+
+- 公開実装: `0ea209c4f181f64f8b9803a5241a189ccdd4b326`。Vercel READY: `dpl_3zu21aiefmus7ZJ9usXUxBrY3SHx`。
+- 公開JS `index-DitpnLoX.js` / CSS `index-BZ7Q1-nl.css`。公開JSのSHA-256 `B68B93F5C21B40F08995C77252375D09987162189CD5C82F564D19218B80CE58` がローカルの最終ビルドと一致。
+- PRのCI: https://github.com/yuin15/donburi-g/actions/runs/34733479460 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34733542195 （success）。
+- 3Dモデルと演出の品質はPR #113のまま。表示確認で見つけた重複だけを修正した。
+
 ### 立体の絵柄・獲得数字・筐体の動き
 
 [PR #113](https://github.com/yuin15/donburi-g/pull/113)をマージし、[立体演出と実画面](physical-win-presentation.md)を公開した。
