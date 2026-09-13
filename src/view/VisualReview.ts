@@ -81,15 +81,15 @@ export function mountVisualReview(port: ReviewPort): void {
     };
     requestAnimationFrame(measure);
     const examples: SpinView['symbols'][] = [['cherry', 'bell', 'seven'], ['bell', 'bell', 'bell'], ['cherry', 'cherry', 'cherry'], ['seven', 'seven', 'seven']];
-    let total = 0, rivalTotal = 0;
+    let total = 30, rivalTotal = 30;
     const matchStats = createMatchStats();
     for (let i = 0; i < examples.length; i += 1) {
-      const payout = [0, 240, 120, 1200][i];
-      total += payout;
+      const payout = [0, 6, 3, 30][i];
+      total += payout - 1;
       const round = i + 1;
       const player: SpinView = { side: 'player', round, symbols: examples[i], payout, total };
-      const rivalPayout = i === 1 ? 120 : i === 2 ? 240 : 0;
-      rivalTotal += rivalPayout;
+      const rivalPayout = i === 1 ? 3 : i === 2 ? 6 : 0;
+      rivalTotal += rivalPayout - 1;
       const rival: SpinView = { side: 'rival', round, symbols: i === 1 ? ['cherry', 'cherry', 'cherry'] : i === 2 ? ['bell', 'bell', 'bell'] : ['bell', 'seven', 'cherry'], payout: rivalPayout, total: rivalTotal };
       recordSpin(matchStats, player);
       recordSpin(matchStats, rival);
