@@ -162,9 +162,15 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       const before = { ...snapshot, elapsed: 54, remaining: 6, duration: 60 as const, scores: { player: 24, rival: 27 }, stats: fixtureStats({ player: 24, rival: 27 }) };
       if (example === 'extension-accepted') {
         const after = { ...before, duration: 70 as const, remaining: 16 };
-        render({ snapshot: after, scores: after.scores, timeExtension: { decision: 'accepted', before: before.remaining, after: after.remaining }, line: 'いいよ。あと10秒、見せてみな。', rivalMood: 'RULE CHANGED · ONE MORE CHANCE' });
+        render({ snapshot: after, scores: after.scores, timeExtension: { decision: 'accepted', before: before.remaining, after: after.remaining }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？', rivalMood: 'RULE CHANGED · ONE MORE CHANCE' });
         view.playSound('ruleChange');
       } else render({ snapshot: before, scores: before.scores, timeExtension: null, line: 'だめ。時間切れまで、このまま勝負しよう。', rivalMood: 'REQUEST DENIED' });
+    }
+    if (example === 'extension-offered') {
+      snapshot.remaining = 12; snapshot.elapsed = 48;
+      snapshot.scores = { player: 24, rival: 27 };
+      snapshot.stats = fixtureStats(snapshot.scores);
+      render({ snapshot, scores: snapshot.scores, line: 'もう少し時間が欲しい？ 伸ばしてあげようか？', rivalMood: 'ONE MORE CHANCE?' });
     }
     if (example === 'session-best') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;

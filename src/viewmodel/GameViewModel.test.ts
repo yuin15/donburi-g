@@ -259,8 +259,8 @@ describe('game view model', () => {
     const before = playingSnapshot();
     before.elapsed = 54; before.remaining = 6; before.scores = { player: 24, rival: 27 };
     const after = { ...before, duration: 70 as const, remaining: 16 };
-    session.emit({ type: 'time_extension', decision: 'accepted', before, after, line: 'いいよ。あと10秒、見せてみな。' });
-    expect(h.vm.state).toMatchObject({ snapshot: { duration: 70, remaining: 16 }, timeExtension: { before: 6, after: 16 }, line: 'いいよ。あと10秒、見せてみな。' });
+    session.emit({ type: 'time_extension', decision: 'accepted', before, after, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
+    expect(h.vm.state).toMatchObject({ snapshot: { duration: 70, remaining: 16 }, timeExtension: { before: 6, after: 16 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
     expect(h.presentation.playSound).toHaveBeenCalledWith('ruleChange');
     await h.clock.advance(1350);
     expect(h.vm.state.timeExtension).toBeNull();

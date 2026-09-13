@@ -36,9 +36,11 @@ vi.mock('./rivalBrain', () => ({
   chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })),
   chooseTimeExtension: vi.fn(async () => 'reject_extension'),
   requestsTimeExtension: vi.fn((text: string) => /(?:延長|more time)/i.test(text)),
+  acceptsTimeExtensionOffer: vi.fn((text: string) => /^(?:うん|はい|お願い|yes|sure)$/i.test(text)),
+  rejectsTimeExtensionOffer: vi.fn((text: string) => /^(?:いや|いいえ|だめ|no)$/i.test(text)),
 }));
 import { MatchSession } from './matchSession';
-import { chooseRivalUpgrade, chooseTimeExtension, requestsTimeExtension } from './rivalBrain';
+import { acceptsTimeExtensionOffer, chooseRivalUpgrade, chooseTimeExtension, rejectsTimeExtensionOffer, requestsTimeExtension } from './rivalBrain';
 
 const avatar = { sessionId: 'test-session', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' };
 function deferred<T>() {
@@ -47,12 +49,12 @@ function deferred<T>() {
   return { promise, resolve };
 }
 // Automatic fixtures retain the old upgrade scenarios; real/manual sessions use base reels.
-function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar') {
+function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar', random: () => number = () => 1) {
   const messages: ServerMessage[] = [];
   const close = vi.fn();
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
-  return { session: new MatchSession(socket, id, release, { spinMode, upgrades: spinMode === 'automatic', voiceMode }), messages, release, close };
+  return { session: new MatchSession(socket, id, release, { spinMode, upgrades: spinMode === 'automatic', voiceMode, random }), messages, release, close };
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -68,6 +70,8 @@ beforeEach(() => {
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
   vi.mocked(requestsTimeExtension).mockImplementation((text: string) => /(?:延長して|あと10秒ください|more time)/i.test(text));
+  vi.mocked(acceptsTimeExtensionOffer).mockImplementation((text: string) => /^(?:うん|はい|お願い|yes|sure)$/i.test(text));
+  vi.mocked(rejectsTimeExtensionOffer).mockImplementation((text: string) => /^(?:いや|いいえ|だめ|no)$/i.test(text));
   vi.mocked(chooseTimeExtension).mockResolvedValue('reject_extension');
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -653,8 +657,8 @@ describe('live match cleanup', () => {
     expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), '延長して', expect.stringContaining('P:延長'), expect.any(AbortSignal));
     expect(provider.suppress).toHaveBeenCalledOnce();
     expect(messages.some(message => message.type === 'transcript' && message.role === 'assistant' && message.delta.includes('先に受け入れる'))).toBe(false);
-    expect(extension).toMatchObject({ decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'いいよ。あと10秒、見せてみな。' });
-    expect(provider.confirmedLine).toHaveBeenCalledWith('いいよ。あと10秒、見せてみな。');
+    expect(extension).toMatchObject({ decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
+    expect(provider.confirmedLine).toHaveBeenCalledWith('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？');
     session.handleRaw('{"type":"snapshot"}');
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(18_000);
@@ -689,6 +693,55 @@ describe('live match cleanup', () => {
     expect(provider.suppress).not.toHaveBeenCalled();
     provider.events?.onAudio('AAAA');
     expect(messages.some(message => message.type === 'voice_audio' && message.audio === 'AAAA')).toBe(true);
+    await session.shutdown('test_finished');
+  });
+
+  it('offers once in the final 15 seconds and grants an explicit reply without a second model decision', async () => {
+    const { session, messages } = setup('rival-offer', 'manual', 'audio', () => 0);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'うん');
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({
+      decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？',
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(provider.confirmedLine.mock.calls.filter(([line]) => line === 'もう少し時間が欲しい？ 伸ばしてあげようか？')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it.each(['いや', 'no'])('does not extend after an explicit declined offer: %s', async transcript => {
+    const { session, messages } = setup('declined-rival-offer', 'manual', 'audio', () => 0);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(46_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', transcript);
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長して');
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not extend or repeat its offer after no reply', async () => {
+    const { session, messages } = setup('ignored-rival-offer', 'manual', 'audio', () => 0);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    expect(provider.confirmedLine.mock.calls.filter(([line]) => line === 'もう少し時間が欲しい？ 伸ばしてあげようか？')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
 

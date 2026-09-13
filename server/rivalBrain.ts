@@ -9,11 +9,26 @@ interface ChoiceResult {
 
 export type TimeExtensionDecision = 'accept_extension_10s' | 'reject_extension';
 
-const EXTENSION_NEGATION = /(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;
-const EXTENSION_REQUEST = /(?:時間(?:を|の)?|タイム)?延長(?:を)?(?:して|してください|下さい|お願い(?:します)?|頼む|してほしい|して欲しい|してくれ|してちょうだい)|(?:あと|もう|さらに|追加で)?\s*(?:10|十)\s*秒(?:を)?(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して)?|ほしい|欲しい)|\b(?:give|grant|add|extend)\s+(?:me\s+)?(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:can i have|i need|let me have)\s+(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:give|grant|allow)\s+(?:me\s+)?(?:more|extra)\s+time\b|\bextend\s+(?:the\s+)?time\b/i;
+const EXTENSION_NEGATION = /(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:時間)?伸ば\s*(?:は|を)?\s*(?:いらない|不要|さない|さなくて|やめ(?:て)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;
+const EXTENSION_REQUEST = /(?:時間(?:を|の)?|タイム)?延長(?:を)?(?:して|してください|下さい|できる[？?]?|お願い(?:します)?|頼む|してほしい|して欲しい|してくれ|してちょうだい)|(?:時間(?:を|の)?|タイム)?(?:伸ば|増や|足)(?:して|してください|下さい|せる[？?]?|ほしい|欲しい|くれ|ちょうだい)|(?:もっと|もう少し|あとちょっと(?:だけ)?)(?:時間)?\s*(?:を)?\s*(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して|できる[？?]?)?|(?:伸ば|増や|足)(?:して|せる[？?]?)?|ほしい|欲しい|お願い)|(?:(?:あと|もう|さらに|追加で)\s*(?:(?:10|十)\s*秒?)?(?:だけ|ほど|ちょっと)?|(?:10|十)\s*秒(?:だけ|ほど)?)\s*(?:を)?\s*(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して|できる[？?]?)?|(?:伸ば|増や|足)(?:して|せる[？?]?)?|ほしい|欲しい|お願い)|\b(?:give|grant|add|extend)\s+(?:me\s+)?(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:can i have|i need|let me have)\s+(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:give|grant|allow)\s+(?:me\s+)?(?:more|extra)\s+time\b|\bextend\s+(?:the\s+)?time\b/i;
 
 export function requestsTimeExtension(transcript: string): boolean {
-  return !EXTENSION_NEGATION.test(transcript) && EXTENSION_REQUEST.test(transcript);
+  // Live transcription can use full-width numerals or kana. The action phrase
+  // remains explicit, so normalizing these spellings does not broaden intent.
+  const normalized = transcript.normalize('NFKC').replaceAll('じゅう', '十');
+  return !EXTENSION_NEGATION.test(normalized) && EXTENSION_REQUEST.test(normalized);
+}
+
+/** A short, explicit confirmation is accepted only after the rival offered time. */
+export function acceptsTimeExtensionOffer(transcript: string): boolean {
+  const normalized = transcript.normalize('NFKC').replaceAll('じゅう', '十');
+  if (EXTENSION_NEGATION.test(normalized)) return false;
+  return /(?:^|[、。！？!?]\s*)(?:うん|はい|お願い|頼む|いいよ|伸ばして|延長して|yes|yeah|sure)(?:[、。！？!?]|\s|$)/i.test(normalized);
+}
+
+export function rejectsTimeExtensionOffer(transcript: string): boolean {
+  const normalized = transcript.normalize('NFKC');
+  return EXTENSION_NEGATION.test(normalized) || /(?:^|[、。！？!?]\s*)(?:いや|いいえ|だめ|no|nope)(?:[、。！？!?]|\s|$)/i.test(normalized);
 }
 
 function extractText(payload: Record<string, unknown>): string {

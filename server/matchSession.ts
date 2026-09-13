@@ -20,7 +20,7 @@ import {
 import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
-import { chooseRivalUpgrade, chooseTimeExtension, requestsTimeExtension } from './rivalBrain.js';
+import { acceptsTimeExtensionOffer, chooseRivalUpgrade, chooseTimeExtension, rejectsTimeExtensionOffer, requestsTimeExtension } from './rivalBrain.js';
 import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
@@ -44,6 +44,10 @@ const MAX_SESSION_MS = 120_000;
 const MAX_LOBBY_MS = 90_000;
 const RESULT_REACTION_MS = 8_000;
 const EXTENSION_TRANSCRIPT_SETTLE_MS = 300;
+const EXTENSION_OFFER_CHANCE = 0.2;
+const EXTENSION_OFFER_AUDIBLE_DELAY_MS = 1000;
+const EXTENSION_OFFER_REPLY_MS = 5000;
+const EXTENSION_OFFER_LINE = 'もう少し時間が欲しい？ 伸ばしてあげようか？';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
@@ -91,6 +95,10 @@ export class MatchSession {
   private extensionUtteranceEnded = false;
   private extensionUtteranceEligible = false;
   private extensionTranscriptSettle: NodeJS.Timeout | null = null;
+  private extensionOfferConsidered = false;
+  private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
+  private userSpeaking = false;
+  private assistantOutputUntil = 0;
   private recentConversation = '';
   /** Reservation happens at recognition so one spoken request cannot issue multiple decisions. */
   private extensionNegotiation = false;
@@ -103,13 +111,16 @@ export class MatchSession {
     private readonly frontend: WebSocket,
     private readonly sessionId: string,
     releaseQuota: () => Promise<void>,
-    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean; voiceMode?: 'audio' | 'avatar' } = {},
+    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean; voiceMode?: 'audio' | 'avatar'; random?: () => number } = {},
   ) {
     const seed = randomBytes(4).readUInt32BE(0);
     this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual', { upgrades: deps.upgrades });
     this.releaseQuota = releaseQuota;
     this.voiceMode = deps.voiceMode ?? 'avatar';
+    this.random = deps.random ?? Math.random;
   }
+
+  private readonly random: () => number;
 
   initialize(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -171,6 +182,7 @@ export class MatchSession {
       },
       onAudio: audio => {
         if (!outputAllowed() || this.extensionDecisionPending || this.awaitingExtensionTranscript()) return;
+        this.assistantOutputUntil = Date.now() + 750;
         if (this.voiceMode === 'avatar') this.media?.speak(audio);
         else this.emit({ type: 'voice_audio', audio });
       },
@@ -184,6 +196,7 @@ export class MatchSession {
           this.scheduleExtensionTranscriptCheck();
         } else {
           this.recentConversation = `${this.recentConversation}R:${delta}`.slice(-900);
+          this.assistantOutputUntil = Date.now() + 750;
         }
         // While the authoritative decision is pending, do not display an untrusted
         // normal reply that could grant time before the match actually does.
@@ -196,6 +209,7 @@ export class MatchSession {
         this.currentUserText = '';
         this.extensionUtteranceEnded = false;
         this.extensionUtteranceEligible = false;
+        this.userSpeaking = true;
         this.reactions.conversationActivity();
         if (this.voiceMode === 'avatar') this.media?.interrupt();
         this.emit({ type: 'voice_interrupt' });
@@ -205,6 +219,7 @@ export class MatchSession {
         // Eligibility belongs to the completed utterance, not a late transcript.
         this.tick();
         this.extensionUtteranceEnded = true;
+        this.userSpeaking = false;
         this.extensionUtteranceEligible = this.state.status === 'playing' && this.state.remaining <= 15;
         this.scheduleExtensionTranscriptCheck();
       },
@@ -430,6 +445,7 @@ export class MatchSession {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
     this.publishEvents(advanceMatch(this.state, elapsed));
+    this.maybeOfferTimeExtension();
   }
 
   private publishEvents(events: GameEvent[]): void {
@@ -570,6 +586,33 @@ export class MatchSession {
     }
   }
 
+  /** One optional, server-timed offer makes the final seconds conversational without changing CPU play. */
+  private maybeOfferTimeExtension(): void {
+    if (this.extensionOffer && Date.now() >= this.extensionOffer.expiresAt) this.extensionOffer = null;
+    if (
+      this.extensionOfferConsidered
+      || this.extensionOffer
+      || !this.voiceReady
+      || this.voiceDisabled
+      || this.state.status !== 'playing'
+      || this.state.extensionUsed
+      || this.extensionNegotiation
+      || this.state.remaining > 15
+      || this.userSpeaking
+      || Date.now() < this.assistantOutputUntil
+    ) return;
+    this.extensionOfferConsidered = true;
+    if (this.random() >= EXTENSION_OFFER_CHANCE) return;
+    const now = Date.now();
+    this.extensionOffer = {
+      acceptAfter: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS,
+      expiresAt: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS + EXTENSION_OFFER_REPLY_MS,
+    };
+    // Existing commentary is the supported Live speech mechanism. This is an
+    // invitation only; the domain clock changes after a later explicit reply.
+    this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE);
+  }
+
   /** Transcript deltas can arrive after local VAD ends, so wait for a quiet 300ms. */
   private scheduleExtensionTranscriptCheck(): void {
     if (!this.extensionUtteranceEnded || !this.extensionUtteranceEligible || this.extensionNegotiation) return;
@@ -586,6 +629,25 @@ export class MatchSession {
   }
 
   private maybeNegotiateTimeExtension(): void {
+    if (this.extensionOffer && Date.now() >= this.extensionOffer.expiresAt) this.extensionOffer = null;
+    if (this.extensionOffer) {
+      if (Date.now() < this.extensionOffer.acceptAfter) return;
+      if (acceptsTimeExtensionOffer(this.currentUserText) || requestsTimeExtension(this.currentUserText)) {
+        this.extensionNegotiation = true;
+        this.extensionDecisionPending = true;
+        this.gpt?.suppressOutput();
+        this.media?.interrupt();
+        this.emit({ type: 'voice_interrupt' });
+        this.acceptOfferedTimeExtension();
+        return;
+      }
+      if (rejectsTimeExtensionOffer(this.currentUserText)) {
+        // A declined offer is final for this match, but does not modify game state.
+        this.extensionOffer = null;
+        this.extensionNegotiation = true;
+        return;
+      }
+    }
     if (
       this.extensionNegotiation
       || !this.extensionUtteranceEnded
@@ -603,6 +665,23 @@ export class MatchSession {
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
     void this.decideTimeExtension(this.currentUserText);
+  }
+
+  /** The rival made this offer, so an explicit confirmation is never randomly rejected. */
+  private acceptOfferedTimeExtension(): void {
+    this.tick();
+    if (this.state.status !== 'playing') {
+      this.extensionDecisionPending = false;
+      return;
+    }
+    const extended = applyTimeExtension(this.state);
+    this.extensionDecisionPending = false;
+    if (!extended) return;
+    const line = 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？';
+    this.pushContext();
+    this.emit({ type: 'time_extension', decision: 'accepted', before: extended.before, after: extended.after, line });
+    this.emitSnapshot();
+    this.gpt?.requestConfirmedLine(line);
   }
 
   private awaitingExtensionTranscript(): boolean {
@@ -636,7 +715,7 @@ export class MatchSession {
     const after = extended?.after ?? before;
     const playerAhead = before.scores.player >= before.scores.rival;
     const line = accepted
-      ? 'いいよ。あと10秒、見せてみな。'
+      ? 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？'
       : playerAhead ? '君が勝っているのに？ 時間は増やさないよ。' : 'だめ。時間切れまで、このまま勝負しよう。';
     this.extensionDecisionPending = false;
     this.pushContext();

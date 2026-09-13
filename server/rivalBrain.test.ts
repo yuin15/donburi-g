@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chooseRivalUpgrade, chooseTimeExtension, requestsTimeExtension } from './rivalBrain';
+import { acceptsTimeExtensionOffer, chooseRivalUpgrade, chooseTimeExtension, rejectsTimeExtensionOffer, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -51,12 +51,26 @@ describe('rival upgrade choice', () => {
 });
 
 describe('time extension choice', () => {
-  it.each(['延長して', '10秒ちょうだい', 'Give me ten more seconds. I can still beat you!', 'Scared? Give me ten more seconds and prove it.'])('recognizes a completed extension request: %s', (transcript) => {
+  it.each(['延長して', '10秒ちょうだい', 'あと十秒だけください', '十秒だけ延長して', '10秒伸ばして', 'もっと時間伸ばして！', 'もう少し時間ちょうだい', 'あとちょっとだけお願い', '時間増やせる？', '延長できる？', 'あと１０秒ください', 'あとじゅう秒ください', 'Give me ten more seconds. I can still beat you!', 'Scared? Give me ten more seconds and prove it.'])('recognizes a completed extension request: %s', (transcript) => {
     expect(requestsTimeExtension(transcript)).toBe(true);
   });
 
-  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
+  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', 'お願い', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
     expect(requestsTimeExtension(transcript)).toBe(false);
+  });
+
+  it.each(['うん', 'お願い', '伸ばして', 'YES', 'Sure!'])('recognizes an explicit reply to the rival offer: %s', transcript => {
+    expect(acceptsTimeExtensionOffer(transcript)).toBe(true);
+  });
+
+  it.each(['延長はいらない', '時間伸ばさないで', 'no'])('does not accept a negative reply to the rival offer: %s', transcript => {
+    expect(acceptsTimeExtensionOffer(transcript)).toBe(false);
+    expect(rejectsTimeExtensionOffer(transcript)).toBe(true);
+  });
+
+  it('does not accept a time observation as a reply to the rival offer', () => {
+    expect(acceptsTimeExtensionOffer('もう時間ないね')).toBe(false);
+    expect(rejectsTimeExtensionOffer('もう時間ないね')).toBe(false);
   });
 
   it('passes only bounded current match context and accepts the exact legal token', async () => {
