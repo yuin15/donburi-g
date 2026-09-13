@@ -177,7 +177,7 @@ describe('game view model', () => {
     expect(h.rounds).toHaveLength(1);
     expect(h.vm.state.startControl.spinState).toBe('spinning');
     const first = h.rounds[0];
-    expect(h.vm.state.scores).toEqual({ player: 27, rival: 30 });
+    expect(h.vm.state.scores).toEqual({ player: 29, rival: 30 });
     await h.clock.advance(1060);
     first.stopped();
     expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 30 });

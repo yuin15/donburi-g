@@ -145,7 +145,7 @@ export function createMatch(
     rounds: { player: 0, rival: 0 },
     balances: scores,
     scores,
-    bets: { player: 3, rival: 3 },
+    bets: { player: 1, rival: 1 },
     stats: createMatchStats(),
     upgradesEnabled,
     upgrades: { player: [], rival: [] },

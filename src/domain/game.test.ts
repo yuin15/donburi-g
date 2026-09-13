@@ -6,6 +6,7 @@ import {
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
   requestManualSpin,
+  setBet,
   STARTING_BALANCE,
   startMatch,
   submitUpgrade,
@@ -19,6 +20,8 @@ describe('authoritative match domain', () => {
     { seed: 1035485675, winner: 'rival', player: 0, rival: 108 },
   ])('replays the $winner outcome for test seed $seed', (fixture) => {
     const state = createMatch(fixture.seed, 'test-fixture', 'automatic', { upgrades: true });
+    setBet(state, 'player', 3);
+    setBet(state, 'rival', 3);
     startMatch(state);
     for (const [index, time] of [[0, 20], [1, 40]] as const) {
       advanceMatch(state, time);
@@ -32,6 +35,8 @@ describe('authoritative match domain', () => {
   });
   it('settles the sixty-second result after a $30 bankroll exhausts one side', () => {
     const state = createMatch(123, 'm1');
+    setBet(state, 'player', 3);
+    setBet(state, 'rival', 3);
     startMatch(state);
     const events = advanceMatch(state, 60);
     expect(state.round).toBe(24);
@@ -60,6 +65,8 @@ describe('authoritative match domain', () => {
 
   it('opens upgrades at 20/40 and applies after 24/44 boundaries without changing the bankroll rules', () => {
     const state = createMatch(10, 'm', 'automatic', { upgrades: true });
+    setBet(state, 'player', 3);
+    setBet(state, 'rival', 3);
     startMatch(state);
     advanceMatch(state, 20);
     expect(state.openOffers.has(0)).toBe(true);
@@ -103,6 +110,8 @@ describe('authoritative match domain', () => {
 
   it('retains statistics for every funded spin when the consumer only renders the final spin', () => {
     const state = createMatch(123, 'catchup-stats');
+    setBet(state, 'player', 3);
+    setBet(state, 'rival', 3);
     startMatch(state);
     const events = advanceMatch(state, 60);
     const spins = events.flatMap(event => event.type === 'spin' ? [event.player, event.rival] : event.type === 'side_spin' ? [event.spin] : []);
@@ -161,6 +170,8 @@ describe('authoritative match domain', () => {
 describe('independent manual match authority', () => {
   it('keeps base reels and rejects further manual spins once the $30 bankroll is insufficient', () => {
     const state = createMatch(123, 'base-duel', 'manual');
+    setBet(state, 'player', 3);
+    setBet(state, 'rival', 3);
     const base = structuredClone(state.pools);
     startMatch(state);
     const events = [];
@@ -195,6 +206,10 @@ describe('independent manual match authority', () => {
   it('player spam cannot create extra rival draws or bypass the player cooldown', () => {
     const clicked = createMatch(777, 'clicked', 'manual');
     const idle = createMatch(777, 'idle', 'manual');
+    setBet(clicked, 'player', 3);
+    setBet(clicked, 'rival', 3);
+    setBet(idle, 'player', 3);
+    setBet(idle, 'rival', 3);
     startMatch(clicked); startMatch(idle);
     for (let n = 0; n < 550; n++) requestManualSpin(clicked, n / 10);
     advanceMatch(clicked, 60); advanceMatch(idle, 60);

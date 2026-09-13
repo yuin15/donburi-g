@@ -39,7 +39,7 @@ app.innerHTML = `
     <span class="sr-only" id="mockFace">CPU rival</span>
     <video id="avatar" autoplay playsinline></video>
     <span id="rivalMood">60 seconds. Let's play.</span><p id="line">Think you can beat me?</p><small id="heard"></small>
-    <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS · BET $3</span><strong id="rivalPay" hidden></strong></div>
+    <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS · BET $1</span><strong id="rivalPay" hidden></strong></div>
     <strong class="sr-only" id="rivalReels">Cherry, Bell, Seven</strong>
     <div id="duelRules"><strong>MOST CASH WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>
     <div id="voicePanel" aria-label="Microphone controls" hidden>
