@@ -263,4 +263,28 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
   });
+
+  it('cancels only a matching queued or active confirmed speech', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.suppressOutput();
+    bridge.requestConfirmedLine('取り消す延長台詞', 'cancelled-extension');
+    bridge.cancelConfirmedSpeech('other-speech');
+    bridge.cancelConfirmedSpeech('cancelled-extension');
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(socket.send.mock.calls.map(([raw]) => JSON.parse(raw).content)).not.toContain(expect.stringContaining('取り消す延長台詞'));
+    bridge.requestConfirmedLine('残す確認台詞', 'kept-speech');
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    bridge.cancelConfirmedSpeech('kept-speech');
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onSpeechAudioEnded).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
 });

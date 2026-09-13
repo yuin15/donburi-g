@@ -241,6 +241,16 @@ export class GptLiveBridge {
     if (this.suppressedAt === null) this.flushConfirmedLine();
   }
 
+  /** Cancels only the tagged confirmed line that has not finished speaking. */
+  cancelConfirmedSpeech(speechId: string): void {
+    if (this.pendingConfirmedLine?.speechId === speechId) this.pendingConfirmedLine = null;
+    if (this.activeDelegationSpeech?.speechId === speechId) {
+      if (this.activeDelegationSpeech.timer) clearTimeout(this.activeDelegationSpeech.timer);
+      this.activeDelegationSpeech = null;
+      this.suppressAfterTaggedSpeech = false;
+    }
+  }
+
   /** Drop a normal reply while the server resolves a rule-changing request. */
   suppressOutput(): void {
     this.suppressedAt = Date.now();

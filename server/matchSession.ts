@@ -142,7 +142,7 @@ export class MatchSession {
   private directExtensionRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private readonly directExtensionRequestTurns = new Set<number>();
   private directExtensionDecision: { turn: number; transcriptSequence: number } | null = null;
-  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
+  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean; directDecision: { turn: number; transcriptSequence: number } | null } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -1075,10 +1075,7 @@ export class MatchSession {
   private refreshDirectTimeExtensionDecision(generation: number): void {
     const directDecision = this.directExtensionDecision;
     if (!directDecision || directDecision.turn !== this.userSpeechTurn || directDecision.transcriptSequence === this.transcriptSequence) return;
-    this.directExtensionDecision = null;
-    this.extensionDelegation = null;
-    this.extensionDecisionPending = false;
-    this.directExtensionRequestTurns.delete(directDecision.turn);
+    this.cancelDirectExtensionDecision(directDecision);
     this.queueDirectTimeExtensionRequest(generation);
   }
 
@@ -1091,11 +1088,28 @@ export class MatchSession {
       this.loanDecisionPending = false;
     }
     if (this.directExtensionDecision) {
-      this.directExtensionRequestTurns.delete(this.directExtensionDecision.turn);
-      this.directExtensionDecision = null;
-      this.extensionDelegation = null;
-      this.extensionDecisionPending = false;
+      this.cancelDirectExtensionDecision(this.directExtensionDecision);
     }
+  }
+
+  /** Cancel a direct extension before its queued speech can change the clock. */
+  private cancelDirectExtensionDecision(directDecision: { turn: number; transcriptSequence: number }): void {
+    if (this.directExtensionDecision !== directDecision) return;
+    this.directExtensionRequestTurns.delete(directDecision.turn);
+    this.directExtensionDecision = null;
+    this.extensionDelegation = null;
+    this.extensionDecisionPending = false;
+    if (this.extensionSpeech?.directDecision === directDecision) {
+      const speechId = this.extensionSpeech.id;
+      this.gpt?.cancelConfirmedSpeech(speechId);
+      clearTimeout(this.extensionSpeech.timer);
+      this.extensionSpeech = null;
+      this.extensionNegotiation = false;
+      this.gpt?.suppressOutput();
+      this.media?.interrupt();
+      this.emit({ type: 'voice_interrupt' });
+    }
+    this.pushContext();
   }
 
   private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {
@@ -1293,15 +1307,16 @@ export class MatchSession {
       || this.extensionDelegation?.id !== delegationId
       || (directDecision !== null && (this.directExtensionDecision?.turn !== directDecision.turn || this.directExtensionDecision.transcriptSequence !== directDecision.transcriptSequence))
     ) return;
-    if (directDecision) this.directExtensionDecision = null;
     // The decision never pauses the game; settle the real arrival time first.
     this.tick();
     if (this.state.status !== 'playing') {
+      if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
       this.extensionDecisionPending = false;
       this.extensionDelegation = null;
       return;
     }
     if (decision === 'no_request') {
+      if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
       this.extensionDecisionPending = false;
       this.extensionDelegation = null;
       if (requestsTimeExtension(requestTranscript)) {
@@ -1319,6 +1334,7 @@ export class MatchSession {
       : playerAhead ? '君が勝っているのに？ 時間は増やさないよ。' : 'だめ。時間切れまで、このまま勝負しよう。';
     this.extensionDelegation = null;
     if (!accepted) {
+      if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
       this.extensionDecisionPending = false;
       this.pushContext();
       this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line });
@@ -1330,7 +1346,7 @@ export class MatchSession {
     // Normal completion is driven by playback acknowledgments. This only
     // bounds a broken stream after suppression, generation, and avatar delay.
     const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
-    this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false };
+    this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false, directDecision };
     // Existing commentary is the supported GPT-Live speech path. It is queued
     // after the suppressed turn so stale speech cannot precede this decision.
     this.requestExtensionDecisionLine(delegationId, line, id);
@@ -1346,6 +1362,7 @@ export class MatchSession {
     if (!pending) return;
     this.extensionSpeech = null;
     clearTimeout(pending.timer);
+    if (pending.directDecision !== null && this.directExtensionDecision === pending.directDecision) this.directExtensionDecision = null;
     if (force) {
       this.gpt?.suppressOutput();
       this.media?.interrupt();

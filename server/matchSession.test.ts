@@ -9,7 +9,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
-  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
@@ -32,6 +32,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
   requestConfirmedLine = provider.confirmedLine;
+  cancelConfirmedSpeech = provider.cancelConfirmedSpeech;
   requestDelegationResult = provider.delegationResult;
   requestDelegationThinking = provider.delegationThinking;
   suppressOutput = provider.suppress;
@@ -840,6 +841,28 @@ describe('live match cleanup', () => {
     await pending.promise;
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.confirmedLine).toHaveBeenCalledTimes(confirmedBefore);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('cancels an accepted direct extension before its old speech ACK or fallback can apply it', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages } = setup('cancel-accepted-direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(151);
+    const [, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
+    expect(speechId).toEqual(expect.any(String));
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    provider.events?.onTranscript('user', '、やっぱりやめる', { startMs: 101, endMs: 300 });
+    expect(provider.cancelConfirmedSpeech).toHaveBeenCalledWith(speechId);
+    provider.events?.onSpeechAudioEnded(speechId as string);
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
     await session.shutdown('test_finished');
   });
