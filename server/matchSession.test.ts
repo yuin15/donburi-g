@@ -13,7 +13,7 @@ const provider = vi.hoisted(() => ({
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
 // A reproducible normal bell win at 14s, without a new leader or jackpot reaction.
-vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from(provider.seed) }));
+vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from(provider.seed), randomUUID: () => 'extension-speech-id' }));
 vi.mock('./liveavatar', () => ({ startAvatarSession: provider.start, stopAvatarSession: provider.stop }));
 vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   constructor(_url: string, onFailure: () => void) { provider.mediaFailures.push(onFailure); }
@@ -22,6 +22,7 @@ vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   speak = provider.speak;
   interrupt = provider.interrupt;
   interruptAndWait = provider.interruptWait;
+  completeSpeechInput = vi.fn();
 } }));
 vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   constructor(events: LiveEvents, context = '') { provider.events = events; provider.bridges.push(events); provider.openingContexts.push(context); }
@@ -47,6 +48,12 @@ function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
+}
+function finishAudioExtension(session: MatchSession): void {
+  const speechId = provider.delegationResult.mock.calls.at(-1)?.[2];
+  expect(speechId).toBeTypeOf('string');
+  provider.events?.onSpeechAudioEnded(speechId);
+  session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
 }
 // All live sessions use the bankroll rules; automatic mode remains useful for lifecycle timing.
 function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar', random: () => number = () => 1) {
@@ -674,16 +681,46 @@ describe('live match cleanup', () => {
     provider.events?.onTranscript('assistant', '先に受け入れると言ってしまう返答');
     provider.events?.onDelegation({ id: 'item-extension', offsetMs: 1000 });
     await vi.advanceTimersByTimeAsync(150);
-    const extension = messages.find((message): message is Extract<ServerMessage, { type: 'time_extension' }> => message.type === 'time_extension');
     expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), '延長して', expect.stringContaining('P:延長'), expect.any(AbortSignal), false);
     expect(provider.suppress).toHaveBeenCalledOnce();
     expect(messages.some(message => message.type === 'transcript' && message.role === 'assistant' && message.delta.includes('先に受け入れる'))).toBe(true);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    expect(provider.delegationResult).toHaveBeenCalledWith('item-extension', expect.stringContaining('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？'), expect.any(String));
+    await vi.advanceTimersByTimeAsync(7_300);
+    session.handleRaw(JSON.stringify({ type: 'spin', matchId: 'extension-match', commandId: 'pre-deadline-spin' }));
+    expect(messages.some(message => message.type === 'match_ended')).toBe(false);
+    await vi.advanceTimersByTimeAsync(600);
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.filter((message): message is Extract<ServerMessage, { type: 'snapshot' }> => message.type === 'snapshot').at(-1)).toMatchObject({ snapshot: { status: 'playing', remaining: 0, elapsed: 60 } });
+    expect(messages.some(message => message.type === 'match_ended')).toBe(false);
+    const speechId = provider.delegationResult.mock.calls.at(-1)?.[2] as string;
+    provider.events?.onSpeechAudioEnded(speechId);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    const extension = messages.find((message): message is Extract<ServerMessage, { type: 'time_extension' }> => message.type === 'time_extension');
     expect(extension).toMatchObject({ decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
-    expect(provider.delegationResult).toHaveBeenCalledWith('item-extension', expect.stringContaining('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？'));
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     session.handleRaw('{"type":"snapshot"}');
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(18_000);
     expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0 } });
+    await session.shutdown('test_finished');
+  });
+
+  it('interrupts an unacknowledged acceptance line before the 15-second fallback extends a held match', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages } = setup('extension-fallback', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'item-fallback', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ decision: 'accepted', after: { duration: 70 } });
+    expect(messages.filter(message => message.type === 'voice_interrupt')).not.toHaveLength(0);
     await session.shutdown('test_finished');
   });
 
@@ -733,6 +770,7 @@ describe('live match cleanup', () => {
     provider.events?.onDelegation({ id: 'item-offer', offsetMs: 300 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).toHaveBeenCalledWith(expect.anything(), 'うん', expect.any(String), expect.any(AbortSignal), true);
+    finishAudioExtension(session);
     expect(messages.find(message => message.type === 'time_extension')).toMatchObject({
       decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？',
     });
@@ -758,6 +796,7 @@ describe('live match cleanup', () => {
     expect(chooseTimeExtension).toHaveBeenCalledOnce();
     provider.events?.onDelegation({ id: 'item-accepted', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
+    finishAudioExtension(session);
     expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ decision: 'accepted', after: { duration: 70 } });
     await session.shutdown('test_finished');
   });

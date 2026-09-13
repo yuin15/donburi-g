@@ -75,7 +75,8 @@ const snapshot = z.object({
 
 const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello'), live: z.literal(true), sessionId: id }),
-  z.object({ type: z.literal('voice_audio'), audio: z.string().min(4).max(64000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
+  z.object({ type: z.literal('voice_audio'), audio: z.string().min(4).max(64000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0), speechId: id.optional() }),
+  z.object({ type: z.literal('voice_speech_end'), speechId: id }),
   z.object({ type: z.literal('voice_interrupt') }),
   z.object({ type: z.literal('avatar'), livekitUrl: z.string().min(1).max(2048), livekitToken: z.string().min(1).max(16000) }),
   z.object({ type: z.literal('provider_status'), provider: z.enum(['gptLive', 'liveAvatar']), state: z.enum(['connecting', 'connected', 'failed', 'closed']) }),

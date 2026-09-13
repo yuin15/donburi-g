@@ -68,13 +68,15 @@ export type ClientMessage =
   | { type: 'set_bet'; commandId: string; bet: Bet; matchId: string }
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }
   | { type: 'mic'; audio: string }
+  | { type: 'voice_speech_done'; speechId: string }
   | { type: 'voice_close' }
   | { type: 'snapshot' }
   | { type: 'close' };
 
 export type ServerMessage =
   | { type: 'hello'; live: true; sessionId: string }
-  | { type: 'voice_audio'; audio: string }
+  | { type: 'voice_audio'; audio: string; speechId?: string }
+  | { type: 'voice_speech_end'; speechId: string }
   | { type: 'voice_interrupt' }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
   | { type: 'provider_status'; provider: AiProvider; state: AiProviderState }

@@ -1,7 +1,7 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import type { AiProvider, AiProviderState, ClientMessage, ServerMessage, SpinView } from '../shared/protocol.js';
+import type { AiProvider, AiProviderState, ClientMessage, MatchSnapshot, ServerMessage, SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
   applyTimeExtension,
@@ -41,6 +41,7 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
     bet: z.union([z.literal(1), z.literal(3), z.literal(5)]),
   }),
   z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
+  z.object({ type: z.literal('voice_speech_done'), speechId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
@@ -111,6 +112,7 @@ export class MatchSession {
   /** A completed delegated decision consumes the one extension opportunity. */
   private extensionNegotiation = false;
   private extensionDecisionPending = false;
+  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -148,7 +150,9 @@ export class MatchSession {
         this.setProviderStatus('liveAvatar', 'connecting');
         this.avatar = await startAvatarSession();
         if (this.closed) return;
-        this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice('liveAvatar'));
+        this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice('liveAvatar'), speechId => {
+          if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
+        });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
         this.emit({
@@ -189,11 +193,20 @@ export class MatchSession {
           this.emit({ type: 'voice_status', status: 'ready' });
         }
       },
-      onAudio: audio => {
-        if (!outputAllowed() || this.extensionDecisionPending || this.awaitingExtensionTranscript()) return;
+      onAudio: (audio, speechId) => {
+        if (!outputAllowed() || ((this.extensionDecisionPending || this.awaitingExtensionTranscript()) && !speechId)) return;
         if (pcmRms(Buffer.from(audio, 'base64')) > 32) this.assistantOutputUntil = Date.now() + 750;
-        if (this.voiceMode === 'avatar') this.media?.speak(audio);
-        else this.emit({ type: 'voice_audio', audio });
+        if (this.voiceMode === 'avatar') {
+          if (speechId) this.media?.speak(audio, speechId);
+          else this.media?.speak(audio);
+        }
+        else this.emit({ type: 'voice_audio', audio, ...(speechId ? { speechId } : {}) });
+      },
+      onSpeechAudioEnded: speechId => {
+        if (!current()) return;
+        if (this.extensionSpeech?.id === speechId) this.extensionSpeech.fenceSent = true;
+        if (this.voiceMode === 'audio') this.emit({ type: 'voice_speech_end', speechId });
+        else this.media?.completeSpeechInput(speechId);
       },
       onTranscript: (role, delta, timing) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
@@ -300,6 +313,7 @@ export class MatchSession {
 
   private failVoice(provider: AiProvider, message?: string): void {
     if (this.closed || this.voiceDisabled) return;
+    this.commitExtensionSpeech(true);
     this.setProviderStatus(provider, 'failed');
     if (!this.gameReady && this.state.status !== 'playing') {
       this.emitSafeError('voice_error', '音声・映像へ接続できません。CPU対戦を開始できます。', false);
@@ -312,6 +326,7 @@ export class MatchSession {
 
   private endVoice(message?: string): void {
     if (this.closed || this.voiceDisabled) return;
+    this.commitExtensionSpeech(true);
     this.emit({ type: 'voice_status', status: 'closed', message });
     void this.stopVoice();
   }
@@ -391,18 +406,25 @@ export class MatchSession {
         this.emitSpinStatus(message.commandId, false, 0);
         return;
       }
+      // Advance with the same clock sample as the spin. A reserved extension
+      // holds exactly at zero, but play stays normal until that boundary.
+      this.tick();
+      if (this.extensionSpeech && this.state.remaining <= 0) { this.emitSpinStatus(message.commandId, false, 0); return; }
       const round = this.state.round;
       let accepted = false;
-      if (this.commands.has(message.commandId)) this.tick();
-      else {
+      if (!this.commands.has(message.commandId)) {
         this.commands.add(message.commandId);
-        this.publishEvents(requestManualSpin(this.state, Math.max(0, (Date.now() - this.startedAt) / 1000)));
+        this.publishEvents(requestManualSpin(this.state, this.state.elapsed, Boolean(this.extensionSpeech)));
         accepted = this.state.round > round;
       }
       const retryAfterMs = this.state.status === 'playing' && this.state.lastManualSpinAt !== null
         ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
         : 0;
       this.emitSpinStatus(message.commandId, accepted, retryAfterMs);
+      return;
+    }
+    if (message.type === 'voice_speech_done') {
+      if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
       return;
     }
     if (message.type === 'set_bet') {
@@ -450,7 +472,7 @@ export class MatchSession {
   private tick(): void {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
-    this.publishEvents(advanceMatch(this.state, elapsed));
+    this.publishEvents(advanceMatch(this.state, elapsed, Boolean(this.extensionSpeech)));
     this.maybeOfferTimeExtension();
   }
 
@@ -716,22 +738,49 @@ export class MatchSession {
       return;
     }
     this.extensionNegotiation = true;
-    const extended = decision === 'accept_extension_10s' ? applyTimeExtension(this.state) : null;
-    const accepted = extended !== null;
-    const before = extended?.before ?? getSnapshot(this.state);
-    const after = extended?.after ?? before;
+    const accepted = decision === 'accept_extension_10s';
+    const before = getSnapshot(this.state);
     const playerAhead = before.scores.player >= before.scores.rival;
     const line = accepted
       ? 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？'
       : playerAhead ? '君が勝っているのに？ 時間は増やさないよ。' : 'だめ。時間切れまで、このまま勝負しよう。';
-    this.extensionDecisionPending = false;
     this.extensionDelegation = null;
-    this.pushContext();
-    this.emit({ type: 'time_extension', decision: accepted ? 'accepted' : 'rejected', before, after, line });
-    this.emitSnapshot();
+    if (!accepted) {
+      this.extensionDecisionPending = false;
+      this.pushContext();
+      this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line });
+      this.emitSnapshot();
+      this.gpt?.requestDelegationResult(delegationId, `The server has confirmed this result. Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      return;
+    }
+    const id = randomUUID();
+    // Normal completion is driven by playback acknowledgments. This only
+    // bounds a broken stream after suppression, generation, and avatar delay.
+    const timer = setTimeout(() => this.commitExtensionSpeech(true), 15_000);
+    this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false };
     // Existing commentary is the supported GPT-Live speech path. It is queued
     // after the suppressed turn so stale speech cannot precede this decision.
-    this.gpt?.requestDelegationResult(delegationId, `The server has confirmed this result. Say only this Japanese line: ${JSON.stringify(line)}`);
+    this.gpt?.requestDelegationResult(delegationId, `The server has confirmed this result. Say only this Japanese line: ${JSON.stringify(line)}`, id);
+  }
+
+  private commitExtensionSpeech(force = false): void {
+    const pending = this.extensionSpeech;
+    if (!pending) return;
+    this.extensionSpeech = null;
+    clearTimeout(pending.timer);
+    if (force) {
+      this.gpt?.suppressOutput();
+      this.media?.interrupt();
+      this.emit({ type: 'voice_interrupt' });
+    }
+    if (this.closed || pending.generation !== this.voiceGeneration) return;
+    const extended = applyTimeExtension(this.state);
+    this.extensionDecisionPending = false;
+    if (!extended) return;
+    this.startedAt += Date.now() - (this.startedAt + this.state.elapsed * 1000);
+    this.pushContext();
+    this.emit({ type: 'time_extension', decision: 'accepted', before: extended.before, after: extended.after, line: pending.line });
+    this.emitSnapshot();
   }
 
   private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {

@@ -116,6 +116,7 @@ export class LiveClient extends EventTarget {
           if (!this.voiceStopped && voiceMode === 'audio') {
             try {
               if (message.type === 'voice_interrupt') this.pcm.interrupt();
+              else if (message.speechId) this.pcm.play(message.audio, message.speechId);
               else this.pcm.play(message.audio);
             } catch {
               void this.stopVoice();
@@ -127,6 +128,10 @@ export class LiveClient extends EventTarget {
           if (message.type === 'voice_interrupt' && !this.voiceStopped) {
             this.dispatchEvent(new CustomEvent<ServerMessage>('message', { detail: message }));
           }
+          return;
+        }
+        if (message.type === 'voice_speech_end' && voiceMode === 'audio' && !this.voiceStopped) {
+          void this.pcm.speechEnded(message.speechId).then(() => this.send({ type: 'voice_speech_done', speechId: message.speechId }));
           return;
         }
         if (message.type === 'avatar' && !this.voiceStopped && voiceMode === 'avatar') {

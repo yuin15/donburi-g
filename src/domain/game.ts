@@ -233,11 +233,12 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
     events.push({ type: 'match_end', seq: nextSeq(state), at: second, snapshot: getSnapshot(state) });
   }
 }
-export function advanceMatch(state: MatchState, elapsedSeconds: number): GameEvent[] {
+export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
   if (state.status !== 'playing') return [];
   const target = Math.min(state.duration, Math.max(state.elapsed, elapsedSeconds));
   const events: GameEvent[] = [];
   for (let second = state.processedSecond + 1; second <= Math.floor(target); second += 1) {
+    if (holdAtDeadline && second === state.duration) break;
     state.elapsed = second;
     state.remaining = state.duration - second;
     processSecond(state, second, events);
@@ -262,8 +263,8 @@ export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type
   state.extensionUsed = true;
   return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };
 }
-export function requestManualSpin(state: MatchState, elapsedSeconds: number): GameEvent[] {
-  const events = advanceMatch(state, elapsedSeconds);
+export function requestManualSpin(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
+  const events = advanceMatch(state, elapsedSeconds, holdAtDeadline);
   if (
     state.status !== 'playing'
     || state.spinMode !== 'manual'

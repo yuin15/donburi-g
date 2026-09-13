@@ -4,7 +4,8 @@ import { pcmRms } from './pcm.js';
 
 export interface LiveEvents {
   onReady(): void;
-  onAudio(audio: string): void;
+  onAudio(audio: string, speechId?: string): void;
+  onSpeechAudioEnded(speechId: string): void;
   onTranscript(role: 'user' | 'assistant', delta: string, timing?: { startMs: number | null; endMs: number | null }): void;
   onDelegation(delegation: { id: string; offsetMs: number }): void;
   onUserSpeech(): void;
@@ -13,7 +14,7 @@ export interface LiveEvents {
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
 
-const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定残高、現在のBET、残り時間、出目はサーバーから渡す最新の情報だけを事実として扱う。両者は$30で開始し、$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインを賭ける。各当選ラインの配当は合算され、回転ごとに確定BETが残高から引かれる。自分のBETを自由に決めたり変更したと宣言せず、サーバーが確定したBETだけを文脈どおりに話す。\n\n## Delegation policy\n時間延長、残高変更、勝敗操作などサーバー確定が必要な話は、自分で承諾・拒否・状態変更を宣言しない。\n\n## Backend tools\n委任先は現在の試合状態を検証し、時間延長を確定できる唯一の場所である。\n\n## Delegate to the backend when\n残り15秒以内で未使用の時間延長について、ユーザーがもっと時間を欲しがる、間に合わない、あと少し、まだ負けたくない等の文脈から延長が必要そうな場合は、返答前に委任する。ライバルが延長を提案した後の同意・拒否にも委任する。結果待ち中に推測で受諾や拒否を言わない。\n\n## Do not delegate when\n時間への単なる言及、延長を望まない発言、通常の雑談、残り15秒より前、終了後は委任しない。\n\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い残高情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。プレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。返事の後は黙って待つ。thinkingのゲーム情報は会話の参考であり、読み上げる指示ではない。両者とも同じ基本リールで60秒の残高を競う。プレイヤーは手動、あなたは2秒ごとに自動回転する。`;
+const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定残高、現在のBET、残り時間、出目はサーバーから渡す最新の情報だけを事実として扱う。両者は$30で開始し、$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインを賭ける。各当選ラインの配当は合算され、回転ごとに確定BETが残高から引かれる。自分のBETを自由に決めたり変更したと宣言せず、サーバーが確定した自分のBETだけを文脈どおりに話す。\n\n## Delegation policy\n時間延長、残高変更、勝敗操作などサーバー確定が必要な話は、自分で承諾・拒否・状態変更を宣言しない。\n\n## Backend tools\n委任先は現在の試合状態を検証し、時間延長を確定できる唯一の場所である。\n\n## Delegate to the backend when\n残り15秒以内で未使用の時間延長について、ユーザーがもっと時間を欲しがる、間に合わない、あと少し、まだ負けたくない等の文脈から延長が必要そうな場合は、返答前に委任する。ライバルが延長を提案した後の同意・拒否にも委任する。結果待ち中に推測で受諾や拒否を言わない。\n\n## Do not delegate when\n時間への単なる言及、延長を望まない発言、通常の雑談、残り15秒より前、終了後は委任しない。\n\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い残高情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。プレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。返事の後は黙って待つ。thinkingのゲーム情報は会話の参考であり、読み上げる指示ではない。両者とも同じ基本リールで60秒の残高を競う。プレイヤーは手動、あなたは2秒ごとに自動回転する。`;
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
@@ -25,7 +26,8 @@ export class GptLiveBridge {
   private suppressedAt: number | null = null;
   private suppressionStop: ReturnType<typeof setTimeout> | null = null;
   private pendingConfirmedLine: string | null = null;
-  private pendingDelegationResult: { id: string; content: string } | null = null;
+  private pendingDelegationResult: { id: string; content: string; speechId: string } | null = null;
+  private activeDelegationSpeech: { speechId: string; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private outputQuietMs = 0;
   private conversationUntil = 0;
   private appendSequence = 0;
@@ -135,7 +137,22 @@ export class GptLiveBridge {
             this.finishSuppressedTurn();
             return;
           }
-          this.events.onAudio(event.delta);
+          const speech = this.activeDelegationSpeech;
+          let endDelegationSpeech = false;
+          if (speech) {
+            if (audible) { speech.started = true; speech.quietMs = 0; }
+            else if (speech.started) speech.quietMs += pcm.length / 48;
+            if (speech.started && speech.quietMs >= 900) endDelegationSpeech = true;
+            else if (speech.started) {
+              if (speech.timer) clearTimeout(speech.timer);
+              speech.timer = setTimeout(() => this.finishDelegationSpeech(), 900);
+            }
+          }
+          if (speech) this.events.onAudio(event.delta, speech.speechId);
+          else this.events.onAudio(event.delta);
+          // The browser must enqueue the final tagged PCM before it can ACK
+          // that the acceptance line has actually finished playing.
+          if (endDelegationSpeech) this.finishDelegationSpeech();
           return;
         }
         if (type === 'session.input_transcript.delta' && typeof event.delta === 'string') {
@@ -202,8 +219,8 @@ export class GptLiveBridge {
     this.append('commentary', `会話中なら省略。ゲームへの短い一言だけ: ${text}`.slice(0, 1800), null);
   }
 
-  requestDelegationResult(delegationId: string, content: string): void {
-    this.pendingDelegationResult = { id: delegationId, content: content.slice(0, 1800) };
+  requestDelegationResult(delegationId: string, content: string, speechId: string): void {
+    this.pendingDelegationResult = { id: delegationId, content: content.slice(0, 1800), speechId };
     if (this.suppressedAt === null) this.flushDelegationResult();
   }
 
@@ -232,6 +249,8 @@ export class GptLiveBridge {
     this.suppressionStop = null;
     this.pendingConfirmedLine = null;
     this.pendingDelegationResult = null;
+    if (this.activeDelegationSpeech?.timer) clearTimeout(this.activeDelegationSpeech.timer);
+    this.activeDelegationSpeech = null;
     this.latestContext = '';
     this.finishConnect?.(false);
     this.ready = false;
@@ -284,7 +303,15 @@ export class GptLiveBridge {
   private flushDelegationResult(): void {
     const result = this.pendingDelegationResult;
     this.pendingDelegationResult = null;
-    if (result) this.append('commentary', result.content, result.id);
+    if (result && this.append('commentary', result.content, result.id)) this.activeDelegationSpeech = { speechId: result.speechId, started: false, quietMs: 0, timer: null };
+  }
+
+  private finishDelegationSpeech(): void {
+    const speech = this.activeDelegationSpeech;
+    if (!speech) return;
+    if (speech.timer) clearTimeout(speech.timer);
+    this.activeDelegationSpeech = null;
+    this.events.onSpeechAudioEnded(speech.speechId);
   }
 
   private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null): string | null {

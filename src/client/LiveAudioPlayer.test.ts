@@ -62,3 +62,21 @@ it('does not build an unbounded speech backlog when network frames arrive in a b
   await player.close();
   expect(sources.every(source => source.stop.mock.calls.length === 1)).toBe(true);
 });
+
+it('acknowledges a tagged line only after every scheduled PCM source has ended', async () => {
+  const player = new LiveAudioPlayer();
+  await player.prepare();
+  player.play(silence, 'extension-line');
+  player.play(silence, 'extension-line');
+  const completed = vi.fn();
+  void player.speechEnded('extension-line').then(completed);
+  await Promise.resolve();
+  expect(completed).not.toHaveBeenCalled();
+  sources[0].onended?.();
+  await Promise.resolve();
+  expect(completed).not.toHaveBeenCalled();
+  sources[1].onended?.();
+  await Promise.resolve();
+  expect(completed).toHaveBeenCalledOnce();
+  await player.close();
+});

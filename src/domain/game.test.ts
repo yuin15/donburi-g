@@ -271,4 +271,17 @@ describe('independent manual match authority', () => {
     expect(ended?.snapshot).toEqual(getSnapshot(state));
     expect(requestManualSpin(state, 100)).toEqual([]);
   });
+
+  it('keeps normal spins available before a reserved extension reaches zero, then holds its result', () => {
+    const state = createMatch(123, 'reserved-deadline', 'manual');
+    startMatch(state);
+    advanceMatch(state, 59, true);
+    const beforeDeadline = requestManualSpin(state, 59.5, true);
+    expect(beforeDeadline.some(event => event.type === 'side_spin' && event.spin.side === 'player')).toBe(true);
+    expect(state.status).toBe('playing');
+    const held = requestManualSpin(state, 61, true);
+    expect(held.some(event => event.type === 'match_end')).toBe(false);
+    expect(state).toMatchObject({ status: 'playing', elapsed: 60, remaining: 0 });
+    expect(applyTimeExtension(state)).toMatchObject({ type: 'time_extended', after: { duration: 70 } });
+  });
 });

@@ -17,7 +17,7 @@ vi.mock('ws', async () => {
   } };
 });
 function setup(openingContext = '') {
-  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
+  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
   return { bridge: new GptLiveBridge(events, openingContext), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
@@ -226,7 +226,7 @@ describe('live conversation pacing', () => {
     expect(events.onAudio).not.toHaveBeenCalled();
     expect(events.onTranscript).not.toHaveBeenCalled();
     bridge.requestConfirmedLine('いいよ。あと10秒、見せてみな。');
-    bridge.requestDelegationResult('item_opaque', 'サーバー確定: 10秒延長した。');
+    bridge.requestDelegationResult('item_opaque', 'サーバー確定: 10秒延長した。', 'speech-opaque');
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).type).not.toBe('session.commentary.append');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
@@ -234,7 +234,10 @@ describe('live conversation pacing', () => {
     expect(confirmed).toMatchObject({ type: 'session.commentary.append' });
     expect(confirmed).toMatchObject({ delegation_id: 'item_opaque', content: 'サーバー確定: 10秒延長した。' });
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
-    expect(events.onAudio).toHaveBeenLastCalledWith(oldVoice);
+    expect(events.onAudio).toHaveBeenLastCalledWith(oldVoice, 'speech-opaque');
+    expect(events.onSpeechAudioEnded).not.toHaveBeenCalled();
+    for (let i = 0; i < 9; i++) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('speech-opaque');
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
