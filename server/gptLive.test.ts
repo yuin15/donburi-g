@@ -242,4 +242,25 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
   });
+
+  it('tags a confirmed line with its supplied speech ID through audio and playback completion', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.requestConfirmedLine('お金がなくなっちゃった。5ドル貸してくれない？', 'loan-offer-speech');
+    const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(request).toMatchObject({ type: 'session.commentary.append', delegation_id: null });
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'loan-offer-speech');
+    for (let i = 0; i < 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('loan-offer-speech');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
 });

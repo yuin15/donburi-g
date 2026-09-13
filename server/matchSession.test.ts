@@ -35,6 +35,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   requestDelegationResult = provider.delegationResult;
   requestDelegationThinking = provider.delegationThinking;
   suppressOutput = provider.suppress;
+  suppressOutputAfterTaggedSpeech = provider.suppress;
   sendMic = provider.mic;
 } }));
 vi.mock('./rivalBrain', async importOriginal => ({
@@ -65,6 +66,17 @@ function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic'
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
   return { session: new MatchSession(socket, id, release, { spinMode, voiceMode, random }), messages, release, close };
+}
+function startLoanOffer(): string {
+  const [line, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
+  expect(line).toBe('お金がなくなっちゃった。5ドル貸してくれない？');
+  expect(speechId).toEqual(expect.any(String));
+  provider.events?.onAudio(Buffer.alloc(4800, 4).toString('base64'), speechId as string);
+  return speechId as string;
+}
+function finishLoanOffer(session: MatchSession, speechId: string): void {
+  provider.events?.onSpeechAudioEnded(speechId);
+  session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -842,8 +854,7 @@ describe('live match cleanup', () => {
     firstState.elapsed = firstState.processedSecond = 50;
     firstState.remaining = 10;
     first.session.handleRaw('{"type":"snapshot"}');
-    expect(provider.confirmedLine).toHaveBeenCalledWith('お金がなくなっちゃった。5ドル貸してくれない？');
-    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    startLoanOffer();
     await vi.advanceTimersByTimeAsync(1_000);
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'rival-loan-delegation', offsetMs: 400 });
@@ -863,8 +874,9 @@ describe('live match cleanup', () => {
     secondState.scores.player = 10;
     secondState.scores.rival = 0;
     second.session.handleRaw('{"type":"snapshot"}');
-    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
-    await vi.advanceTimersByTimeAsync(6_001);
+    const secondOfferSpeechId = startLoanOffer();
+    finishLoanOffer(second.session, secondOfferSpeechId);
+    await vi.advanceTimersByTimeAsync(5_001);
     second.session.handleRaw('{"type":"snapshot"}');
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'expired-rival-loan-delegation', offsetMs: 400 });
@@ -883,7 +895,7 @@ describe('live match cleanup', () => {
     state.elapsed = state.processedSecond = 59;
     state.remaining = 1;
     session.handleRaw('{"type":"snapshot"}');
-    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    startLoanOffer();
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', 'いいよ', { startMs: 0, endMs: 100 });
     const transfers = messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
@@ -895,6 +907,25 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('uses tagged offer audio when a delegation and an unrelated assistant transcript arrive before the affirmative', async () => {
+    const { session, messages } = setup('tagged-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    startLoanOffer();
+    provider.events?.onDelegation({ id: 'tagged-rival-loan-delegation', offsetMs: 400 });
+    provider.events?.onTranscript('assistant', 'まだ声が出始めただけ。');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 0, endMs: 100 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
   it('does not immediately transfer a negative or expired rival-loan reply', async () => {
     const { session, messages } = setup('guarded-rival-loan', 'manual', 'audio');
     await session.initialize();
@@ -903,10 +934,11 @@ describe('live match cleanup', () => {
     state.scores.player = 10;
     state.scores.rival = 0;
     session.handleRaw('{"type":"snapshot"}');
-    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    const guardedOfferSpeechId = startLoanOffer();
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', 'いや', { startMs: 0, endMs: 100 });
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    finishLoanOffer(session, guardedOfferSpeechId);
     await vi.advanceTimersByTimeAsync(5_001);
     session.handleRaw('{"type":"snapshot"}');
     provider.events?.onUserSpeech();
@@ -937,7 +969,7 @@ describe('live match cleanup', () => {
     pair.rival.total = 0;
     session.handleRaw('{"type":"snapshot"}');
     expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
-    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    startLoanOffer();
     await vi.advanceTimersByTimeAsync(1_000);
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'loan-recovery-delegation', offsetMs: 400 });
@@ -973,7 +1005,7 @@ describe('live match cleanup', () => {
     playerSpin.total = 10;
     rivalSpin.total = 0;
     await vi.advanceTimersByTimeAsync(100);
-    provider.events?.onTranscript('assistant', 'お金がなくなっちゃった。5ドル貸してくれない？');
+    startLoanOffer();
     await vi.advanceTimersByTimeAsync(1_000);
     provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'loan-recovery-manual-delegation', offsetMs: 400 });

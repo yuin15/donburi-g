@@ -65,6 +65,7 @@ const EXTENSION_OFFER_AUDIBLE_DELAY_MS = 1000;
 const EXTENSION_OFFER_REPLY_MS = 5000;
 const EXTENSION_OFFER_LINE = 'もう少し時間が欲しい？ 伸ばしてあげようか？';
 const LOAN_OFFER_REPLY_MS = 5000;
+const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
@@ -115,9 +116,7 @@ export class MatchSession {
   private extensionOfferConsidered = false;
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
-  private loanOffer: { acceptAfter: number; expiresAt: number } | null = null;
-  private loanOfferTranscript = '';
-  private loanOfferTranscriptAfter = 0;
+  private loanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number } | null = null;
   private userSpeaking = false;
   private userSpeechTurn = 0;
   private assistantOutputUntil = 0;
@@ -173,6 +172,7 @@ export class MatchSession {
         if (this.closed) return;
         this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice('liveAvatar'), speechId => {
           if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
+          this.finishLoanOfferSpeech(speechId);
         });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
@@ -217,8 +217,10 @@ export class MatchSession {
         }
       },
       onAudio: (audio, speechId) => {
+        const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
         if (!outputAllowed() || ((this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript()) && !speechId)) return;
-        if (pcmRms(Buffer.from(audio, 'base64')) > 32) this.assistantOutputUntil = Date.now() + 750;
+        if (speechId && audible) this.markLoanOfferAudible(speechId);
+        if (audible) this.assistantOutputUntil = Date.now() + 750;
         if (this.voiceMode === 'avatar') {
           if (speechId) this.media?.speak(audio, speechId);
           else this.media?.speak(audio);
@@ -238,8 +240,8 @@ export class MatchSession {
         if (role === 'user') {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.reactions.conversationActivity();
+          if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
         } else {
-          this.startLoanOfferWhenSpoken(delta);
           this.assistantOutputUntil = Date.now() + 750;
         }
         // While the authoritative decision is pending, do not display an untrusted
@@ -253,8 +255,11 @@ export class MatchSession {
         this.userSpeechTurn += 1;
         this.userSpeaking = true;
         this.reactions.conversationActivity();
-        if (this.voiceMode === 'avatar') this.media?.interrupt();
-        this.emit({ type: 'voice_interrupt' });
+        if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
+        else {
+          if (this.voiceMode === 'avatar') this.media?.interrupt();
+          this.emit({ type: 'voice_interrupt' });
+        }
       },
       onUserSpeechEnd: () => {
         if (!current() || resultOnly) return;
@@ -473,6 +478,7 @@ export class MatchSession {
     }
     if (message.type === 'voice_speech_done') {
       if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
+      this.finishLoanOfferSpeech(message.speechId);
       return;
     }
     if (message.type === 'purchase') {
@@ -693,10 +699,8 @@ export class MatchSession {
 
   /** A bankrupt rival asks once, only after audio has had a moment to start its line. */
   private maybeOfferLoan(): void {
-    if (this.loanOffer && Number.isFinite(this.loanOffer.acceptAfter) && Date.now() >= this.loanOffer.expiresAt) {
+    if (this.loanOffer && Date.now() >= this.loanOffer.expiresAt) {
       this.loanOffer = null;
-      this.loanOfferTranscript = '';
-      this.loanOfferTranscriptAfter = 0;
       this.pushContext();
     }
     if (
@@ -715,14 +719,12 @@ export class MatchSession {
       || Date.now() < this.assistantOutputUntil
     ) return;
     this.loanOfferConsidered = true;
-    // The offer is not answerable until its exact line reaches the rival's
-    // transcript. Keep it pending rather than expiring while queued speech is
-    // still unheard.
-    this.loanOffer = { acceptAfter: Number.POSITIVE_INFINITY, expiresAt: Number.POSITIVE_INFINITY };
-    this.loanOfferTranscript = '';
-    this.loanOfferTranscriptAfter = this.transcriptSequence;
+    const speechId = randomUUID();
+    // The receiving window begins with the tagged, generated offer audio.
+    // It has a bounded startup timeout, but never relies on its transcript.
+    this.loanOffer = { speechId, audibleAt: null, replyExpiresAt: null, expiresAt: Date.now() + LOAN_OFFER_SPEECH_TIMEOUT_MS, transcriptAfter: this.transcriptSequence };
     this.pushContext();
-    this.gpt?.requestConfirmedLine(LOAN_OFFER_LINE);
+    this.gpt?.requestConfirmedLine(LOAN_OFFER_LINE, speechId);
   }
 
   /** One optional, server-timed offer makes the final seconds conversational without changing CPU play. */
@@ -763,8 +765,8 @@ export class MatchSession {
     if (this.seenDelegations.has(id)) return;
     this.seenDelegations.add(id);
     if (this.seenDelegations.size > 16) this.seenDelegations.delete(this.seenDelegations.values().next().value!);
-    // An offer's arrival-time window is authoritative. A late transcript may
-    // belong to this turn, but a reply before the offer becomes audible cannot.
+    // An offer's arrival-time window is authoritative. A later transcript may
+    // belong to this turn, but a reply cannot activate an offer retroactively.
     const extensionOfferActive = this.isExtensionOfferActive(Date.now());
     const loanOfferActive = this.isLoanOfferActive(Date.now());
     const timer = setTimeout(() => {
@@ -789,27 +791,41 @@ export class MatchSession {
   }
 
   private isLoanOfferActive(now: number): boolean {
-    return Boolean(this.loanOffer && now >= this.loanOffer.acceptAfter && now < this.loanOffer.expiresAt);
+    const offer = this.loanOffer;
+    return Boolean(offer && offer.audibleAt !== null && now < offer.expiresAt);
   }
 
-  /** Start the reply window only after the fixed offer is present in live output. */
-  private startLoanOfferWhenSpoken(delta: string): void {
-    if (!this.loanOffer || Number.isFinite(this.loanOffer.acceptAfter)) return;
-    this.loanOfferTranscript = `${this.loanOfferTranscript}${delta}`.slice(-300);
-    const normalized = this.loanOfferTranscript.normalize('NFKC').replaceAll(/\s/g, '').replaceAll('$5', '5ドル');
-    const exact = LOAN_OFFER_LINE.normalize('NFKC').replaceAll(/\s/g, '').replaceAll('$5', '5ドル');
-    if (!normalized.includes(exact) && !/(?:お金.*)?5ドル.*貸して(?:くれない)?/.test(normalized)) return;
+  /** The first PCM for the exact offer speech ID makes a reply eligible. */
+  private markLoanOfferAudible(speechId: string): void {
+    const offer = this.loanOffer;
+    if (!offer || offer.speechId !== speechId || offer.audibleAt !== null) return;
     const now = Date.now();
-    this.loanOffer = { acceptAfter: now, expiresAt: now + LOAN_OFFER_REPLY_MS };
-    this.loanOfferTranscript = '';
-    this.loanOfferTranscriptAfter = this.transcriptSequence;
+    offer.audibleAt = now;
+    // Bounds a missing playback completion acknowledgement without consuming
+    // the response window while the player is still hearing the offer.
+    offer.expiresAt = now + LOAN_OFFER_SPEECH_TIMEOUT_MS;
     this.pushContext();
+  }
+
+  /** Browser or avatar playback completion starts the five-second reply grace. */
+  private finishLoanOfferSpeech(speechId: string): void {
+    const offer = this.loanOffer;
+    if (!offer || offer.speechId !== speechId || offer.audibleAt === null || offer.replyExpiresAt !== null) return;
+    offer.replyExpiresAt = Date.now() + LOAN_OFFER_REPLY_MS;
+    offer.expiresAt = offer.replyExpiresAt;
+    this.pushContext();
+  }
+
+  /** Normal speech must not race an active response to the rival's own offer. */
+  private suppressLoanOfferReply(): void {
+    if (!this.isLoanOfferActive(Date.now())) return;
+    this.gpt?.suppressOutputAfterTaggedSpeech();
   }
 
   /** Return only the current spoken turn, never an older affirmative. */
   private currentUserTurnTranscript(): string {
     return this.transcriptHistory
-      .filter(item => item.sequence > this.loanOfferTranscriptAfter && item.role === 'user' && item.userTurn === this.userSpeechTurn)
+      .filter(item => item.sequence > (this.loanOffer?.transcriptAfter ?? this.transcriptSequence) && item.role === 'user' && item.userTurn === this.userSpeechTurn)
       .map(item => item.delta)
       .join('')
       .slice(-240);
@@ -890,9 +906,12 @@ export class MatchSession {
     }
     this.loanDelegation = { id, generation, direction };
     this.loanDecisionPending = true;
-    this.gpt?.suppressOutput();
-    this.media?.interrupt();
-    this.emit({ type: 'voice_interrupt' });
+    if (direction === 'player_to_rival' && offerActive) this.suppressLoanOfferReply();
+    else {
+      this.gpt?.suppressOutput();
+      this.media?.interrupt();
+      this.emit({ type: 'voice_interrupt' });
+    }
     void this.decideLoan(id, direction, transcript, conversation, generation, offerActive);
   }
 
@@ -938,8 +957,6 @@ export class MatchSession {
     const transfer = transferLoan(this.state, direction);
     if (!transfer) return false;
     this.loanOffer = null;
-    this.loanOfferTranscript = '';
-    this.loanOfferTranscriptAfter = 0;
     this.syncLoanWithLatestSpins(direction);
     this.pushContext();
     this.emit({ type: 'loan_transfer', direction, amount: LOAN_AMOUNT, before: transfer.before, after: transfer.after, line });
@@ -1123,7 +1140,7 @@ export class MatchSession {
       ? `時間延長: 今この試合で未使用。+10秒は一度だけ確定できる。延長が必要そうなら無言で委任し、先に返答しない。${offerContext}`
       : '時間延長: 現在は確定不可。委任しない。通常の会話を続ける。';
     const loanOfferContext = this.loanOffer
-      ? Date.now() < this.loanOffer.acceptAfter
+      ? this.loanOffer.audibleAt === null
         ? 'ライバルは$5の借入をお願いしたが、まだ音声が届く前なので同意として扱わない。'
         : Date.now() < this.loanOffer.expiresAt
           ? 'ライバルは$5の借入をお願い済み。プレイヤーの短く明確な肯定か否定だけを、結果が出るまで発話せずに扱う。'
