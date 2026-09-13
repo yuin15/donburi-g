@@ -24,7 +24,7 @@ function voiceSetupFailureMessage(error: unknown, videoEnabled = false): string 
   if (/access_denied|missing_ticket/.test(detail)) return 'Your invite code was not accepted. Check it, then retry AI voice.';
   if (/avatar_connect_failed/.test(detail)) return 'Live video could not connect. Retry AI voice, or turn off live video.';
   if (videoEnabled && /voice_connect_failed|session_failed/.test(detail)) return 'AI voice or live video could not connect. Turn off live video and retry AI voice.';
-  if (/connection_timeout|voice_connect_failed|socket_closed|socket_error/.test(detail)) return 'AI voice did not become ready. Retry AI voice, or play a CPU duel.';
+  if (/connection_timeout|voice_connect_failed|session_failed|socket_closed|socket_error/.test(detail)) return 'AI voice did not become ready. Retry AI voice, or play a CPU duel.';
   return 'AI voice setup failed. Allow your microphone, then retry AI voice.';
 }
 
@@ -735,6 +735,9 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'error') {
       this.connectionText = message.message;
       if (!message.recoverable) {
+        // LiveClient forwards a server error before rejecting setup. Preserve
+        // the generation so establishLive can classify it for a retry.
+        if (this.connecting && !this.gameConnected && !this.liveSnapshot) return;
         if (!this.liveSnapshot || this.liveSnapshot.status === 'ready') this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
         else this.returnToGate(`${message.message} Start a CPU duel to play again.`);
       }

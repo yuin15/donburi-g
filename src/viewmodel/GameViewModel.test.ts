@@ -171,6 +171,24 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('keeps setup errors for the classified retry instead of switching to CPU before rejection', async () => {
+    const h = setup(async handlers => {
+      const session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.message({ type: 'error', code: 'session_rejected', message: 'internal provider detail', recoverable: false });
+        handlers.disconnect();
+        throw new Error('session_failed');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value');
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, connecting: false, message: 'AI voice did not become ready. Retry AI voice, or play a CPU duel.' },
+    });
+    h.vm.dispose();
+  });
+
   it('waits for the current BET acknowledgement before spinning and rolls back a rejected BET', async () => {
     const h = setup();
     const session = await beginLive(h);
