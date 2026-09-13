@@ -232,7 +232,11 @@ function performSpin(state: MatchState, atElapsed: number, events: GameEvent[], 
 }
 function processSecond(state: MatchState, second: number, events: GameEvent[], rivalPaused: boolean): void {
   if (second % SPIN_INTERVAL === 0 && second <= state.duration) {
-    if (state.spinMode !== 'manual' || !rivalPaused) performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
+    if (state.spinMode === 'manual') {
+      if (!rivalPaused) performSpin(state, second, events, 'rival');
+    } else {
+      performSpin(state, second, events, rivalPaused ? 'player' : undefined);
+    }
   }
   const openIndex = UPGRADE_OPEN_SECONDS.indexOf(second as 20 | 40);
   if (state.upgradesEnabled && openIndex >= 0) {

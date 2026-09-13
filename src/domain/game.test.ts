@@ -213,6 +213,24 @@ describe('authoritative match domain', () => {
     const events = advanceMatch(state, 14);
     expect(events.filter(event => event.type === 'side_spin' && event.spin.side === 'rival').map(event => event.at)).toEqual([14]);
   });
+
+  it('keeps automatic player turns and the clock moving while a distracted rival consumes no draws', () => {
+    const paused = createMatch(123, 'automatic-paused');
+    const baseline = createMatch(123, 'automatic-baseline');
+    startMatch(paused); startMatch(baseline);
+    advanceMatch(paused, 10);
+    const rivalRng = paused.rngState.rival;
+    expect(distractRival(paused, 4)).not.toBeNull();
+    const pausedEvents = advanceMatch(paused, 13.9);
+    advanceMatch(baseline, 13.9);
+    expect(paused.elapsed).toBe(13.9);
+    expect(pausedEvents.filter(event => event.type === 'side_spin').map(event => [event.at, event.spin.side])).toEqual([[12, 'player']]);
+    expect(paused.rounds.player).toBe(6);
+    expect(paused.rounds.rival).toBe(5);
+    expect(paused.rngState.rival).toBe(rivalRng);
+    expect(paused.rngState.player).toBe(baseline.rngState.player);
+    expect(paused.rngState.rival).not.toBe(baseline.rngState.rival);
+  });
 });
 
 describe('independent manual match authority', () => {
