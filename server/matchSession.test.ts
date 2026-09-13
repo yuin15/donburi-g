@@ -933,6 +933,33 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it.each([
+    { kind: 'loan', transcript: 'お金を貸してほしくない' },
+    { kind: 'loan', transcript: 'お金を貸して欲しくない' },
+    { kind: 'loan', transcript: 'お金を貸してほしくありません' },
+    { kind: 'loan', transcript: 'お金を貸して欲しくありません' },
+    { kind: 'extension', transcript: '延長してほしくない' },
+    { kind: 'extension', transcript: '延長して欲しくない' },
+    { kind: 'extension', transcript: '延長してほしくありません' },
+    { kind: 'extension', transcript: '延長して欲しくありません' },
+  ] as const)('does not start a direct $kind decision for an explicit negative: $transcript', async ({ kind, transcript }) => {
+    const { session } = setup(`negative-direct-${kind}-${transcript}`, 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    if (kind === 'loan') {
+      const state = (session as unknown as { state: MatchState }).state;
+      state.scores.player = 0;
+      state.scores.rival = 10;
+    } else await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', transcript, { startMs: 0, endMs: 300 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
   it('does not settle a direct borrower request after a new speech turn begins', async () => {
     const { session, messages } = setup('interrupted-direct-player-loan', 'manual', 'audio');
     await session.initialize();

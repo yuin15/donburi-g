@@ -55,7 +55,7 @@ describe('time extension choice', () => {
     expect(requestsTimeExtension(transcript)).toBe(true);
   });
 
-  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', 'お願い', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
+  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', '延長してほしくない', '延長して欲しくない', '延長してほしくありません', '延長して欲しくありません', 'お願い', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
     expect(requestsTimeExtension(transcript)).toBe(false);
   });
 
@@ -112,7 +112,7 @@ describe('loan choice', () => {
     expect(requestsLoan(transcript)).toBe(true);
   });
 
-  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない'])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
+  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません'])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
     expect(requestsLoan(transcript)).toBe(false);
   });
 
@@ -120,7 +120,7 @@ describe('loan choice', () => {
     expect(requestsDirectLoan(transcript)).toBe(true);
   });
 
-  it.each(['お金貸してほしくない', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて'])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
+  it.each(['お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて'])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
     expect(requestsDirectLoan(transcript)).toBe(false);
   });
 
