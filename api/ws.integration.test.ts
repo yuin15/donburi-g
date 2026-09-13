@@ -147,7 +147,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
     await wire.waitFor(message => message.type === 'side_spin' && message.spin.side === 'player' && message.spin.round === second / 2 + 1);
     if (second === 24 && voice === 'closed') {
       wire.send({ type: 'voice_close' });
-      await wire.waitFor(message => message.type === 'voice_status' && message.status === 'error');
+      await wire.waitFor(message => message.type === 'voice_status' && message.status === 'closed');
       await wire.barrier();
       expect(wire.client.readyState).toBe(WebSocket.OPEN);
       expect(provider.release).not.toHaveBeenCalled();

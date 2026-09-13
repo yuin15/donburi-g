@@ -4,6 +4,7 @@ import { parseServerEnvelope } from '../../shared/wire';
 import { LiveSync } from './LiveSync';
 import { LiveAudioPlayer } from './LiveAudioPlayer';
 import { MicrophoneInput, type MicrophoneFeedback } from './MicrophoneInput';
+import type { AiConnectionState } from './AiStatus';
 
 export class LiveClient extends EventTarget {
   private ws: WebSocket | null = null;
@@ -23,6 +24,7 @@ export class LiveClient extends EventTarget {
   private microphoneCleanup: Promise<void> | null = null;
   private sync = new LiveSync();
   private syncTimeout: ReturnType<typeof setTimeout> | null = null;
+  private liveKitState: AiConnectionState = 'idle';
 
   constructor(private readonly videoElement: HTMLVideoElement) {
     super();
@@ -105,6 +107,10 @@ export class LiveClient extends EventTarget {
         }
         const message = synchronized.message;
         if (!message) return;
+        if (message.type === 'provider_status') {
+          this.dispatchEvent(new CustomEvent('ai-status', { detail: { provider: message.provider, state: message.state } }));
+          return;
+        }
         if (message.type === 'snapshot' && this.syncTimeout) { clearTimeout(this.syncTimeout); this.syncTimeout = null; }
         if (message.type === 'voice_audio' || message.type === 'voice_interrupt') {
           if (!this.voiceStopped && voiceMode === 'audio') {
@@ -124,10 +130,15 @@ export class LiveClient extends EventTarget {
           return;
         }
         if (message.type === 'avatar' && !this.voiceStopped && voiceMode === 'avatar') {
+          this.setAiStatus('liveKit', 'connecting');
           void this.attachAvatar(message.livekitUrl, message.livekitToken).then(() => {
             avatarReady = true;
+            this.setAiStatus('liveKit', 'connected');
             ready();
-          }).catch(() => fail(new Error('avatar_connect_failed')));
+          }).catch(() => {
+            this.setAiStatus('liveKit', 'failed');
+            fail(new Error('avatar_connect_failed'));
+          });
         }
         if (message.type === 'voice_status' && message.status === 'ready') {
           if (this.voiceStopped) return;
@@ -198,6 +209,7 @@ export class LiveClient extends EventTarget {
     this.rejectConnect = null;
     this.ws?.close();
     this.ws = null;
+    if (this.room && this.liveKitState !== 'failed') this.setAiStatus('liveKit', 'closed');
     this.cleanup = this.stopVoice();
     return this.cleanup;
   }
@@ -231,11 +243,13 @@ export class LiveClient extends EventTarget {
     room.on(RoomEvent.Disconnected, () => {
       if (this.closed || this.room !== room) return;
       if (!this.connected) {
+        this.setAiStatus('liveKit', 'failed');
         this.rejectConnect?.(new Error('avatar_connect_failed'));
         void this.disconnect();
         return;
       }
       void this.stopVoice();
+      this.setAiStatus('liveKit', 'failed');
       this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
         detail: { type: 'voice_status', status: 'error', message: 'Voice disconnected · Your duel continues.' },
       }));
@@ -253,5 +267,11 @@ export class LiveClient extends EventTarget {
     this.videoElement.srcObject = null;
     this.audioElement.srcObject = null;
     await room?.disconnect();
+  }
+
+  private setAiStatus(provider: 'liveKit', state: AiConnectionState): void {
+    if (this.liveKitState === state) return;
+    this.liveKitState = state;
+    this.dispatchEvent(new CustomEvent('ai-status', { detail: { provider, state } }));
   }
 }

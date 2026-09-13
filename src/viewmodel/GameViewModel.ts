@@ -1,5 +1,6 @@
 import type { Bet, MatchSnapshot, ServerMessage, Side, SpinView } from '../../shared/protocol';
 import type { LiveSession } from '../client/LiveSession';
+import type { AiConnectionState, AiProvider, AiRuntimeEvent } from '../client/AiStatus';
 import {
   advanceMatch, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, setBet,
   startMatch, type GameEvent, type MatchState,
@@ -35,6 +36,9 @@ export class GameViewModel implements GameCommands {
   private micActive = false;
   private micLevel = 0;
   private effectsMuted = false;
+  private aiConfigured = { gptLive: false, responses: false, liveAvatar: false, liveKit: false };
+  private aiRuntime: Record<AiProvider, AiConnectionState> = { gptLive: 'idle', liveAvatar: 'idle', liveKit: 'idle' };
+  private responsesState: AiConnectionState = 'idle';
   private countdown: GameViewState['countdown'] = null;
   private starting = false;
   private awaitingStart = false;
@@ -85,6 +89,26 @@ export class GameViewModel implements GameCommands {
   }
 
   get state(): GameViewState { return this.published; }
+
+  setAiDebugConfiguration(configured: GameViewState['aiDebug']['configured']): void {
+    this.aiConfigured = { ...configured };
+    this.emit();
+  }
+
+  setAiDebugUnavailable(): void {
+    this.aiConfigured = { gptLive: false, responses: false, liveAvatar: false, liveKit: false };
+    this.emit();
+  }
+
+  setAiDebugRuntime(provider: AiProvider, state: AiConnectionState): void {
+    this.aiRuntime = { ...this.aiRuntime, [provider]: state };
+    this.emit();
+  }
+
+  setAiDebugResponses(state: AiConnectionState): void {
+    this.responsesState = state;
+    this.emit();
+  }
 
   subscribe(listener: (state: GameViewState) => void): () => void {
     if (this.disposed) return () => undefined;
@@ -517,6 +541,9 @@ export class GameViewModel implements GameCommands {
           this.micLevel = state.active && !this.micMuted ? state.level : 0;
           this.emit();
         },
+        aiStatus: event => {
+          if (this.isCurrent(current) && session && this.liveSession === session) this.onAiStatus(event);
+        },
       });
       if (!this.isCurrent(current)) { await session.disconnect(); return null; }
       this.liveSession = session;
@@ -544,6 +571,11 @@ export class GameViewModel implements GameCommands {
     } else if (!this.liveSnapshot || this.liveSnapshot.status === 'ready') {
       this.prepareCpu('Voice closed. Ready for a CPU duel.');
     } else this.returnToGate('Game connection closed. Start a CPU duel to play again.');
+  }
+
+  private onAiStatus(event: AiRuntimeEvent): void {
+    this.aiRuntime = { ...this.aiRuntime, [event.provider]: event.state };
+    this.emit();
   }
 
   private returnToGate(message: string): void {
@@ -675,6 +707,7 @@ export class GameViewModel implements GameCommands {
       rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },
       line: this.line, heard: this.heard, conversation: this.conversation, voiceMuted: this.voiceMuted, effectsMuted: this.effectsMuted,
+      aiDebug: { configured: { ...this.aiConfigured }, runtime: { ...this.aiRuntime }, responses: this.responsesState },
     };
   }
 

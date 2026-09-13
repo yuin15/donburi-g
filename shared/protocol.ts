@@ -1,4 +1,6 @@
 export type VoiceMode = 'audio' | 'avatar';
+export type AiProvider = 'gptLive' | 'liveAvatar';
+export type AiProviderState = 'connecting' | 'connected' | 'failed' | 'closed';
 export type Side = 'player' | 'rival';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
 /** Deprecated #114 API shape. New matches never offer upgrades. */
@@ -70,6 +72,7 @@ export type ServerMessage =
   | { type: 'voice_audio'; audio: string }
   | { type: 'voice_interrupt' }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
+  | { type: 'provider_status'; provider: AiProvider; state: AiProviderState }
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
   | { type: 'snapshot'; snapshot: MatchSnapshot; lastSpin?: { player: SpinView; rival: SpinView }; lastSpins?: Partial<Record<Side, SpinView>> }
   | { type: 'spin'; player: SpinView; rival: SpinView }

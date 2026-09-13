@@ -341,8 +341,12 @@ describe('browser live connection lifecycle', () => {
   });
   it('releases the microphone when access is refused', async () => {
     request.mockResolvedValue(new Response('', { status: 403 }));
-    await expect(client().connect('test')).rejects.toThrow('access_denied');
+    const instance = client();
+    const states: Array<{ provider: string; state: string }> = [];
+    instance.addEventListener('ai-status', event => states.push((event as CustomEvent).detail));
+    await expect(instance.connect('test')).rejects.toThrow('access_denied');
     expect(stopTrack).toHaveBeenCalledOnce();
+    expect(states).toEqual([]);
   });
   it('settles promptly when a socket closes before opening', async () => {
     const instance = client();
@@ -403,6 +407,56 @@ describe('browser live connection lifecycle', () => {
     expect(stopTrack).toHaveBeenCalledOnce();
   });
 });
+
+it('keeps a GPT-Live startup error failed rather than overwriting it with closed', async () => {
+  const instance = client();
+  const states: Array<{ provider: string; state: string }> = [];
+  instance.addEventListener('ai-status', event => states.push((event as CustomEvent).detail));
+  const connection = instance.connect('test', 'audio').catch((error: Error) => error.message);
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'provider_status', provider: 'gptLive', state: 'connecting' });
+  ws.message({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+  ws.message({ type: 'voice_status', status: 'error' });
+  expect(await connection).toBe('voice_connect_failed');
+  expect(states).toEqual([{ provider: 'gptLive', state: 'connecting' }, { provider: 'gptLive', state: 'failed' }]);
+});
+
+it('reports an explicit audio-only exit as closed and leaves video providers untried', async () => {
+  const instance = client();
+  const states: Array<{ provider: string; state: string }> = [];
+  instance.addEventListener('ai-status', event => states.push((event as CustomEvent).detail));
+  const connection = instance.connect('test', 'audio');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'provider_status', provider: 'gptLive', state: 'connecting' });
+  ws.message({ type: 'provider_status', provider: 'gptLive', state: 'connected' });
+  ws.message({ type: 'voice_status', status: 'ready' });
+  await connection;
+  ws.message({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+  await instance.disconnect();
+  expect(states).toEqual([
+    { provider: 'gptLive', state: 'connecting' },
+    { provider: 'gptLive', state: 'connected' },
+    { provider: 'gptLive', state: 'closed' },
+  ]);
+});
+
+it('marks only selected and started video providers failed when LiveKit cannot connect', async () => {
+  media.connect.mockRejectedValue(new Error('livekit_rejected'));
+  const instance = client();
+  const states: Array<{ provider: string; state: string }> = [];
+  instance.addEventListener('ai-status', event => states.push((event as CustomEvent).detail));
+  const connection = instance.connect('test', 'avatar').catch((error: Error) => error.message);
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  expect(await connection).toBe('avatar_connect_failed');
+  expect(states).toEqual([
+    { provider: 'liveKit', state: 'connecting' },
+    { provider: 'liveKit', state: 'failed' },
+  ]);
+});
 it('connects and plays voice without an avatar or a LiveKit room, with one playback route', async () => {
   const instance = client();
   const forwarded: ServerMessage[] = [];
@@ -448,4 +502,41 @@ it('does not open a paid connection when voice-only playback setup finishes afte
   expect(request).not.toHaveBeenCalled();
   expect(media.connect).not.toHaveBeenCalled();
   expect(pcm.close).toHaveBeenCalledOnce();
+});
+
+it('reports the selected AI route without moving video providers during audio-only setup', async () => {
+  const audio = client();
+  const audioEvents: unknown[] = [];
+  audio.addEventListener('ai-status', event => audioEvents.push((event as CustomEvent).detail));
+  const audioConnection = audio.connect('test', 'audio');
+  const audioSocket = await socket();
+  audioSocket.open();
+  audioSocket.message({ type: 'provider_status', provider: 'gptLive', state: 'connecting' });
+  audioSocket.message({ type: 'provider_status', provider: 'gptLive', state: 'connected' });
+  audioSocket.message({ type: 'voice_status', status: 'ready' });
+  await audioConnection;
+  expect(audioEvents).toEqual([{ provider: 'gptLive', state: 'connecting' }, { provider: 'gptLive', state: 'connected' }]);
+
+  const video = client();
+  const videoEvents: unknown[] = [];
+  video.addEventListener('ai-status', event => videoEvents.push((event as CustomEvent).detail));
+  const videoConnection = video.connect('test', 'avatar');
+  await vi.waitFor(() => expect(Socket.instances).toHaveLength(2));
+  const videoSocket = Socket.instances[1];
+  videoSocket.open();
+  videoSocket.message({ type: 'provider_status', provider: 'liveAvatar', state: 'connecting' });
+  videoSocket.message({ type: 'provider_status', provider: 'liveAvatar', state: 'connected' });
+  videoSocket.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  videoSocket.message({ type: 'provider_status', provider: 'gptLive', state: 'connecting' });
+  videoSocket.message({ type: 'provider_status', provider: 'gptLive', state: 'connected' });
+  videoSocket.message({ type: 'voice_status', status: 'ready' });
+  await videoConnection;
+  expect(videoEvents).toEqual([
+    { provider: 'liveAvatar', state: 'connecting' },
+    { provider: 'liveAvatar', state: 'connected' },
+    { provider: 'liveKit', state: 'connecting' },
+    { provider: 'gptLive', state: 'connecting' },
+    { provider: 'gptLive', state: 'connected' },
+    { provider: 'liveKit', state: 'connected' },
+  ]);
 });

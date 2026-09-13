@@ -1,5 +1,6 @@
 import type { Bet, MatchSnapshot, Side, SpinView } from '../../shared/protocol';
 import type { LiveSessionFactory } from '../client/LiveSession';
+import type { AiConnectionState } from '../client/AiStatus';
 
 export type GameMode = 'idle' | 'practice' | 'live';
 export type GameExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
@@ -36,6 +37,11 @@ export interface GameViewState {
   readonly microphone: { readonly visible: boolean; readonly active: boolean; readonly muted: boolean; readonly level: number };
   readonly voiceMuted: boolean;
   readonly effectsMuted: boolean;
+  readonly aiDebug: {
+    readonly configured: Readonly<Record<'gptLive' | 'responses' | 'liveAvatar' | 'liveKit', boolean>>;
+    readonly runtime: Readonly<Record<'gptLive' | 'liveAvatar' | 'liveKit', AiConnectionState>>;
+    readonly responses: AiConnectionState;
+  };
 }
 
 /** One-shot presentation calls. State subscriptions must not replay these effects. */
