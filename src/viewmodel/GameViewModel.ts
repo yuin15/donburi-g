@@ -433,8 +433,11 @@ export class GameViewModel implements GameCommands {
 
   private handleSpin(spin: SpinView, upgrades = this.snapshot.upgrades): void {
     const confirmed = { ...spin, upgrades: [...(spin.upgrades ?? upgrades[spin.side])] };
-    this.displayBalances[spin.side] = spin.total - spin.payout;
     if (!this.rounds.spin(confirmed)) return;
+    // `play` may settle synchronously. Read the presentation's authoritative
+    // current value so an accepted spin shows its paid BET before stopping, but
+    // a synchronous stop remains at its confirmed total.
+    this.displayBalances[spin.side] = this.rounds.scores[spin.side];
     if (spin.side === 'player') {
       const lastSpin = { ...this.lastSpin };
       delete lastSpin.player;

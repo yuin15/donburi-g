@@ -336,6 +336,36 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('keeps settled bankrolls through duplicate live snapshots and older spin messages', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    h.presentation.playSpin = (_spin, stopped) => stopped();
+    const playerOne: SpinView = { side: 'player', round: 1, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 32 };
+    const rivalOne: SpinView = { side: 'rival', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 33 };
+    session.emit({ type: 'side_spin', spin: playerOne });
+    session.emit({ type: 'side_spin', spin: rivalOne });
+    expect(h.vm.state.scores).toEqual({ player: 32, rival: 33 });
+
+    const snapshot = {
+      ...readySnapshot(),
+      status: 'playing' as const,
+      elapsed: 2,
+      remaining: 58,
+      round: 1,
+      rounds: { player: 1, rival: 1 },
+      balances: { player: 32, rival: 33 },
+      scores: { player: 32, rival: 33 },
+    };
+    session.emit({ type: 'snapshot', snapshot, lastSpins: { player: playerOne, rival: rivalOne } });
+    expect(h.vm.state.scores).toEqual({ player: 32, rival: 33 });
+
+    const playerTwo: SpinView = { side: 'player', round: 2, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 31 };
+    session.emit({ type: 'side_spin', spin: playerTwo });
+    session.emit({ type: 'side_spin', spin: playerOne });
+    expect(h.vm.state.scores).toEqual({ player: 31, rival: 33 });
+    h.vm.dispose();
+  });
+
   it('does not announce a false comeback while the other winning spin is still stopping', async () => {
     const h = setup();
     const session = await beginLive(h);
