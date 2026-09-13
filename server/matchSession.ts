@@ -1,26 +1,30 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import type { AiProvider, AiProviderState, ClientMessage, ServerMessage, SpinView } from '../shared/protocol.js';
+import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
+  applyTimeExtension,
   advanceMatch,
   createMatch,
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
   PAYOUT,
+  LOAN_AMOUNT,
   requestManualSpin,
   purchaseUpgrade,
   setBet,
   startMatch,
   submitUpgrade,
+  transferLoan,
   type GameEvent,
   type MatchState,
 } from '../src/domain/game.js';
 import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
-import { chooseRivalUpgrade } from './rivalBrain.js';
+import { acceptsImmediateLoanOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
+import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
@@ -41,15 +45,28 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
     bet: z.union([z.literal(1), z.literal(3), z.literal(5)]),
   }),
   z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
+  z.object({ type: z.literal('voice_speech_done'), speechId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
 ]);
 
 const MAX_SESSION_MS = 120_000;
-// A late start must still leave a full 60-second game inside Vercel's 180s budget.
+const MAX_TOTAL_SESSION_MS = 170_000;
 const MAX_LOBBY_MS = 90_000;
 const RESULT_REACTION_MS = 8_000;
+const EXTENSION_SPEECH_FALLBACK_MS = 15_000;
+// 70 seconds of play, a held acceptance line, final reaction, and a small cleanup margin.
+const PLAY_VOICE_WINDOW_MS = MAX_MATCH_SECONDS * 1000 + EXTENSION_SPEECH_FALLBACK_MS + RESULT_REACTION_MS + 2_000;
+const AUDIO_LOBBY_MS = Math.min(MAX_LOBBY_MS, MAX_TOTAL_SESSION_MS - PLAY_VOICE_WINDOW_MS);
+const AVATAR_LOBBY_MS = Math.min(MAX_LOBBY_MS, MAX_SESSION_MS - PLAY_VOICE_WINDOW_MS);
+const EXTENSION_OFFER_CHANCE = 0.2;
+const EXTENSION_OFFER_AUDIBLE_DELAY_MS = 1000;
+const EXTENSION_OFFER_REPLY_MS = 5000;
+const EXTENSION_OFFER_LINE = 'もう少し時間が欲しい？ 伸ばしてあげようか？';
+const LOAN_OFFER_REPLY_MS = 5000;
+const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
+const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
@@ -76,6 +93,7 @@ export class MatchSession {
   private resultStop: NodeJS.Timeout | null = null;
   private resultSilence: NodeJS.Timeout | null = null;
   private sessionDeadline = 0;
+  private sessionOpenedAt = 0;
   private voiceGeneration = 0;
   private resultSpeechStarted = false;
   private readonly closingBridges = new Set<Promise<boolean>>();
@@ -95,6 +113,24 @@ export class MatchSession {
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
   private recentUserText = '';
+  private extensionOfferConsidered = false;
+  private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
+  private loanOfferConsidered = false;
+  private loanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number } | null = null;
+  private userSpeaking = false;
+  private userSpeechTurn = 0;
+  private assistantOutputUntil = 0;
+  private transcriptSequence = 0;
+  private transcriptHistory: Array<{ sequence: number; role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
+  private extensionDelegation: { id: string; generation: number; offsetMs: number } | null = null;
+  private readonly seenDelegations = new Set<string>();
+  private readonly delegationSettles = new Set<NodeJS.Timeout>();
+  /** A completed delegated decision consumes the one extension opportunity. */
+  private extensionNegotiation = false;
+  private extensionDecisionPending = false;
+  private loanDecisionPending = false;
+  private loanDelegation: { id: string; generation: number; direction: LoanDirection } | null = null;
+  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -103,13 +139,16 @@ export class MatchSession {
     private readonly frontend: WebSocket,
     private readonly sessionId: string,
     releaseQuota: () => Promise<void>,
-    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean; voiceMode?: 'audio' | 'avatar' } = {},
+    deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean; voiceMode?: 'audio' | 'avatar'; random?: () => number } = {},
   ) {
     const seed = randomBytes(4).readUInt32BE(0);
     this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual', { upgrades: deps.upgrades });
     this.releaseQuota = releaseQuota;
     this.voiceMode = deps.voiceMode ?? 'avatar';
+    this.random = deps.random ?? Math.random;
   }
+
+  private readonly random: () => number;
 
   initialize(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -120,16 +159,21 @@ export class MatchSession {
   private async initializeProviders(): Promise<void> {
     this.emit({ type: 'hello', live: true, sessionId: this.sessionId });
     this.emit({ type: 'voice_status', status: 'connecting' });
-    this.sessionDeadline = Date.now() + MAX_SESSION_MS;
-    this.lobbyDeadline = Date.now() + MAX_LOBBY_MS;
-    this.lobbyStop = setTimeout(() => void this.shutdown('lobby_timeout'), MAX_LOBBY_MS);
-    this.hardStop = setTimeout(() => this.expireVoice(), MAX_SESSION_MS);
+    const openedAt = Date.now();
+    this.sessionOpenedAt = openedAt;
+    this.armVoiceDeadline(openedAt + MAX_SESSION_MS);
+    const lobbyWindowMs = this.voiceMode === 'avatar' ? AVATAR_LOBBY_MS : AUDIO_LOBBY_MS;
+    this.lobbyDeadline = openedAt + lobbyWindowMs;
+    this.lobbyStop = setTimeout(() => this.expireLobby(), lobbyWindowMs);
     try {
       if (this.voiceMode === 'avatar') {
         this.setProviderStatus('liveAvatar', 'connecting');
         this.avatar = await startAvatarSession();
         if (this.closed) return;
-        this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice('liveAvatar'));
+        this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => this.failVoice('liveAvatar'), speechId => {
+          if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
+          this.finishLoanOfferSpeech(speechId);
+        });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
         this.emit({
@@ -156,9 +200,11 @@ export class MatchSession {
     }
   }
 
-  private createVoiceBridge(openingContext = '', resultOnly = false, deadline = this.sessionDeadline): GptLiveBridge {
+  private createVoiceBridge(openingContext = '', resultOnly = false, fixedDeadline?: number): GptLiveBridge {
     const generation = ++this.voiceGeneration;
-    const current = () => generation === this.voiceGeneration && !this.closed && !this.voiceDisabled && Date.now() < deadline;
+    // The play bridge follows an authoritative deadline that may be re-armed at
+    // PLAY. A result bridge receives its own fixed, shorter deadline.
+    const current = () => generation === this.voiceGeneration && !this.closed && !this.voiceDisabled && Date.now() < (fixedDeadline ?? this.sessionDeadline);
     const outputAllowed = () => current() && this.voiceReady && (!resultOnly || this.resultSpeechStarted);
     return new GptLiveBridge({
       onReady: () => {
@@ -170,24 +216,59 @@ export class MatchSession {
           this.emit({ type: 'voice_status', status: 'ready' });
         }
       },
-      onAudio: audio => {
-        if (!outputAllowed()) return;
-        if (this.voiceMode === 'avatar') this.media?.speak(audio);
-        else this.emit({ type: 'voice_audio', audio });
+      onAudio: (audio, speechId) => {
+        const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
+        if (!outputAllowed() || ((this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript()) && !speechId)) return;
+        if (speechId && audible) this.markLoanOfferAudible(speechId);
+        if (audible) this.assistantOutputUntil = Date.now() + 750;
+        if (this.voiceMode === 'avatar') {
+          if (speechId) this.media?.speak(audio, speechId);
+          else this.media?.speak(audio);
+        }
+        else this.emit({ type: 'voice_audio', audio, ...(speechId ? { speechId } : {}) });
       },
-      onTranscript: (role, delta) => {
+      onSpeechAudioEnded: speechId => {
+        if (!current()) return;
+        if (this.extensionSpeech?.id === speechId) this.extensionSpeech.fenceSent = true;
+        if (this.voiceMode === 'audio') this.emit({ type: 'voice_speech_end', speechId });
+        else this.media?.completeSpeechInput(speechId);
+      },
+      onTranscript: (role, delta, timing) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
+        this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: role === 'user' ? this.userSpeechTurn : null });
+        if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
         if (role === 'user') {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.reactions.conversationActivity();
+          if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
+        } else {
+          this.assistantOutputUntil = Date.now() + 750;
         }
+        // While the authoritative decision is pending, do not display an untrusted
+        // normal reply that could grant time before the match actually does.
+        if (role === 'assistant' && (this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript())) return;
         this.emit({ type: 'transcript', role, delta });
+        if (role === 'user') this.acceptRivalLoanFromCurrentTurn();
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
+        this.userSpeechTurn += 1;
+        this.userSpeaking = true;
         this.reactions.conversationActivity();
-        if (this.voiceMode === 'avatar') this.media?.interrupt();
-        this.emit({ type: 'voice_interrupt' });
+        if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
+        else {
+          if (this.voiceMode === 'avatar') this.media?.interrupt();
+          this.emit({ type: 'voice_interrupt' });
+        }
+      },
+      onUserSpeechEnd: () => {
+        if (!current() || resultOnly) return;
+        this.tick();
+        this.userSpeaking = false;
+      },
+      onDelegation: delegation => {
+        if (!current() || resultOnly) return;
+        this.queueDelegationRoute(delegation.id, delegation.offsetMs, generation);
       },
       onError: () => { if (current()) this.failVoice('gptLive'); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -243,10 +324,32 @@ export class MatchSession {
       if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
       this.releaseQuota = null;
       this.recentUserText = '';
+      this.extensionDelegation = null;
+      this.loanDelegation = null;
+      this.loanOffer = null;
+      this.loanDecisionPending = false;
+      this.extensionDecisionPending = false;
+      for (const timer of this.delegationSettles) clearTimeout(timer);
+      this.delegationSettles.clear();
       this.emit({ type: 'voice_status', status: 'closed', message: reason });
       if (this.frontend.readyState === 1) this.frontend.close(1000, 'session_closed');
     })();
     return this.stopping;
+  }
+
+  private armVoiceDeadline(deadline: number): void {
+    this.sessionDeadline = deadline;
+    if (this.hardStop) clearTimeout(this.hardStop);
+    this.hardStop = setTimeout(() => this.expireVoice(), Math.max(0, deadline - Date.now()));
+  }
+
+  private expireLobby(): void {
+    if (this.closed || this.state.status !== 'ready') return;
+    const message = this.voiceMode === 'avatar'
+      ? 'Live video waited too long. Reconnect AI voice without live video to start a full duel.'
+      : 'AI voice waited too long. Reconnect AI voice to start a full duel.';
+    this.emitSafeError('lobby_timeout', message, false);
+    void this.shutdown('lobby_timeout');
   }
 
   private expireVoice(): void {
@@ -259,6 +362,7 @@ export class MatchSession {
 
   private failVoice(provider: AiProvider, message?: string): void {
     if (this.closed || this.voiceDisabled) return;
+    this.commitExtensionSpeech(true);
     this.setProviderStatus(provider, 'failed');
     if (!this.gameReady && this.state.status !== 'playing') {
       this.emitSafeError('voice_error', '音声・映像へ接続できません。CPU対戦を開始できます。', false);
@@ -271,6 +375,7 @@ export class MatchSession {
 
   private endVoice(message?: string): void {
     if (this.closed || this.voiceDisabled) return;
+    this.commitExtensionSpeech(true);
     this.emit({ type: 'voice_status', status: 'closed', message });
     void this.stopVoice();
   }
@@ -292,6 +397,13 @@ export class MatchSession {
     void this.closeBridge(this.gpt);
     this.gpt = null;
     this.recentUserText = '';
+    this.extensionDelegation = null;
+    this.loanDelegation = null;
+    this.loanOffer = null;
+    this.loanDecisionPending = false;
+    this.extensionDecisionPending = false;
+    for (const timer of this.delegationSettles) clearTimeout(timer);
+    this.delegationSettles.clear();
     this.voiceStopping = (async () => {
       await Promise.all([...this.closingBridges]);
       // Startup may still own an in-flight avatar creation request.
@@ -347,18 +459,26 @@ export class MatchSession {
         this.emitSpinStatus(message.commandId, false, 0);
         return;
       }
+      // Advance with the same clock sample as the spin. A reserved extension
+      // holds exactly at zero, but play stays normal until that boundary.
+      this.tick();
+      if (this.extensionSpeech && this.state.remaining <= 0) { this.emitSpinStatus(message.commandId, false, 0); return; }
       const round = this.state.round;
       let accepted = false;
-      if (this.commands.has(message.commandId)) this.tick();
-      else {
+      if (!this.commands.has(message.commandId)) {
         this.commands.add(message.commandId);
-        this.publishEvents(requestManualSpin(this.state, Math.max(0, (Date.now() - this.startedAt) / 1000)));
+        this.publishEvents(requestManualSpin(this.state, this.state.elapsed, Boolean(this.extensionSpeech)));
         accepted = this.state.round > round;
       }
       const retryAfterMs = this.state.status === 'playing' && this.state.lastManualSpinAt !== null
         ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
         : 0;
       this.emitSpinStatus(message.commandId, accepted, retryAfterMs);
+      return;
+    }
+    if (message.type === 'voice_speech_done') {
+      if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
+      this.finishLoanOfferSpeech(message.speechId);
       return;
     }
     if (message.type === 'purchase') {
@@ -403,11 +523,22 @@ export class MatchSession {
       return;
     }
     if (this.state.status !== 'ready') return;
-    if (Date.now() >= this.lobbyDeadline) { void this.shutdown('lobby_timeout'); return; }
+    const now = Date.now();
+    if (now >= this.lobbyDeadline) { this.expireLobby(); return; }
+    // Audio has no provider-issued session token, so reserve a bounded play
+    // window only after PLAY. Avatar tokens are fixed at initialization and
+    // therefore use their shorter lobby window above.
+    if (this.voiceMode === 'audio') {
+      const deadline = Math.min(
+        this.sessionOpenedAt + MAX_TOTAL_SESSION_MS,
+        Math.max(this.sessionDeadline, now + PLAY_VOICE_WINDOW_MS),
+      );
+      this.armVoiceDeadline(deadline);
+    }
     if (this.lobbyStop) clearTimeout(this.lobbyStop);
     this.lobbyStop = null;
     startMatch(this.state);
-    this.startedAt = Date.now();
+    this.startedAt = now;
     this.pushContext();
     this.emitSnapshot();
     this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
@@ -417,7 +548,9 @@ export class MatchSession {
   private tick(): void {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
-    this.publishEvents(advanceMatch(this.state, elapsed));
+    this.publishEvents(advanceMatch(this.state, elapsed, Boolean(this.extensionSpeech)));
+    this.maybeOfferTimeExtension();
+    this.maybeOfferLoan();
   }
 
   private publishEvents(events: GameEvent[]): void {
@@ -564,6 +697,404 @@ export class MatchSession {
     }
   }
 
+  /** A bankrupt rival asks once, only after audio has had a moment to start its line. */
+  private maybeOfferLoan(): void {
+    if (this.loanOffer && Date.now() >= this.loanOffer.expiresAt) {
+      this.loanOffer = null;
+      this.pushContext();
+    }
+    if (
+      this.loanOffer
+      || this.loanOfferConsidered
+      || !this.voiceReady
+      || this.voiceDisabled
+      || this.state.status !== 'playing'
+      || this.state.loanUsed.player_to_rival
+      || this.state.scores.rival >= 1
+      || this.state.scores.player < LOAN_AMOUNT
+      || this.extensionOffer
+      || this.extensionDecisionPending
+      || this.extensionSpeech
+      || this.userSpeaking
+      || Date.now() < this.assistantOutputUntil
+    ) return;
+    this.loanOfferConsidered = true;
+    const speechId = randomUUID();
+    // The receiving window begins with the tagged, generated offer audio.
+    // It has a bounded startup timeout, but never relies on its transcript.
+    this.loanOffer = { speechId, audibleAt: null, replyExpiresAt: null, expiresAt: Date.now() + LOAN_OFFER_SPEECH_TIMEOUT_MS, transcriptAfter: this.transcriptSequence };
+    this.pushContext();
+    this.gpt?.requestConfirmedLine(LOAN_OFFER_LINE, speechId);
+  }
+
+  /** One optional, server-timed offer makes the final seconds conversational without changing CPU play. */
+  private maybeOfferTimeExtension(): void {
+    if (this.extensionOffer && Date.now() >= this.extensionOffer.expiresAt) {
+      this.extensionOffer = null;
+      this.pushContext();
+    }
+    if (
+      this.extensionOfferConsidered
+      || this.extensionOffer
+      || this.loanOffer
+      || !this.voiceReady
+      || this.voiceDisabled
+      || this.state.status !== 'playing'
+      || this.state.extensionUsed
+      || this.extensionNegotiation
+      || this.loanDecisionPending
+      || this.state.remaining > 15
+      || this.userSpeaking
+      || Date.now() < this.assistantOutputUntil
+    ) return;
+    this.extensionOfferConsidered = true;
+    if (this.random() >= EXTENSION_OFFER_CHANCE) return;
+    const now = Date.now();
+    this.extensionOffer = {
+      acceptAfter: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS,
+      expiresAt: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS + EXTENSION_OFFER_REPLY_MS,
+    };
+    this.pushContext();
+    // Existing commentary is the supported Live speech mechanism. This is an
+    // invitation only; the domain clock changes after a later explicit reply.
+    this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE);
+  }
+
+  /** Route only after transcript deltas following the delegation have settled. */
+  private queueDelegationRoute(id: string, offsetMs: number, generation: number): void {
+    if (this.seenDelegations.has(id)) return;
+    this.seenDelegations.add(id);
+    if (this.seenDelegations.size > 16) this.seenDelegations.delete(this.seenDelegations.values().next().value!);
+    // An offer's arrival-time window is authoritative. A later transcript may
+    // belong to this turn, but a reply cannot activate an offer retroactively.
+    const extensionOfferActive = this.isExtensionOfferActive(Date.now());
+    const loanOfferActive = this.isLoanOfferActive(Date.now());
+    const timer = setTimeout(() => {
+      this.delegationSettles.delete(timer);
+      if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration) return;
+      // An explicit late extension request remains an extension request even
+      // if a bankroll happens to be empty. It cancels an unanswered loan
+      // invitation so the two conversational decisions cannot overlap.
+      const { transcript } = this.selectedDelegationTranscript(offsetMs);
+      if (requestsTimeExtension(transcript)) {
+        this.loanOffer = null;
+        this.handleExtensionDelegation(id, offsetMs, generation, extensionOfferActive);
+      } else if (this.isLoanDelegationEligible(transcript, loanOfferActive)) {
+        this.handleLoanDelegation(id, offsetMs, generation, loanOfferActive);
+      } else this.handleExtensionDelegation(id, offsetMs, generation, extensionOfferActive);
+    }, 150);
+    this.delegationSettles.add(timer);
+  }
+
+  private isExtensionOfferActive(now: number): boolean {
+    return Boolean(this.extensionOffer && now >= this.extensionOffer.acceptAfter && now < this.extensionOffer.expiresAt);
+  }
+
+  private isLoanOfferActive(now: number): boolean {
+    const offer = this.loanOffer;
+    return Boolean(offer && offer.audibleAt !== null && now < offer.expiresAt);
+  }
+
+  /** The first PCM for the exact offer speech ID makes a reply eligible. */
+  private markLoanOfferAudible(speechId: string): void {
+    const offer = this.loanOffer;
+    if (!offer || offer.speechId !== speechId || offer.audibleAt !== null) return;
+    const now = Date.now();
+    offer.audibleAt = now;
+    // Bounds a missing playback completion acknowledgement without consuming
+    // the response window while the player is still hearing the offer.
+    offer.expiresAt = now + LOAN_OFFER_SPEECH_TIMEOUT_MS;
+    this.pushContext();
+  }
+
+  /** Browser or avatar playback completion starts the five-second reply grace. */
+  private finishLoanOfferSpeech(speechId: string): void {
+    const offer = this.loanOffer;
+    if (!offer || offer.speechId !== speechId || offer.audibleAt === null || offer.replyExpiresAt !== null) return;
+    offer.replyExpiresAt = Date.now() + LOAN_OFFER_REPLY_MS;
+    offer.expiresAt = offer.replyExpiresAt;
+    this.pushContext();
+  }
+
+  /** Normal speech must not race an active response to the rival's own offer. */
+  private suppressLoanOfferReply(): void {
+    if (!this.isLoanOfferActive(Date.now())) return;
+    this.gpt?.suppressOutputAfterTaggedSpeech();
+  }
+
+  /** Return only the current spoken turn, never an older affirmative. */
+  private currentUserTurnTranscript(): string {
+    return this.transcriptHistory
+      .filter(item => item.sequence > (this.loanOffer?.transcriptAfter ?? this.transcriptSequence) && item.role === 'user' && item.userTurn === this.userSpeechTurn)
+      .map(item => item.delta)
+      .join('')
+      .slice(-240);
+  }
+
+  /** A live, clear reply to the rival's own offer transfers without AI delay. */
+  private acceptRivalLoanFromCurrentTurn(): void {
+    const pendingRivalLoan = this.loanDecisionPending && this.loanDelegation?.direction === 'player_to_rival';
+    if (
+      this.closed
+      || this.voiceDisabled
+      || !this.voiceReady
+      || this.state.status !== 'playing'
+      || (this.sessionDeadline > 0 && Date.now() >= this.sessionDeadline)
+      || !this.isLoanOfferActive(Date.now())
+      || this.extensionOffer
+      || this.extensionDecisionPending
+      || this.extensionNegotiation
+      || this.extensionSpeech
+      || (this.loanDecisionPending && !pendingRivalLoan)
+      || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript())
+    ) return;
+    this.tick();
+    if (this.state.status !== 'playing') return;
+    if (pendingRivalLoan) {
+      this.loanDecisionPending = false;
+      this.loanDelegation = null;
+    }
+    const line = '助かった、$5借りるよ。ここから巻き返す。';
+    if (!this.completeLoanTransfer('player_to_rival', line)) return;
+    this.gpt?.requestConfirmedLine(line);
+  }
+
+  private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {
+    if (this.closed || this.voiceDisabled || this.state.status !== 'playing' || this.loanDecisionPending || this.extensionDecisionPending || this.extensionOffer) return false;
+    if (rivalLoanOfferActive) return true;
+    return !this.state.loanUsed.rival_to_player && this.state.scores.player < 1 && this.state.scores.rival >= LOAN_AMOUNT && requestsLoan(transcript);
+  }
+
+  private selectedDelegationTranscript(offsetMs: number): { transcript: string; conversation: string } {
+    const orderedHistory = [...this.transcriptHistory]
+      .filter(item => item.endMs === null || item.endMs <= offsetMs)
+      .sort((left, right) => (left.startMs ?? left.endMs ?? Number.MAX_SAFE_INTEGER) - (right.startMs ?? right.endMs ?? Number.MAX_SAFE_INTEGER));
+    const userDeltas = orderedHistory.filter(item => item.role === 'user');
+    const newestUserDelta = userDeltas.at(-1);
+    const selectedTurn = [] as typeof userDeltas;
+    if (newestUserDelta) {
+      for (let index = userDeltas.length - 1; index >= 0; index -= 1) {
+        const item = userDeltas[index];
+        const newer = selectedTurn[0];
+        if (item.userTurn !== newestUserDelta.userTurn) break;
+        if (newer && item.endMs !== null && newer.startMs !== null && newer.startMs - item.endMs > 1000) break;
+        selectedTurn.unshift(item);
+      }
+    }
+    return {
+      transcript: selectedTurn.map(item => item.delta).join('').slice(-240),
+      conversation: orderedHistory.slice(-20).map(item => `${item.role === 'user' ? 'P' : 'R'}:${item.delta}`).join('').slice(-500),
+    };
+  }
+
+  private handleLoanDelegation(id: string, offsetMs: number, generation: number, offerActive: boolean): void {
+    this.tick();
+    const { transcript, conversation } = this.selectedDelegationTranscript(offsetMs);
+    const direction: LoanDirection = offerActive ? 'player_to_rival' : 'rival_to_player';
+    if (
+      !transcript
+      || generation !== this.voiceGeneration
+      || this.loanDelegation
+      || this.loanDecisionPending
+      || this.state.status !== 'playing'
+      || this.state.loanUsed[direction]
+      || (direction === 'rival_to_player' && (this.state.scores.player >= 1 || this.state.scores.rival < LOAN_AMOUNT))
+      || (direction === 'player_to_rival' && (!offerActive || rejectsLoanOffer(transcript)))
+    ) {
+      this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
+      return;
+    }
+    this.loanDelegation = { id, generation, direction };
+    this.loanDecisionPending = true;
+    if (direction === 'player_to_rival' && offerActive) this.suppressLoanOfferReply();
+    else {
+      this.gpt?.suppressOutput();
+      this.media?.interrupt();
+      this.emit({ type: 'voice_interrupt' });
+    }
+    void this.decideLoan(id, direction, transcript, conversation, generation, offerActive);
+  }
+
+  private async decideLoan(delegationId: string, direction: LoanDirection, transcript: string, conversation: string, generation: number, offerActive: boolean): Promise<void> {
+    const requestedAt = getSnapshot(this.state);
+    const decision = await chooseLoanDecision(requestedAt, direction, transcript, conversation, this.voiceAbort.signal, offerActive);
+    if (this.closed || generation !== this.voiceGeneration || this.loanDelegation?.id !== delegationId) return;
+    this.tick();
+    if (this.state.status !== 'playing') {
+      this.loanDecisionPending = false;
+      this.loanDelegation = null;
+      return;
+    }
+    if (decision === 'no_request') {
+      this.loanDecisionPending = false;
+      this.loanDelegation = null;
+      if (direction === 'rival_to_player' && requestsLoan(transcript)) {
+        const line = 'ごめん、もう一度「貸して」って言ってくれる？';
+        this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      } else this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
+      return;
+    }
+    const accepted = decision === 'accept_loan';
+    const line = accepted
+      ? direction === 'rival_to_player' ? 'しょうがないな、$5だけ貸すよ。無駄にしないで。' : '助かった、$5借りるよ。ここから巻き返す。'
+      : direction === 'rival_to_player' ? 'だめ。自分の資金で勝負して。' : 'わかった。自力で続けるよ。';
+    this.loanDelegation = null;
+    this.loanDecisionPending = false;
+    if (!accepted) {
+      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      return;
+    }
+    if (!this.completeLoanTransfer(direction, line)) {
+      const line = '今はその話はなしで、勝負を続けよう。';
+      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      return;
+    }
+    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+  }
+
+  /** Apply the authoritative transfer before any speech can describe it. */
+  private completeLoanTransfer(direction: LoanDirection, line: string): boolean {
+    const transfer = transferLoan(this.state, direction);
+    if (!transfer) return false;
+    this.loanOffer = null;
+    this.syncLoanWithLatestSpins(direction);
+    this.pushContext();
+    this.emit({ type: 'loan_transfer', direction, amount: LOAN_AMOUNT, before: transfer.before, after: transfer.after, line });
+    this.emitSnapshot();
+    return true;
+  }
+
+  /** Keep recovery snapshots self-consistent after a transfer between spins. */
+  private syncLoanWithLatestSpins(direction: LoanDirection): void {
+    const delta: Record<'player' | 'rival', number> = direction === 'rival_to_player'
+      ? { player: LOAN_AMOUNT, rival: -LOAN_AMOUNT }
+      : { player: -LOAN_AMOUNT, rival: LOAN_AMOUNT };
+    const update = (spin: SpinView | undefined, side: 'player' | 'rival') => spin && { ...spin, total: spin.total + delta[side] };
+    const player = update(this.lastSpins.player, 'player');
+    const rival = update(this.lastSpins.rival, 'rival');
+    this.lastSpins = { ...(player ? { player } : {}), ...(rival ? { rival } : {}) };
+    if (this.lastSpin) {
+      this.lastSpin = {
+        player: player ?? update(this.lastSpin.player, 'player')!,
+        rival: rival ?? update(this.lastSpin.rival, 'rival')!,
+      };
+    }
+  }
+
+  private handleExtensionDelegation(id: string, offsetMs: number, generation: number, offerActive: boolean): void {
+    this.tick();
+    const orderedHistory = [...this.transcriptHistory]
+      .filter(item => item.endMs === null || item.endMs <= offsetMs)
+      .sort((left, right) => (left.startMs ?? left.endMs ?? Number.MAX_SAFE_INTEGER) - (right.startMs ?? right.endMs ?? Number.MAX_SAFE_INTEGER));
+    const userDeltas = orderedHistory.filter(item => item.role === 'user');
+    const newestUserDelta = userDeltas.at(-1);
+    const selectedTurn = [] as typeof userDeltas;
+    if (newestUserDelta) {
+      for (let index = userDeltas.length - 1; index >= 0; index -= 1) {
+        const item = userDeltas[index];
+        const newer = selectedTurn[0];
+        if (item.userTurn !== newestUserDelta.userTurn) break;
+        if (newer && item.endMs !== null && newer.startMs !== null && newer.startMs - item.endMs > 1000) break;
+        selectedTurn.unshift(item);
+      }
+    }
+    const transcript = selectedTurn.map(item => item.delta).join('').slice(-240);
+    const conversation = orderedHistory.slice(-20).map(item => `${item.role === 'user' ? 'P' : 'R'}:${item.delta}`).join('').slice(-500);
+    if (
+      !transcript
+      || generation !== this.voiceGeneration
+      || this.extensionDelegation
+      || this.extensionNegotiation
+      || this.loanDelegation
+      || this.loanDecisionPending
+      || this.loanOffer
+      || this.state.status !== 'playing'
+      || this.state.extensionUsed
+      || this.state.remaining > 15
+    ) {
+      this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation without changing or explaining a rule.');
+      return;
+    }
+    this.extensionDelegation = { id, generation, offsetMs };
+    this.extensionDecisionPending = true;
+    this.gpt?.suppressOutput();
+    this.media?.interrupt();
+    this.emit({ type: 'voice_interrupt' });
+    void this.decideTimeExtension(id, transcript, conversation, generation, offerActive);
+  }
+
+  private awaitingExtensionTranscript(): boolean {
+    return this.extensionDecisionPending;
+  }
+
+  private async decideTimeExtension(delegationId: string, requestTranscript: string, conversation: string, generation: number, offerActive: boolean): Promise<void> {
+    const requestedAt = getSnapshot(this.state);
+    const decision = await chooseTimeExtension(
+      requestedAt,
+      requestTranscript,
+      conversation,
+      this.voiceAbort.signal,
+      offerActive,
+    );
+    if (this.closed || generation !== this.voiceGeneration || this.extensionDelegation?.id !== delegationId) return;
+    // The decision never pauses the game; settle the real arrival time first.
+    this.tick();
+    if (this.state.status !== 'playing') {
+      this.extensionDecisionPending = false;
+      this.extensionDelegation = null;
+      return;
+    }
+    if (decision === 'no_request') {
+      this.extensionDecisionPending = false;
+      this.extensionDelegation = null;
+      this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
+      return;
+    }
+    this.extensionNegotiation = true;
+    const accepted = decision === 'accept_extension_10s';
+    const before = getSnapshot(this.state);
+    const playerAhead = before.scores.player >= before.scores.rival;
+    const line = accepted
+      ? 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？'
+      : playerAhead ? '君が勝っているのに？ 時間は増やさないよ。' : 'だめ。時間切れまで、このまま勝負しよう。';
+    this.extensionDelegation = null;
+    if (!accepted) {
+      this.extensionDecisionPending = false;
+      this.pushContext();
+      this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line });
+      this.emitSnapshot();
+      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      return;
+    }
+    const id = randomUUID();
+    // Normal completion is driven by playback acknowledgments. This only
+    // bounds a broken stream after suppression, generation, and avatar delay.
+    const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
+    this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false };
+    // Existing commentary is the supported GPT-Live speech path. It is queued
+    // after the suppressed turn so stale speech cannot precede this decision.
+    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, id);
+  }
+
+  private commitExtensionSpeech(force = false): void {
+    const pending = this.extensionSpeech;
+    if (!pending) return;
+    this.extensionSpeech = null;
+    clearTimeout(pending.timer);
+    if (force) {
+      this.gpt?.suppressOutput();
+      this.media?.interrupt();
+      this.emit({ type: 'voice_interrupt' });
+    }
+    if (this.closed || pending.generation !== this.voiceGeneration) return;
+    const extended = applyTimeExtension(this.state);
+    this.extensionDecisionPending = false;
+    if (!extended) return;
+    this.startedAt += Date.now() - (this.startedAt + this.state.elapsed * 1000);
+    this.pushContext();
+    this.emit({ type: 'time_extension', decision: 'accepted', before: extended.before, after: extended.after, line: pending.line });
+    this.emitSnapshot();
+  }
 
   private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {
     if (round !== this.state.rounds[side]) return;
@@ -598,8 +1129,34 @@ export class MatchSession {
     const reelContext = this.state.upgradesEnabled || this.state.upgradeSpent > 0
       ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
       : '';
+    const offerContext = this.extensionOffer
+      ? Date.now() < this.extensionOffer.acceptAfter
+        ? 'ライバルは時間延長を提案したが、まだ音声が届く前なので同意として扱わない。'
+        : Date.now() < this.extensionOffer.expiresAt
+          ? 'ライバルは時間延長を提案済み。プレイヤーの短い同意は、結果が出るまで発話せずに扱う。拒否は延長しない。'
+          : ''
+      : '';
+    const extensionContext = snapshot.status === 'playing' && !this.state.extensionUsed && snapshot.remaining <= 15
+      ? `時間延長: 今この試合で未使用。+10秒は一度だけ確定できる。延長が必要そうなら無言で委任し、先に返答しない。${offerContext}`
+      : '時間延長: 現在は確定不可。委任しない。通常の会話を続ける。';
+    const loanOfferContext = this.loanOffer
+      ? this.loanOffer.audibleAt === null
+        ? 'ライバルは$5の借入をお願いしたが、まだ音声が届く前なので同意として扱わない。'
+        : Date.now() < this.loanOffer.expiresAt
+          ? 'ライバルは$5の借入をお願い済み。プレイヤーの短く明確な肯定か否定だけを、結果が出るまで発話せずに扱う。'
+          : ''
+      : '';
+    const loanContext = this.loanDecisionPending
+      ? '貸借: 結果が出るまで発話を保留する。成立や金額を先に発話しない。'
+      : this.state.loanUsed.rival_to_player && this.state.loanUsed.player_to_rival
+        ? '貸借: 両方向ともこの試合では使用済み。委任しない。通常の会話を続ける。'
+        : snapshot.status === 'playing' && !this.state.loanUsed.rival_to_player && snapshot.balances.player < 1 && snapshot.balances.rival >= LOAN_AMOUNT
+          ? '貸借: プレイヤーは$1未満、あなたは$5以上。自然な借入のお願いだけを無言で委任し、金額や成立を先に約束しない。'
+          : snapshot.status === 'playing' && !this.state.loanUsed.player_to_rival && snapshot.balances.rival < 1 && snapshot.balances.player >= LOAN_AMOUNT
+            ? `貸借: あなたは$1未満、プレイヤーは$5以上。一度だけ$5をお願いできる。${loanOfferContext}`
+            : '貸借: 現在は確定不可または使用済み。委任しない。通常の会話を続ける。';
     // Static rules belong in the startup persona; repeat only the current facts.
-    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
+    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${extensionContext}${loanContext}${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {

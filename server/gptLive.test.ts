@@ -17,7 +17,7 @@ vi.mock('ws', async () => {
   } };
 });
 function setup(openingContext = '') {
-  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onTranscript: vi.fn(), onUserSpeech: vi.fn(), onUsage: vi.fn() };
+  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
   return { bridge: new GptLiveBridge(events, openingContext), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
@@ -37,6 +37,7 @@ describe('voice transport teardown', () => {
       type: 'session.start',
       session: {
         model: 'test-model', store: false,
+        delegation: { type: 'client' },
         instructions: expect.stringContaining(resultContext),
         audio: { format: { type: 'audio/pcm', rate: 24000 }, output: { voice: 'test-voice' } },
       },
@@ -44,7 +45,7 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('日本語で話す');
     expect(start.session.instructions).toContain('両者は$30で開始');
     expect(start.session.instructions).toContain('$1は中央1ライン');
-    expect(start.session.instructions).toContain('サーバーが確定した自分のBETだけ');
+    expect(start.session.instructions).toContain('確定した自分のBETだけ');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -54,6 +55,21 @@ describe('voice transport teardown', () => {
     sockets[0].emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 0 } }));
     await closing;
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('forwards only a well-formed client delegation with its opaque ID and offset', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    socket.emit('message', JSON.stringify({ type: 'session.delegation.created', offset_ms: 800, delegation: { id: 'item_opaque', target: 'client' } }));
+    socket.emit('message', JSON.stringify({ type: 'session.delegation.created', offset_ms: 801, delegation: { id: 'ignored', target: 'responses' } }));
+    expect(events.onDelegation).toHaveBeenCalledExactlyOnceWith({ id: 'item_opaque', offsetMs: 800 });
+    const closing = bridge.close();
+    socket.emit('close');
+    await closing;
   });
 
   it('drains final usage during close without forwarding late audio or private fields', async () => {
@@ -133,6 +149,7 @@ describe('live conversation pacing', () => {
     const connecting = bridge.connect();
     const socket = sockets[0];
     socket.readyState = 1;
+    socket.emit('open');
     socket.emit('message', JSON.stringify({ type: 'session.started' }));
     await connecting;
     const quiet = Buffer.alloc(4800).toString('base64');
@@ -157,7 +174,7 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onAudio).toHaveBeenLastCalledWith(voice);
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'new reply' }));
-    expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'new reply');
+    expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'new reply', { startMs: null, endMs: null });
     const count = socket.send.mock.calls.length;
     bridge.requestReaction('stale game commentary');
     expect(socket.send).toHaveBeenCalledTimes(count);
@@ -188,6 +205,60 @@ describe('live conversation pacing', () => {
     bridge.updateGameContext('score 29');
     socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: latest.event_id }));
     expect(socket.send).toHaveBeenCalledTimes(2);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('drops a normal reply until its quiet boundary, then queues the confirmed line on the supported commentary path', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('open');
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const oldVoice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    bridge.suppressOutput();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'I accept before the result is ready' }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    bridge.requestConfirmedLine('いいよ。あと10秒、見せてみな。');
+    bridge.requestDelegationResult('item_opaque', 'いいよ。あと10秒、見せてみな。', 'speech-opaque');
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).type).not.toBe('session.commentary.append');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    const confirmed = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(confirmed).toMatchObject({ type: 'session.commentary.append' });
+    expect(confirmed).toMatchObject({ delegation_id: 'item_opaque', content: 'いいよ。あと10秒、見せてみな。' });
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(oldVoice, 'speech-opaque');
+    expect(events.onSpeechAudioEnded).not.toHaveBeenCalled();
+    for (let i = 0; i < 9; i++) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('speech-opaque');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('tags a confirmed line with its supplied speech ID through audio and playback completion', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.requestConfirmedLine('お金がなくなっちゃった。5ドル貸してくれない？', 'loan-offer-speech');
+    const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(request).toMatchObject({ type: 'session.commentary.append', delegation_id: null });
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'loan-offer-speech');
+    for (let i = 0; i < 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('loan-offer-speech');
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;

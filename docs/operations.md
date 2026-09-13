@@ -17,11 +17,11 @@ No database is required for this invitation-only demo. Its in-memory connection 
 Defaults:
 
 - ticket lifetime: 60 seconds
-- unused lobby: closes 90 seconds after provider initialization; late start commands obey the same deadline
-- voice teardown begins no later than 120 seconds from provider initialization; a playing game continues to its full 60-second result
-- a game must start before 90 seconds and finishes before 150 seconds, within the 180-second Vercel execution budget
-- selected LiveAvatar video requests `max_session_duration: 120` in the provider token
-- result input/output window: at most 8 seconds, bounded by that original 120-second deadline
+- unused audio-only lobby: closes 75 seconds after provider initialization; late start commands obey the same deadline
+- unused LiveAvatar lobby: closes 25 seconds after provider initialization, because its provider token remains fixed at 120 seconds
+- audio-only PLAY reserves at least 95 seconds of deadline budget for a 70-second extended duel, the 15-second accepted-line fallback, and the 8-second result reaction; teardown begins within 170 seconds of connection
+- selected LiveAvatar video requests `max_session_duration: 120` in the provider token and is not renewed at PLAY
+- result input/output window: at most 8 seconds, bounded by the active play deadline
 - GPT-Live connections: at most 2 per match, sequential (play, then final reaction); zero LiveAvatar sessions in audio mode, one only for selected video
 - CPU rival BET policy: no AI reasoning; BET3 by default, BET1 when far ahead, BET5 when losing near the end, with an affordable-BET fallback
 - mic input per one-second bucket: 192,000 base64 characters
@@ -33,7 +33,7 @@ Defaults:
 
 The process tracks admitted starts, active leases, and used tickets. Session teardown removes the active lease but retains replay protection through ticket expiry. Leases expire after 180 seconds. Restarting or scaling Vercel functions resets or splits these counters; they are intentionally modest demo safeguards, not global spending caps. Use a private invite and short demo sessions. Vercel Firewall rules may be added for wider access without introducing a database. They have not been configured by this code change. Vercel WAF rate-limit counters are per region, including a constant custom key; they do not by themselves establish a deployment-wide concurrency lease or daily spending cap. See the [rate-limiting SDK scope](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting-sdk).
 
-The 120-second deadline starts voice teardown; it is not proof that provider billing or remote resources have already stopped. GPT finalization can take up to 5 seconds, and the subsequent avatar stop request has a 10-second timeout. Verify final usage and residual remote sessions separately. Result reconnection never resets the original deadline. If old GPT closure or the matching LiveAvatar buffer-clear ACK (video mode) fails, abandon result speech and retain the finished game.
+The audio-only deadline is re-armed at PLAY within the 170-second total cap; it is not proof that provider billing or remote resources have already stopped. LiveAvatar retains its original 120-second provider token, so its shorter lobby prevents a mid-duel local deadline but cannot guarantee an external provider will not disconnect. GPT finalization can take up to 5 seconds, and the subsequent avatar stop request has a 10-second timeout. Verify final usage and residual remote sessions separately. Result reconnection never resets the active play deadline. If old GPT closure or the matching LiveAvatar buffer-clear ACK (video mode) fails, abandon result speech and retain the finished game.
 
 ## Current invitation-only deployment
 

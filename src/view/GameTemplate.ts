@@ -13,7 +13,7 @@ app.innerHTML = `
     </div>
   </div>
   <header class="topbar">
-    <div class="timer" id="timer" aria-label="Time remaining"><small id="timerCaption">TIME LEFT</small><b id="time">1:00</b></div>
+    <div class="timer" id="timer" aria-label="Time remaining"><small id="timerCaption">TIME LEFT</small><b id="time">1:00</b><span id="timeExtension" aria-live="assertive" hidden></span></div>
     <div class="status-cluster" id="status"><span id="modeBadge">CPU DUEL</span><button id="sound" aria-label="Mute AI voice" aria-pressed="false" hidden>VOICE ON</button><button id="effects" aria-label="Mute sound effects" aria-pressed="false">SOUND ON</button><button id="leave">EXIT</button></div>
   </header>
   <div class="scores">
@@ -23,6 +23,7 @@ app.innerHTML = `
   <section class="machine" aria-label="Your slot machine">
     <div id="machineTitle"><span id="winLabel">MATCH 3 · WIN BIG</span><strong id="pay" aria-live="polite">0</strong></div>
     <div class="event-cue" id="eventCue" role="status" hidden></div>
+    <div class="loan-transfer" id="loanTransfer" role="status" aria-live="assertive" hidden><small>LOAN</small><strong id="loanDirection"></strong><b id="loanAmount"></b></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
     <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small><button data-bet="1">$1 <em>1 LINE</em></button><button data-bet="3">$3 <em>3 LINES</em></button><button data-bet="5">$5 <em>5 LINES</em></button></div>
     <div id="lineIndicators" role="status" aria-label="Winning lines">

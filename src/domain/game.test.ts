@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceMatch,
+  applyTimeExtension,
   createMatch,
+  distractRival,
   getPoolCounts,
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
@@ -10,6 +12,7 @@ import {
   STARTING_BALANCE,
   startMatch,
   submitUpgrade,
+  transferLoan,
 } from './game';
 
 describe('authoritative match domain', () => {
@@ -165,6 +168,125 @@ describe('authoritative match domain', () => {
     expect('rngState' in snapshot).toBe(false);
     expect('pools' in snapshot).toBe(false);
   });
+
+  it('authoritatively grants one late +10 second extension and then finishes at 70 seconds', () => {
+    const state = createMatch(123, 'extended', 'manual');
+    startMatch(state);
+    advanceMatch(state, 54.25);
+    const event = applyTimeExtension(state);
+    expect(event).toMatchObject({ type: 'time_extended', before: { duration: 60 }, after: { duration: 70 } });
+    expect(state.remaining).toBeCloseTo(15.75);
+    expect(applyTimeExtension(state)).toBeNull();
+    const end = advanceMatch(state, 70).find(candidate => candidate.type === 'match_end');
+    expect(end).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0, status: 'result' } });
+  });
+
+  it('does not extend early, after the result, or beyond the one permitted change', () => {
+    const state = createMatch(123, 'guarded');
+    startMatch(state);
+    advanceMatch(state, 44.9);
+    expect(applyTimeExtension(state)).toBeNull();
+    advanceMatch(state, 60);
+    expect(applyTimeExtension(state)).toBeNull();
+  });
+
+  it('moves exactly $5 once in each direction without minting bankroll', () => {
+    const state = createMatch(123, 'loan');
+    startMatch(state);
+    state.scores.player = 0;
+    state.scores.rival = 8;
+    const first = transferLoan(state, 'rival_to_player');
+    expect(first).toMatchObject({ type: 'loan_transfer', direction: 'rival_to_player', before: { scores: { player: 0, rival: 8 } }, after: { scores: { player: 5, rival: 3 }, balances: { player: 5, rival: 3 } } });
+    expect((first?.after.scores.player ?? 0) + (first?.after.scores.rival ?? 0)).toBe((first?.before.scores.player ?? 0) + (first?.before.scores.rival ?? 0));
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+
+    state.scores.player = 9;
+    state.scores.rival = 0;
+    const reverse = transferLoan(state, 'player_to_rival');
+    expect(reverse?.after.scores).toEqual({ player: 4, rival: 5 });
+    expect(reverse?.after.scores).toEqual(reverse?.after.balances);
+    expect(transferLoan(state, 'player_to_rival')).toBeNull();
+  });
+
+  it('rejects loans before play, with a funded borrower, an underfunded lender, or after result', () => {
+    const state = createMatch(123, 'loan-guard');
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    startMatch(state);
+    state.scores.player = 1;
+    state.scores.rival = 20;
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    state.scores.player = 0;
+    state.scores.rival = 4;
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    advanceMatch(state, 60);
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+  });
+
+  it('skips only rival turns during an authoritative distraction without pausing time or catching up', () => {
+    const state = createMatch(123, 'distracted', 'manual');
+    startMatch(state);
+    advanceMatch(state, 10.2);
+    const snapshot = distractRival(state, 4);
+    expect(snapshot?.rivalDistraction).toEqual({ seconds: 4, untilElapsed: 14.2 });
+    requestManualSpin(state, 11.3);
+    const events = advanceMatch(state, 16);
+    expect(events.filter(event => event.type === 'side_spin' && event.spin.side === 'rival').map(event => event.at)).toEqual([16]);
+    expect(state.elapsed).toBe(16);
+    expect(state.rounds.player).toBe(1);
+    expect(state.rivalDistraction).toBeNull();
+    expect(getSnapshot(state).rivalDistraction).toBeUndefined();
+  });
+
+  it('rejects an invalid runtime pause and resumes on its exact expiry boundary', () => {
+    const state = createMatch(123, 'distraction-boundary', 'manual');
+    startMatch(state);
+    advanceMatch(state, 10);
+    expect(distractRival(state, 3 as unknown as 2)).toBeNull();
+    expect(distractRival(state, 4)).not.toBeNull();
+    const events = advanceMatch(state, 14);
+    expect(events.filter(event => event.type === 'side_spin' && event.spin.side === 'rival').map(event => event.at)).toEqual([14]);
+  });
+
+  it('keeps automatic player turns and the clock moving while a distracted rival consumes no draws', () => {
+    const paused = createMatch(123, 'automatic-paused');
+    const baseline = createMatch(123, 'automatic-baseline');
+    startMatch(paused); startMatch(baseline);
+    advanceMatch(paused, 10);
+    const rivalRng = paused.rngState.rival;
+    expect(distractRival(paused, 4)).not.toBeNull();
+    const pausedEvents = advanceMatch(paused, 13.9);
+    advanceMatch(baseline, 13.9);
+    expect(paused.elapsed).toBe(13.9);
+    expect(pausedEvents.filter(event => event.type === 'side_spin').map(event => [event.at, event.spin.side])).toEqual([[12, 'player']]);
+    expect(paused.rounds.player).toBe(6);
+    expect(paused.rounds.rival).toBe(5);
+    expect(paused.rngState.rival).toBe(rivalRng);
+    expect(paused.rngState.player).toBe(baseline.rngState.player);
+    expect(paused.rngState.rival).not.toBe(baseline.rngState.rival);
+  });
+
+  it('never starts a pause that outlasts the normal or extended match, and clears stale state before each result snapshot', () => {
+    const normal = createMatch(123, 'normal-final', 'manual');
+    startMatch(normal);
+    advanceMatch(normal, 59);
+    expect(distractRival(normal, 2)).toBeNull();
+    normal.rivalDistraction = { seconds: 4, untilElapsed: 63 };
+    const normalEnd = advanceMatch(normal, 60).find(event => event.type === 'match_end');
+    expect(normalEnd?.snapshot.rivalDistraction).toBeUndefined();
+
+    const extended = createMatch(123, 'extended-final', 'manual');
+    startMatch(extended);
+    advanceMatch(extended, 54);
+    expect(applyTimeExtension(extended)).not.toBeNull();
+    advanceMatch(extended, 69);
+    expect(distractRival(extended, 2)).toBeNull();
+    extended.rivalDistraction = { seconds: 4, untilElapsed: 73 };
+    const held = advanceMatch(extended, 70, true);
+    expect(held.some(event => event.type === 'match_end')).toBe(false);
+    expect(getSnapshot(extended).rivalDistraction).toBeUndefined();
+    const extendedEnd = advanceMatch(extended, 70).find(event => event.type === 'match_end');
+    expect(extendedEnd?.snapshot.rivalDistraction).toBeUndefined();
+  });
 });
 
 describe('independent manual match authority', () => {
@@ -248,5 +370,18 @@ describe('independent manual match authority', () => {
     const ended = events.find(e => e.type === 'match_end');
     expect(ended?.snapshot).toEqual(getSnapshot(state));
     expect(requestManualSpin(state, 100)).toEqual([]);
+  });
+
+  it('keeps normal spins available before a reserved extension reaches zero, then holds its result', () => {
+    const state = createMatch(123, 'reserved-deadline', 'manual');
+    startMatch(state);
+    advanceMatch(state, 59, true);
+    const beforeDeadline = requestManualSpin(state, 59.5, true);
+    expect(beforeDeadline.some(event => event.type === 'side_spin' && event.spin.side === 'player')).toBe(true);
+    expect(state.status).toBe('playing');
+    const held = requestManualSpin(state, 61, true);
+    expect(held.some(event => event.type === 'match_end')).toBe(false);
+    expect(state).toMatchObject({ status: 'playing', elapsed: 60, remaining: 0 });
+    expect(applyTimeExtension(state)).toMatchObject({ type: 'time_extended', after: { duration: 70 } });
   });
 });

@@ -6,8 +6,15 @@ export class MediaServerLeg {
   private ws: WebSocket | null = null;
   private connected = false;
   private utteranceId: string | null = null;
+  // LiveAvatar can split one GPT commentary into several agent.speak calls.
+  // Only the last one, after GPT's output fence, can release the extension.
+  private expectedSpeech: { speechId: string; utteranceId: string | null; fenceSeen: boolean; utteranceEnded: boolean } | null = null;
   private readonly audio = new AvatarAudioBuffer(audio => {
     this.utteranceId ??= randomUUID();
+    if (this.expectedSpeech) {
+      this.expectedSpeech.utteranceId = this.utteranceId;
+      this.expectedSpeech.utteranceEnded = false;
+    }
     this.send({ type: 'agent.speak', event_id: this.utteranceId, audio });
   }, () => {
     this.send({ type: 'agent.speak_end' });
@@ -24,7 +31,7 @@ export class MediaServerLeg {
     timer: NodeJS.Timeout;
   } | null = null;
 
-  constructor(private readonly url: string, private readonly onFailure: () => void = () => {}) {}
+  constructor(private readonly url: string, private readonly onFailure: () => void = () => {}, private readonly onSpeechEnded: (speechId: string) => void = () => {}) {}
 
   async start(timeoutMs = 15_000): Promise<boolean> {
     if (this.closed) return false;
@@ -54,6 +61,11 @@ export class MediaServerLeg {
         } else if (event.type === 'agent.audio_buffer_cleared' && this.pendingInterrupt
           && event.source_event_id === this.pendingInterrupt.eventId) {
           this.finishInterrupt(true);
+        } else if (event.type === 'agent.speak_ended' && this.expectedSpeech?.utteranceId === event.source_event_id) {
+          const expected = this.expectedSpeech;
+          if (!expected) return;
+          expected.utteranceEnded = true;
+          this.finishExpectedSpeech();
         } else if (event.type === 'error' || (event.type === 'session.state_updated' && event.state === 'disconnected')) {
           this.fail();
         }
@@ -70,10 +82,18 @@ export class MediaServerLeg {
     });
   }
 
-  speak(audio: string): void {
+  speak(audio: string, speechId?: string): void {
     // Drop audio while the old utterance is being cleared; never replay it later.
     if (this.closed || !this.connected || this.pendingInterrupt) return;
+    if (speechId && !this.expectedSpeech) this.expectedSpeech = { speechId, utteranceId: null, fenceSeen: false, utteranceEnded: false };
     this.audio.append(audio);
+  }
+
+  /** GPT's terminal PCM fence: an earlier Avatar utterance must not complete us. */
+  completeSpeechInput(speechId: string): void {
+    if (this.expectedSpeech?.speechId !== speechId) return;
+    this.expectedSpeech.fenceSeen = true;
+    this.finishExpectedSpeech();
   }
 
   interrupt(): void {
@@ -86,6 +106,7 @@ export class MediaServerLeg {
   interruptAndWait(timeoutMs = 2000): Promise<boolean> {
     this.audio.reset();
     this.utteranceId = null;
+    this.expectedSpeech = null;
     if (this.pendingInterrupt) return this.pendingInterrupt.promise;
     if (this.closed || !this.connected || this.ws?.readyState !== WebSocket.OPEN) return Promise.resolve(false);
     const eventId = randomUUID();
@@ -144,6 +165,13 @@ export class MediaServerLeg {
     this.pendingInterrupt = null;
     clearTimeout(pending.timer);
     pending.resolve(confirmed);
+  }
+
+  private finishExpectedSpeech(): void {
+    const expected = this.expectedSpeech;
+    if (!expected || !expected.fenceSeen || !expected.utteranceEnded) return;
+    this.expectedSpeech = null;
+    this.onSpeechEnded(expected.speechId);
   }
 
   private send(payload: Record<string, unknown>): void {

@@ -1,11 +1,14 @@
 import type { Bet, MatchSnapshot, MatchStats, ReelGrid, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol.js';
-import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
+import { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 import { upgradePrice } from '../../shared/shop.js';
 
-export { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from '../../shared/protocol.js';
+export { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, TIME_EXTENSION_SECONDS } from '../../shared/protocol.js';
 export type MatchStatus = MatchSnapshot['status'];
 export const STARTING_BALANCE = 30;
+/** A loan is a fixed transfer. Neither client nor model chooses the amount. */
+export const LOAN_AMOUNT = 5;
+export type LoanDirection = 'rival_to_player' | 'player_to_rival';
 export const BETS = [1, 3, 5] as const satisfies readonly Bet[];
 export const PAYOUT: Record<SymbolId, number> = { cherry: 3, bell: 6, seven: 30 };
 export const BASE_POOL: readonly SymbolId[] = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'];
@@ -24,6 +27,10 @@ export interface MatchState {
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
+  duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
+  extensionUsed: boolean;
+  loanUsed: Record<LoanDirection, boolean>;
+  rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
   round: number;
   rounds: Record<Side, number>;
   /** Compatibility projection for older adapters. It shares the bankroll object. */
@@ -49,6 +56,8 @@ export type GameEvent =
   | { type: 'leader_change'; seq: number; at: number; leader: Side | 'draw' }
   | { type: 'upgrade_open'; seq: number; at: number; offerIndex: 0 | 1; closesAt: number }
   | { type: 'upgrade_applied'; seq: number; at: number; offerIndex: 0 | 1; player: UpgradeId; rival: UpgradeId }
+  | { type: 'time_extended'; seq: number; at: number; before: MatchSnapshot; after: MatchSnapshot }
+  | { type: 'loan_transfer'; seq: number; at: number; direction: LoanDirection; before: MatchSnapshot; after: MatchSnapshot }
   | { type: 'match_end'; seq: number; at: number; snapshot: MatchSnapshot };
 export const SPIN_INTERVAL = RIVAL_SPIN_INTERVAL;
 /** Retired rules are exported only so stale review fixtures can compile. */
@@ -145,6 +154,10 @@ export function createMatch(
     lastManualSpinAt: null,
     elapsed: 0,
     remaining: MATCH_SECONDS,
+    duration: MATCH_SECONDS,
+    extensionUsed: false,
+    loanUsed: { rival_to_player: false, player_to_rival: false },
+    rivalDistraction: null,
     round: 0,
     rounds: { player: 0, rival: 0 },
     balances: scores,
@@ -223,8 +236,14 @@ function performSpin(state: MatchState, atElapsed: number, events: GameEvent[], 
     events.push({ type: 'leader_change', seq: nextSeq(state), at: atElapsed, leader: leaderAfter });
   }
 }
-function processSecond(state: MatchState, second: number, events: GameEvent[]): void {
-  if (second % SPIN_INTERVAL === 0 && second <= MATCH_SECONDS) performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
+function processSecond(state: MatchState, second: number, events: GameEvent[], rivalPaused: boolean): void {
+  if (second % SPIN_INTERVAL === 0 && second <= state.duration) {
+    if (state.spinMode === 'manual') {
+      if (!rivalPaused) performSpin(state, second, events, 'rival');
+    } else {
+      performSpin(state, second, events, rivalPaused ? 'player' : undefined);
+    }
+  }
   const openIndex = UPGRADE_OPEN_SECONDS.indexOf(second as 20 | 40);
   if (state.upgradesEnabled && openIndex >= 0) {
     const offerIndex = openIndex as 0 | 1;
@@ -244,33 +263,82 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
     state.openOffers.delete(offerIndex);
     events.push({ type: 'upgrade_applied', seq: nextSeq(state), at: second, offerIndex, player, rival });
   }
-  if (second === MATCH_SECONDS) {
+  if (second === state.duration) {
+    // A result snapshot must never advertise a pause that cannot outlive the match.
+    state.rivalDistraction = null;
     state.status = 'result';
     state.winner = currentLeader(state.scores);
     state.remaining = 0;
     events.push({ type: 'match_end', seq: nextSeq(state), at: second, snapshot: getSnapshot(state) });
   }
 }
-export function advanceMatch(state: MatchState, elapsedSeconds: number): GameEvent[] {
+/** A pause skips only rival turns; elapsed time and the normal cadence continue. */
+export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
   if (state.status !== 'playing') return [];
-  const target = Math.min(MATCH_SECONDS, Math.max(state.elapsed, elapsedSeconds));
+  const target = Math.min(state.duration, Math.max(state.elapsed, elapsedSeconds));
   const events: GameEvent[] = [];
   for (let second = state.processedSecond + 1; second <= Math.floor(target); second += 1) {
+    if (holdAtDeadline && second === state.duration) break;
     state.elapsed = second;
-    state.remaining = MATCH_SECONDS - second;
-    processSecond(state, second, events);
+    state.remaining = state.duration - second;
+    processSecond(state, second, events, Boolean(state.rivalDistraction && second < state.rivalDistraction.untilElapsed));
     state.processedSecond = second;
   }
-  state.elapsed = Math.min(target, MATCH_SECONDS);
-  state.remaining = Math.max(0, MATCH_SECONDS - state.elapsed);
+  state.elapsed = Math.min(target, state.duration);
+  state.remaining = Math.max(0, state.duration - state.elapsed);
+  if (state.rivalDistraction && (state.elapsed >= state.rivalDistraction.untilElapsed || state.elapsed >= state.duration)) state.rivalDistraction = null;
   return events;
 }
-export function requestManualSpin(state: MatchState, elapsedSeconds: number): GameEvent[] {
-  const events = advanceMatch(state, elapsedSeconds);
+
+/** The server may apply only the exact short pause selected by its allowlist. */
+export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot | null {
+  if (state.status !== 'playing' || state.rivalDistraction || (seconds !== 2 && seconds !== 4) || state.elapsed + seconds > state.duration) return null;
+  state.rivalDistraction = { seconds, untilElapsed: state.elapsed + seconds };
+  nextSeq(state);
+  return getSnapshot(state);
+}
+
+/** The domain is the only place that can turn a model decision into extra time. */
+export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  if (
+    state.status !== 'playing'
+    || state.extensionUsed
+    || state.duration !== MATCH_SECONDS
+    || state.remaining > EXTENSION_REQUEST_REMAINING_SECONDS
+  ) return null;
+  const before = getSnapshot(state);
+  state.duration = MAX_MATCH_SECONDS;
+  state.remaining = Math.max(0, state.duration - state.elapsed);
+  state.extensionUsed = true;
+  return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };
+}
+/**
+ * The authoritative, all-or-nothing loan entry point. A transfer is possible
+ * only while the borrower cannot place the minimum bet and the lender can
+ * cover the fixed amount. `balances` shares `scores`, so snapshots stay equal.
+ */
+export function transferLoan(state: MatchState, direction: LoanDirection): Extract<GameEvent, { type: 'loan_transfer' }> | null {
+  const [lender, borrower] = direction === 'rival_to_player'
+    ? ['rival', 'player'] as const
+    : ['player', 'rival'] as const;
+  if (
+    state.status !== 'playing'
+    || state.loanUsed[direction]
+    || state.scores[borrower] >= BETS[0]
+    || state.scores[lender] < LOAN_AMOUNT
+  ) return null;
+  const before = getSnapshot(state);
+  state.scores[lender] -= LOAN_AMOUNT;
+  state.scores[borrower] += LOAN_AMOUNT;
+  state.loanUsed[direction] = true;
+  return { type: 'loan_transfer', seq: nextSeq(state), at: state.elapsed, direction, before, after: getSnapshot(state) };
+}
+export function requestManualSpin(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
+  const events = advanceMatch(state, elapsedSeconds, holdAtDeadline);
   if (
     state.status !== 'playing'
     || state.spinMode !== 'manual'
-    || state.elapsed >= MATCH_SECONDS
+    || state.elapsed >= state.duration
     || (state.lastManualSpinAt !== null && state.elapsed + 1e-9 < state.lastManualSpinAt + MANUAL_SPIN_INTERVAL)
     || state.scores.player < state.bets.player
   ) return events;
@@ -282,11 +350,15 @@ export function abortMatch(state: MatchState): void {
   if (state.status !== 'result') state.status = 'aborted';
 }
 export function getSnapshot(state: MatchState): MatchSnapshot {
+  const distraction = state.status === 'playing' && state.rivalDistraction && state.rivalDistraction.untilElapsed <= state.duration
+    ? state.rivalDistraction
+    : null;
   return {
     matchId: state.matchId,
     status: state.status,
     elapsed: state.elapsed,
     remaining: state.remaining,
+    duration: state.duration,
     round: state.round,
     rounds: { ...state.rounds },
     balances: { ...state.scores },
@@ -295,6 +367,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     stats: cloneMatchStats(state.stats),
     upgradeSpent: state.upgradeSpent,
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
+    ...(distraction ? { rivalDistraction: { ...distraction } } : {}),
     winner: state.winner,
     eventSeq: state.eventSeq,
   };

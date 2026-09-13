@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bet, MatchSnapshot, ServerEnvelope, ServerMessage, SpinView } from './protocol';
 import { parseServerEnvelope } from './wire';
-import { evaluateGrid, gridFromStops } from '../src/domain/game';
+import { advanceMatch, createMatch, evaluateGrid, gridFromStops, startMatch } from '../src/domain/game';
 
 function envelope(message: ServerMessage): ServerEnvelope {
   return {
@@ -67,5 +67,43 @@ describe('bankroll reel wire', () => {
     };
     const message: ServerMessage = { type: 'snapshot', snapshot, lastSpins: { player: spin } };
     expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+
+    const active: MatchSnapshot = { ...snapshot, status: 'playing', elapsed: 58, remaining: 2, winner: undefined, rivalDistraction: { untilElapsed: 60, seconds: 2 } };
+    const activeMessage: ServerMessage = { type: 'snapshot', snapshot: active, lastSpins: { player: spin } };
+    expect(parseServerEnvelope(JSON.stringify(envelope(activeMessage)))).toEqual(envelope(activeMessage));
+  });
+
+  it('round-trips only legal rival-distraction events', () => {
+    const message: ServerMessage = { type: 'rival_distraction', state: 'started', seconds: 4, line: 'え？ 後ろに誰かいるの？' };
+    expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+    expect(parseServerEnvelope(JSON.stringify({ ...envelope(message), seconds: 3 }))).toBeNull();
+  });
+
+  it('round-trips a final snapshot after stale rival-distraction state is cleared', () => {
+    const state = createMatch(123, 'wire-grid', 'manual');
+    startMatch(state);
+    advanceMatch(state, 59);
+    state.rivalDistraction = { seconds: 4, untilElapsed: 63 };
+    const ended = advanceMatch(state, 60).find(event => event.type === 'match_end');
+    if (!ended || ended.type !== 'match_end') throw new Error('missing final match event');
+    const message: ServerMessage = { type: 'match_ended', snapshot: ended.snapshot };
+    expect(message.snapshot.rivalDistraction).toBeUndefined();
+    expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+  });
+
+  it('accepts only an exact conserved $5 loan transfer', () => {
+    const before: MatchSnapshot = {
+      matchId: 'wire-grid', status: 'playing', elapsed: 20, remaining: 40, round: 0,
+      rounds: { player: 0, rival: 0 }, balances: { player: 0, rival: 8 }, bets: { player: 1, rival: 1 }, scores: { player: 0, rival: 8 },
+      stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } },
+      upgrades: { player: [], rival: [] }, eventSeq: 3,
+    };
+    const after = { ...before, balances: { player: 5, rival: 3 }, scores: { player: 5, rival: 3 }, eventSeq: 4 };
+    const message: ServerMessage = { type: 'loan_transfer', direction: 'rival_to_player', amount: 5, before, after, line: 'Fine. Don’t waste it.' };
+    expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+    const invalidAmount = { ...message, amount: 6 };
+    const invalidBalances = { ...message, after: { ...after, scores: { player: 6, rival: 2 } } };
+    expect(parseServerEnvelope(JSON.stringify(envelope(invalidAmount as never)))).toBeNull();
+    expect(parseServerEnvelope(JSON.stringify(envelope(invalidBalances)))).toBeNull();
   });
 });

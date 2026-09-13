@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ServerEnvelope, ServerMessage } from '../../shared/protocol';
 import { MANUAL_SPIN_INTERVAL, MAX_MATCH_ROUNDS } from '../../shared/protocol';
 import { parseServerEnvelope } from '../../shared/wire';
-import { advanceMatch, createMatch, getSnapshot, requestManualSpin, startMatch, type MatchState } from '../domain/game';
+import { advanceMatch, applyTimeExtension, createMatch, getSnapshot, requestManualSpin, startMatch, type MatchState } from '../domain/game';
 import { LiveSync } from './LiveSync';
 
 const wrap = (message: ServerMessage, streamSeq: number, sessionId = 'match-a'): ServerEnvelope => ({ ...message, sessionId, streamSeq, serverTime: 1000 });
@@ -12,6 +12,14 @@ function createFundedMatch(spinMode: 'automatic' | 'manual' = 'automatic'): Matc
   state.balances = { player: 1_000, rival: 1_000 };
   state.scores = { ...state.balances };
   return state;
+}
+function runMaximumManualMatch(state: MatchState): ReturnType<typeof requestManualSpin> {
+  const events = Array.from({ length: Math.ceil(45 / MANUAL_SPIN_INTERVAL) }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
+  events.push(...advanceMatch(state, 45));
+  expect(applyTimeExtension(state)).not.toBeNull();
+  events.push(...Array.from({ length: MAX_MATCH_ROUNDS - state.rounds.player }, (_, index) => requestManualSpin(state, (Math.ceil(45 / MANUAL_SPIN_INTERVAL) + index) * MANUAL_SPIN_INTERVAL)).flat());
+  events.push(...advanceMatch(state, 70));
+  return events;
 }
 const fixtureState = createFundedMatch();
 startMatch(fixtureState);
@@ -100,11 +108,12 @@ describe('live wire validation and recovery', () => {
     expect(parseServerEnvelope(JSON.stringify(invalid))).toBeNull();
   });
 
-  it.each([0, MAX_MATCH_ROUNDS])('recovers %i player spins and 30 independent rival spins across a stream gap', (rounds) => {
+  it.each([0, MAX_MATCH_ROUNDS])('recovers %i player spins and the authoritative rival spins across a stream gap', (rounds) => {
     const state = createFundedMatch('manual');
     startMatch(state);
-    const events = Array.from({ length: rounds }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
-    events.push(...advanceMatch(state, 60));
+    const events = rounds === MAX_MATCH_ROUNDS
+      ? runMaximumManualMatch(state)
+      : advanceMatch(state, 60);
     const latest: Partial<Record<'player' | 'rival', import('../../shared/protocol').SpinView>> = {};
     for (const event of events) if (event.type === 'side_spin') latest[event.spin.side] = event.spin;
     const message: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(state), lastSpins: latest };
@@ -112,7 +121,7 @@ describe('live wire validation and recovery', () => {
     const parsed = parseServerEnvelope(JSON.stringify(wrap(message, 4)));
     expect(parsed).not.toBeNull();
     expect(sync.accept(parsed!).message).toEqual(message);
-    expect(state.rounds).toEqual({ player: rounds, rival: 30 });
+    expect(state.rounds).toEqual({ player: rounds, rival: rounds === MAX_MATCH_ROUNDS ? 35 : 30 });
     expect(state.status).toBe('result');
     expect(latest.rival!.upgrades).toBeUndefined();
     expect(parseServerEnvelope(JSON.stringify(wrap({ type: 'match_ended', snapshot: getSnapshot(state) }, 5)))).not.toBeNull();
@@ -125,8 +134,7 @@ describe('live wire validation and recovery', () => {
   it('accepts a complete maximum-manual snapshot and rejects rounds beyond the match limit', () => {
     const state = createFundedMatch('manual');
     startMatch(state);
-    const events = Array.from({ length: MAX_MATCH_ROUNDS }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
-    events.push(...advanceMatch(state, 60));
+    const events = runMaximumManualMatch(state);
     const latest: Partial<Record<'player' | 'rival', import('../../shared/protocol').SpinView>> = {};
     for (const event of events) if (event.type === 'side_spin') latest[event.spin.side] = event.spin;
     const maximum: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(state), lastSpins: latest };

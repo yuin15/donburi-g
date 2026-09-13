@@ -137,6 +137,73 @@ async function beginLive(h: ReturnType<typeof setup>) {
 }
 
 describe('game view model', () => {
+  it('keeps the AI voice gate open with a retryable microphone error when setup disconnects first', async () => {
+    let session!: Session;
+    const h = setup(async handlers => {
+      session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.disconnect();
+        throw new Error('permission_denied');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value');
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, connecting: false, message: expect.stringContaining('Microphone permission was denied') },
+    });
+    expect(h.presentation.focus).toHaveBeenLastCalledWith('gate');
+    expect(session.disconnect).toHaveBeenCalledOnce();
+    h.vm.dispose();
+  });
+
+  it('suggests audio-only retry when video setup cannot become ready', async () => {
+    const h = setup(async handlers => {
+      const session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.disconnect();
+        throw new Error('voice_connect_failed');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value', true);
+    expect(h.vm.state.gate).toMatchObject({ visible: true, message: expect.stringContaining('Turn off live video') });
+    h.vm.dispose();
+  });
+
+  it('keeps setup errors for the classified retry instead of switching to CPU before rejection', async () => {
+    const h = setup(async handlers => {
+      const session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.message({ type: 'error', code: 'session_rejected', message: 'internal provider detail', recoverable: false });
+        handlers.disconnect();
+        throw new Error('session_failed');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value');
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, connecting: false, message: 'AI voice did not become ready. Retry AI voice, or play a CPU duel.' },
+    });
+    h.vm.dispose();
+  });
+
+  it('keeps an expired voice lobby visible so the player can reconnect instead of silently falling back to CPU', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({
+      type: 'error', code: 'lobby_timeout', recoverable: false,
+      message: 'AI voice waited too long. Reconnect AI voice to start a full duel.',
+    });
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, message: expect.stringContaining('Reconnect AI voice') },
+    });
+    expect(h.presentation.focus).toHaveBeenLastCalledWith('gate');
+    h.vm.dispose();
+  });
+
   it('waits for the current BET acknowledgement before spinning and rolls back a rejected BET', async () => {
     const h = setup();
     const session = await beginLive(h);
@@ -294,6 +361,69 @@ describe('game view model', () => {
     expect(h.vm.state.conversation).toBe('idle');
     h.vm.dispose();
     expect(h.clock.timers.size).toBe(0);
+  });
+
+  it('holds the pre-change timer briefly while applying an authoritative +10 second extension', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const before = playingSnapshot();
+    before.elapsed = 54; before.remaining = 6; before.scores = { player: 24, rival: 27 };
+    const after = { ...before, duration: 70 as const, remaining: 16 };
+    session.emit({ type: 'time_extension', decision: 'accepted', before, after, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
+    expect(h.vm.state).toMatchObject({ snapshot: { duration: 70, remaining: 16 }, timeExtension: { before: 6, after: 16 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
+    expect(h.presentation.playSound).toHaveBeenCalledWith('ruleChange');
+    await h.clock.advance(1350);
+    expect(h.vm.state.timeExtension).toBeNull();
+    expect(h.vm.state.snapshot.remaining).toBe(16);
+    h.vm.dispose();
+  });
+
+  it('keeps a confirmed loan through an older lender reel stop, then uses later totals without double counting', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const inFlight: SpinView = { side: 'player', round: 1, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 25 };
+    session.emit({ type: 'side_spin', spin: inFlight });
+    expect(h.vm.state.scores.player).toBe(25);
+    const before = playingSnapshot();
+    before.elapsed = 8; before.remaining = 52;
+    before.scores = before.balances = { player: 25, rival: 0 };
+    const after = { ...before, scores: { player: 20, rival: 5 }, balances: { player: 20, rival: 5 }, eventSeq: before.eventSeq + 1 };
+    session.emit({ type: 'loan_transfer', direction: 'player_to_rival', amount: 5, before, after, line: 'All right. One more shot.' });
+    expect(h.vm.state).toMatchObject({ scores: { player: 20, rival: 5 }, loanTransfer: { direction: 'player_to_rival', amount: 5 } });
+    h.rounds[0].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 20, rival: 5 });
+
+    const later: SpinView = { ...inFlight, round: 2, total: 19 };
+    session.emit({ type: 'side_spin', spin: later });
+    h.rounds[1].stopped();
+    expect(h.vm.state.scores.player).toBe(19);
+    h.vm.dispose();
+  });
+
+  it('shows an authoritative rival distraction and clears it from its recovery event or snapshot', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({ type: 'rival_distraction', state: 'started', seconds: 4, line: 'え？ 後ろに誰かいるの？' });
+    expect(h.vm.state).toMatchObject({ rivalDistraction: { active: true, seconds: 4 }, rivalMood: 'DISTRACTED...', line: 'え？ 後ろに誰かいるの？' });
+    session.emit({ type: 'rival_distraction', state: 'ended', seconds: 4, line: 'もう、何もないじゃない。次は引っかからないよ。' });
+    expect(h.vm.state).toMatchObject({ rivalDistraction: null, line: 'もう、何もないじゃない。次は引っかからないよ。' });
+    const recovered = playingSnapshot();
+    recovered.elapsed = 20; recovered.rivalDistraction = { seconds: 2, untilElapsed: 22 };
+    session.emit({ type: 'snapshot', snapshot: recovered });
+    expect(h.vm.state.rivalDistraction).toEqual({ active: true, seconds: 2 });
+    session.emit({ type: 'snapshot', snapshot: { ...recovered, elapsed: 22, rivalDistraction: undefined } });
+    expect(h.vm.state.rivalDistraction).toBeNull();
+    h.vm.dispose();
+  });
+
+  it('clears a rival distraction when the authoritative result arrives', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({ type: 'rival_distraction', state: 'started', seconds: 2, line: 'え？' });
+    const final = playingSnapshot(undefined, true);
+    session.emit({ type: 'match_ended', snapshot: final });
+    expect(h.vm.state).toMatchObject({ snapshot: { status: 'result' }, rivalDistraction: null });
+    h.vm.dispose();
   });
 
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {

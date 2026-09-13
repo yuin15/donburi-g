@@ -170,12 +170,22 @@ export class GameView implements GamePresentation {
     } else if (spent === 0) this.text('#purchaseNotice', 'BUY → BOOST YOUR NEXT SPIN');
     this.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
     this.scene.setExpression(state.expression);
-    const seconds = Math.max(0, Math.ceil(snapshot.remaining));
+    this.scene.setRivalDistracted(Boolean(state.rivalDistraction?.active));
+    const extension = state.timeExtension;
+    const seconds = Math.max(0, Math.ceil(extension?.before ?? snapshot.remaining));
     this.text('#time', `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
-    const finale = snapshot.status === 'playing' && seconds > 0 && seconds <= 10 && !state.gate.visible;
-    this.q('#timer').classList.toggle('urgent', finale);
+    const timer = this.q('#timer');
+    timer.classList.toggle('rule-change', extension?.decision === 'accepted');
+    const extensionText = extension?.decision === 'accepted'
+      ? `${Math.floor(extension.before / 60)}:${String(Math.ceil(extension.before) % 60).padStart(2, '0')} → ${Math.floor(extension.after / 60)}:${String(Math.ceil(extension.after) % 60).padStart(2, '0')}`
+      : '';
+    this.q('#timeExtension').hidden = !extensionText;
+    this.text('#timeExtension', extensionText);
+    const finale = !extension && snapshot.status === 'playing' && seconds > 0 && seconds <= 10 && !state.gate.visible;
+    timer.classList.toggle('urgent', finale);
     this.q('.shell').dataset.finale = String(finale);
-    this.text('#timerCaption', finale ? 'FINAL SECONDS' : 'TIME LEFT');
+    this.text('#timerCaption', extension?.decision === 'accepted' ? 'RULE CHANGED' : finale ? 'FINAL SECONDS' : 'TIME LEFT');
+    if (extension?.decision === 'accepted') this.text('#time', '+10 SEC');
     this.scene.setFinalSeconds(finale ? seconds : 0);
     if (finale && previous && Math.ceil(previous.snapshot.remaining) !== seconds && !document.hidden) {
       if (seconds <= 5) this.audio.countdownTick(seconds, state.connection.voiceReady);
@@ -203,7 +213,7 @@ export class GameView implements GamePresentation {
       indicator.dataset.active = String(activeLines.includes(line));
       indicator.dataset.winning = String(winningLines.includes(line));
     });
-    this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
+    this.text('#rivalMood', state.rivalDistraction?.active ? 'DISTRACTED...' : state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
     this.q('#line').dataset.conversation = state.conversation;
     this.q('#line').dataset.long = String(Array.from(state.line).reduce((width, letter) => width + (letter.charCodeAt(0) > 127 ? 2 : 1), 0) > 78);
@@ -248,6 +258,13 @@ export class GameView implements GamePresentation {
     if (state.cue) {
       this.text('#eventCue', state.cue.text);
       this.q('#eventCue').dataset.kind = state.cue.kind;
+    }
+    const loan = state.loanTransfer;
+    this.q('#loanTransfer').hidden = !loan;
+    if (loan) {
+      this.text('#loanDirection', loan.direction === 'rival_to_player' ? 'RIVAL → YOU' : 'YOU → RIVAL');
+      this.text('#loanAmount', loan.direction === 'rival_to_player' ? `+$${loan.amount}` : `−$${loan.amount}`);
+      this.q('#loanTransfer').dataset.direction = loan.direction;
     }
     const start = this.q<HTMLButtonElement>('#start');
     start.disabled = state.startControl.disabled;
@@ -345,6 +362,7 @@ export class GameView implements GamePresentation {
   }
   resetScene(): void {
     this.scene.stop();
+    this.scene.setRivalDistracted(false);
     this.scene.setUpgrades([], []);
     this.scene.setExpression('neutral');
     this.scene.show(['cherry', 'bell', 'seven']);
