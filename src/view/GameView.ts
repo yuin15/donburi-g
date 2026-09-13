@@ -1,5 +1,5 @@
 import type { Bet, MatchSnapshot, SpinView, WinningLine } from '../../shared/protocol';
-import { PAYOUT } from '../domain/game';
+import { ACTIVE_LINES, PAYOUT } from '../domain/game';
 import type { GameCommands, GamePresentation, GameSound, GameViewState } from '../viewmodel/GameViewState';
 import { GameAudio } from './GameAudio';
 import { mountGameTemplate } from './GameTemplate';
@@ -49,6 +49,10 @@ export class GameView implements GamePresentation {
     this.events = new AbortController();
     const options = { signal: this.events.signal };
     const unlock = () => { void this.audio.unlock(); };
+    const chooseBet = (bet: Bet) => {
+      void this.audio.unlock().then(() => this.audio.betClick());
+      commands.setBet(bet);
+    };
     this.q('#practice').addEventListener('click', () => { unlock(); void commands.startCpu(); }, options);
     this.q('#start').addEventListener('click', () => {
       unlock();
@@ -69,7 +73,7 @@ export class GameView implements GamePresentation {
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
     this.q('#effects').addEventListener('click', () => { unlock(); commands.toggleEffectsMuted(); }, options);
     this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
-      button.addEventListener('click', () => commands.setBet(Number(button.dataset.bet) as Bet), options);
+      button.addEventListener('click', () => chooseBet(Number(button.dataset.bet) as Bet), options);
     });
     addEventListener('keydown', event => {
       const state = this.current;
@@ -89,7 +93,7 @@ export class GameView implements GamePresentation {
       if (!event.repeat && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && state.snapshot.status === 'playing' && !event.isComposing) {
         const editable = event.target instanceof Element ? event.target.closest('input,textarea,select,[contenteditable=true]') : null;
         const bet = event.code === 'Digit1' ? 1 : event.code === 'Digit2' ? 3 : event.code === 'Digit3' ? 5 : null;
-        if (bet && !editable) { event.preventDefault(); commands.setBet(bet); }
+        if (bet && !editable) { event.preventDefault(); chooseBet(bet); }
       }
     }, options);
     document.addEventListener('visibilitychange', () => commands.visibilityChanged(), options);
@@ -160,9 +164,13 @@ export class GameView implements GamePresentation {
       button.dataset.active = String(bet === selectedBet);
       button.disabled = state.mode === 'idle' || state.balances.player < bet;
     });
-    const winningLines = state.result ? [] : state.lastSpin?.player?.winningLines ?? [];
+    const showLineIndicators = state.mode !== 'idle' && !state.result;
+    const activeLines = showLineIndicators ? ACTIVE_LINES[selectedBet] : [];
+    const winningLines = state.payout?.player && showLineIndicators ? state.lastSpin?.player?.winningLines ?? [] : [];
     this.q('#lineIndicators').querySelectorAll<HTMLElement>('[data-line]').forEach(indicator => {
-      indicator.dataset.winning = String(winningLines.includes(indicator.dataset.line as WinningLine));
+      const line = indicator.dataset.line as WinningLine;
+      indicator.dataset.active = String(activeLines.includes(line));
+      indicator.dataset.winning = String(winningLines.includes(line));
     });
     this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;

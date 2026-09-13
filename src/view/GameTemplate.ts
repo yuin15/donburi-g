@@ -27,11 +27,11 @@ app.innerHTML = `
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
     <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small><button data-bet="1">$1 <em>1 LINE</em></button><button data-bet="3">$3 <em>3 LINES</em></button><button data-bet="5">$5 <em>5 LINES</em></button></div>
     <div id="lineIndicators" role="status" aria-label="Winning lines">
-      <svg class="line-indicator diagonal-down" data-line="diagonalDown" viewBox="0 0 100 40" aria-label="$5 diagonal down"><path d="M2 3H76L98 20 76 37H2L10 20Z"/><text x="21" y="28">$5</text><text x="65" y="26">→</text></svg>
-      <svg class="line-indicator top" data-line="top" viewBox="0 0 100 40" aria-label="$3 top row"><path d="M2 3H76L98 20 76 37H2L10 20Z"/><text x="21" y="28">$3</text><text x="65" y="26">→</text></svg>
-      <svg class="line-indicator middle" data-line="middle" viewBox="0 0 100 40" aria-label="$1 middle row"><path d="M2 3H76L98 20 76 37H2L10 20Z"/><text x="21" y="28">$1</text><text x="65" y="26">→</text></svg>
-      <svg class="line-indicator bottom" data-line="bottom" viewBox="0 0 100 40" aria-label="$3 bottom row"><path d="M2 3H76L98 20 76 37H2L10 20Z"/><text x="21" y="28">$3</text><text x="65" y="26">→</text></svg>
-      <svg class="line-indicator diagonal-up" data-line="diagonalUp" viewBox="0 0 100 40" aria-label="$5 diagonal up"><path d="M2 3H76L98 20 76 37H2L10 20Z"/><text x="21" y="28">$5</text><text x="65" y="26">→</text></svg>
+      <svg class="line-indicator diagonal-down" data-line="diagonalDown" viewBox="0 0 100 40" aria-label="$5 diagonal down"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
+      <svg class="line-indicator top" data-line="top" viewBox="0 0 100 40" aria-label="$3 top row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
+      <svg class="line-indicator middle" data-line="middle" viewBox="0 0 100 40" aria-label="$1 middle row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$1</text></svg>
+      <svg class="line-indicator bottom" data-line="bottom" viewBox="0 0 100 40" aria-label="$3 bottom row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
+      <svg class="line-indicator diagonal-up" data-line="diagonalUp" viewBox="0 0 100 40" aria-label="$5 diagonal up"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
     </div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>
     <div id="machineTrim">CHOOSE BET · ACTIVE LINES PAY</div>
