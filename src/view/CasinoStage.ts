@@ -52,23 +52,27 @@ export class CasinoStage {
     const first = MINI_RECTS[0], last = MINI_RECTS[2];
     surround({ x: first.x - 5, y: first.y - 5, w: last.x + last.w - first.x + 10, h: first.h + 10 });
     // The recessed well and separators are part of the game geometry.
-    add(new RoundedBoxGeometry(559, 324, 12, 3, 10), dark, 528.5, 410, -10);
+    add(new RoundedBoxGeometry(572, 381, 12, 3, 10), dark, 528, 458.5, -10);
     for (let i = 0; i < 2; i++) {
       const x = (REEL_RECTS[i].x + REEL_RECTS[i].w + REEL_RECTS[i + 1].x) / 2;
-      add(new RoundedBoxGeometry(8, 314, 14, 3, 3), gold, x, 410, 18);
-      add(new RoundedBoxGeometry(1.5, 302, 2, 2, .5), edge, x - 1.4, 410, 25);
+      add(new RoundedBoxGeometry(7, 373, 14, 3, 3), gold, x, 458.5, 18);
+      add(new RoundedBoxGeometry(1.5, 365, 2, 2, .5), edge, x - 1.4, 458.5, 25);
       const miniX = (MINI_RECTS[i].x + MINI_RECTS[i].w + MINI_RECTS[i + 1].x) / 2;
       add(new RoundedBoxGeometry(4, 90, 8, 2, 1.5), gold, miniX, first.y + first.h / 2, 8);
     }
-    for (const x of [249, 809]) {
+    for (const x of [240, 817]) {
       const arrow = new THREE.Shape();
       const side = x < 500 ? 1 : -1;
       arrow.moveTo(-side * 4, -7); arrow.lineTo(side * 5, 0); arrow.lineTo(-side * 4, 7); arrow.closePath();
-      add(new THREE.ExtrudeGeometry(arrow, { depth: 2, bevelEnabled: true, bevelSize: .6, bevelThickness: .6, bevelSegments: 2 }), edge, x, 410, 49);
+      add(new THREE.ExtrudeGeometry(arrow, { depth: 2, bevelEnabled: true, bevelSize: .6, bevelThickness: .6, bevelSegments: 2 }), edge, x, 458.5, 69);
     }
-    for (const x of [208, 847]) {
-      add(new THREE.CylinderGeometry(6, 6, 134, 20), lamp, x, 403, 77);
-      for (const y of [330, 338, 468, 476]) add(new RoundedBoxGeometry(19, 9, 19, 3, 3), gold, x, y, 76);
+    const glass = new THREE.MeshPhysicalMaterial({color:0xffdeb0,transparent:true,opacity:.18,metalness:.1,roughness:.12,clearcoat:1,envMap:environment,envMapIntensity:1.6,depthWrite:false});
+    this.materials.push(glass);
+    for (const x of [205, 852]) {
+      add(new THREE.CylinderGeometry(10, 10, 240, 32), lamp, x, 461, 66);
+      add(new THREE.CylinderGeometry(21, 21, 238, 32, 1, true), glass, x, 461, 64);
+      for (const y of [337, 345, 577, 585]) add(new THREE.CylinderGeometry(24,24,8,40), gold, x, y, 64);
+      for (const dx of [-13,13]) add(new THREE.CylinderGeometry(1.4,1.4,235,8), edge, x+dx,461,82);
     }
     pieces.forEach((geometries, material) => {
       const geometry = mergeGeometries(geometries, false);
@@ -84,10 +88,10 @@ export class CasinoStage {
       vertexShader: 'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
       fragmentShader: 'varying vec2 vUv;void main(){vec2 p=abs(vUv-.5)*2.;float a=exp(-p.x*p.x*7.)*pow(max(0.,1.-p.y*p.y),1.4);gl_FragColor=vec4(1.,.47,.12,a*.34);}',
     });
-    const glowGeometry = new THREE.PlaneGeometry(91, 225);
-    for (const x of [208, 847]) {
+    const glowGeometry = new THREE.PlaneGeometry(103, 298);
+    for (const x of [205, 852]) {
       const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      glow.position.set(x, STAGE_HEIGHT - 403, 89); this.group.add(glow);
+      glow.position.set(x, STAGE_HEIGHT - 461, 92); this.group.add(glow);
     }
     this.materials.push(glowMaterial); this.geometries.push(glowGeometry);
     const shadowMaterial = new THREE.ShaderMaterial({

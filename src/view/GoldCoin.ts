@@ -10,7 +10,7 @@ export function createGoldCoinGeometry(): THREE.BufferGeometry {
   source.traverse(node => {
     if (!(node instanceof THREE.Mesh)) return;
     const geometry = node.geometry as THREE.BufferGeometry;
-    const color = new THREE.Color(node.name.includes('seven') ? 0xffdd81
+    const color = new THREE.Color(node.name.includes('enamel') ? 0xb51023 : node.name.includes('border') ? 0x170907 : node.name.includes('chrome') ? 0xe2ddd1 : node.name.includes('seven') ? 0xffdd81
       : node.name.includes('rim') ? 0xffc65b
         : node.name.includes('reeds') ? 0xeab146 : 0xc98b2d);
     const values = new Float32Array(geometry.getAttribute('position').count * 3);

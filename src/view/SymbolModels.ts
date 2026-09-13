@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createEnamelTexture } from './FinishTextures';
 import bellSource from '../../art-source/houdini/exports/slot-chan-bell.obj?raw';
 import cherrySource from '../../art-source/houdini/exports/slot-chan-cherry.obj?raw';
 import sevenSource from '../../art-source/houdini/exports/slot-chan-seven.obj?raw';
@@ -10,16 +11,17 @@ export type SymbolModels = Record<WinSymbol, THREE.Group> & { dispose: () => voi
 
 /** Reusable, unit-size Houdini meshes. Materials share the coin's light map. */
 export function createSymbolModels(environment: THREE.Texture): SymbolModels {
-  const gold = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .72, roughness: .3, envMap: environment, envMapIntensity: .75 });
-  const fruit = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0, roughness: .31, clearcoat: .55, clearcoatRoughness: .23, envMap: environment, envMapIntensity: .45 });
-  const plant = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0, roughness: .48, envMap: environment, envMapIntensity: .45 });
-  const enamel = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .02, roughness: .3, clearcoat: .18, clearcoatRoughness: .19, envMap: environment, envMapIntensity: .25 });
+  const finish = createEnamelTexture();
+  const gold = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .82, roughness: .24, envMap: environment, envMapIntensity: 1.05 });
+  const fruit = new THREE.MeshPhysicalMaterial({ vertexColors: true, map: finish, metalness: .04, roughness: .27, clearcoat: .65, clearcoatRoughness: .19, envMap: environment, envMapIntensity: .40 });
+  const plant = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .28, roughness: .26, clearcoat: .7, envMap: environment, envMapIntensity: .75 });
+  const enamel = new THREE.MeshPhysicalMaterial({ vertexColors: true, map: finish, metalness: .04, roughness: .24, clearcoat: .8, clearcoatRoughness: .12, envMap: environment, envMapIntensity: .4 });
   const chrome = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .92, roughness: .2, envMap: environment, envMapIntensity: 1.2 });
   const outline = new THREE.MeshBasicMaterial({ color: 0x271a0e, side: THREE.BackSide });
   const palette: Record<string, number> = {
-    bell_gold: 0xc69542, bell_trim: 0xe9bd63, bell_inner: 0x452304, bell_ridge: 0x684015,
-    cherry_fruit: 0xb5071c, cherry_stem: 0x53621b, cherry_leaf: 0x205d20, cherry_vein: 0x8a9e45, cherry_gold: 0xedba54,
-    seven_gold: 0xe6b745, seven_border: 0x1b0e08, seven_enamel: 0x9c0410, seven_chrome: 0xe7e9e1,
+    bell_gold: 0xb77c29, bell_trim: 0xf2c872, bell_inner: 0x5f3b13, bell_ridge: 0x684015,
+    cherry_fruit: 0xffedef, cherry_stem: 0x536c1c, cherry_leaf: 0x19572a, cherry_vein: 0x8a9e45, cherry_gold: 0xd4a247,
+    seven_gold: 0xe6b745, seven_border: 0x080604, seven_enamel: 0xffebeb, seven_chrome: 0xe7e9e1,
   };
   const geometries: THREE.BufferGeometry[] = [];
   const build = (source: string, kind: WinSymbol) => {
@@ -33,6 +35,9 @@ export function createSymbolModels(environment: THREE.Texture): SymbolModels {
       const color = new THREE.Color(palette[node.name] ?? 0xffffff);
       const values = new Float32Array(geometry.getAttribute('position').count * 3);
       const positions = geometry.getAttribute('position');
+      const uv = new Float32Array(positions.count * 2);
+      for (let i = 0; i < positions.count; i++) { uv[i*2] = positions.getX(i)*.4; uv[i*2+1] = positions.getY(i)*.4; }
+      geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));
       for (let i = 0; i < values.length; i += 3) {
         const shade = node.name === 'cherry_fruit' ? .62 + .38 * THREE.MathUtils.smoothstep(positions.getY(i / 3), -.96, .12)
           : node.name === 'seven_enamel' ? .65 + .35 * THREE.MathUtils.smoothstep(positions.getY(i / 3), -1.1, 1.1) : 1;
@@ -46,7 +51,7 @@ export function createSymbolModels(environment: THREE.Texture): SymbolModels {
       const hull = geometry.clone();
       const hullPosition = hull.getAttribute('position'), normal = hull.getAttribute('normal');
       for (let i = 0; i < hullPosition.count; i++) {
-        hullPosition.setXYZ(i, hullPosition.getX(i) + normal.getX(i) * .022, hullPosition.getY(i) + normal.getY(i) * .022, hullPosition.getZ(i) + normal.getZ(i) * .022);
+        hullPosition.setXYZ(i, hullPosition.getX(i) + normal.getX(i) * .009, hullPosition.getY(i) + normal.getY(i) * .009, hullPosition.getZ(i) + normal.getZ(i) * .009);
       }
       silhouette.push(hull);
       (Array.isArray(node.material) ? node.material : [node.material]).forEach(value => value.dispose());
@@ -69,6 +74,6 @@ export function createSymbolModels(environment: THREE.Texture): SymbolModels {
   };
   return {
     bell: build(bellSource, 'bell'), cherry: build(cherrySource, 'cherry'), seven: build(sevenSource, 'seven'),
-    dispose: () => { geometries.forEach(geometry => geometry.dispose()); [gold, fruit, plant, enamel, chrome, outline].forEach(material => material.dispose()); },
+    dispose: () => { geometries.forEach(geometry => geometry.dispose()); [gold, fruit, plant, enamel, chrome, outline].forEach(material => material.dispose()); finish.dispose(); },
   };
 }

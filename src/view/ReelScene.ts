@@ -42,8 +42,8 @@ const fragmentShader = `
       gl_FragColor.rgb += (vec3(.025,.02,.005)*center+vec3(.12,.55,1.)*rim)*winning;
     }else{
       gl_FragColor.rgb += vec3(.08,.045,.005)*center*winning;
-      float line = (1.-smoothstep(.003,.014,abs(abs(row)-.51)))*winning;
-      gl_FragColor.rgb += vec3(.8,.4,.08)*line;
+      float line = (1.-smoothstep(.003,.018,abs(row)))*winning;
+      gl_FragColor.rgb += vec3(1.6,.85,.22)*line;
     }
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

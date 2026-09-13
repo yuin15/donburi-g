@@ -8,6 +8,8 @@ from pathlib import Path
 import json
 import math
 import hou
+from build_cabinet import make_seven
+from build_symbols import Model
 
 
 def build_geometry(geo, segments=64, reeds=48):
@@ -19,6 +21,8 @@ def build_geometry(geo, segments=64, reeds=48):
     )}
 
     def face(vertices, normals, group):
+        if group not in groups:
+            groups[group] = geo.createPrimGroup(group)
         polygon = geo.createPolygon()
         # Houdini's OBJ exporter reverses polygon order. Keep exported faces
         # aligned with the outward normals for Three.js front-face culling.
@@ -69,30 +73,28 @@ def build_geometry(geo, segments=64, reeds=48):
             direction = tuple((q - p).cross(r - p).normalized())
             face(vertices, [direction] * 4, "coin_reeds")
 
-    # A single solid silhouette avoids a seam where the bar meets the diagonal.
-    # The raised face is inset slightly to catch a highlight along its bevel.
-    outline = [(-.40, .46), (-.40, .25), (.10, .25), (-.31, -.46),
-               (-.04, -.46), (.39, .30), (.43, .46)]
-    inset = []
-    for i, (x, y) in enumerate(outline):
-        px, py = outline[i - 1]
-        qx, qy = outline[(i + 1) % len(outline)]
-        a, b = math.hypot(x - px, y - py), math.hypot(qx - x, qy - y)
-        n0, n1 = (-(y - py) / a, (x - px) / a), (-(qy - y) / b, (qx - x) / b)
-        distance = .018 / (1 + n0[0] * n1[0] + n0[1] * n1[1])
-        inset.append((x + (n0[0] + n1[0]) * distance, y + (n0[1] + n1[1]) * distance))
-    for side in (-1, 1):
-        contours = [[(x * side, y, z * side) for x, y in shape]
-                    for shape, z in ((outline, .078), (outline, .122), (inset, .143))]
-        face(contours[-1], [(0.0, 0.0, float(side))] * len(outline), "coin_seven")
-        face(list(reversed(contours[0])), [(0.0, 0.0, float(-side))] * len(outline), "coin_seven")
-        for back, front in zip(contours, contours[1:]):
-            for i in range(len(outline)):
-                j = (i + 1) % len(outline)
-                vertices = [back[i], back[j], front[j], front[i]]
-                p, q, r = (hou.Vector3(v) for v in vertices[:3])
-                direction = tuple((q - p).cross(r - p).normalized())
-                face(vertices, [direction] * 4, "coin_seven")
+    class CoinSurface(Model):
+        cap_depth = 1
+        def __init__(self, side): self.side=side
+        def face(self, positions, normals, name):
+            p=[(x*.67*self.side,y*.67,(z*.30+.16)*self.side) for x,y,z in positions]
+            n=[tuple(hou.Vector3((nx*self.side,ny,nz*self.side*.67/.30)).normalized()) for nx,ny,nz in normals]
+            face(p,n,'coin_'+name)
+    for side in (-1,1):
+        make_seven(CoinSurface(side))
+        # Radial sunburst engraving and a beaded inner rim on both faces.
+        for i in range(48):
+            a=i*math.tau/48
+            p=[(r*math.cos(a+da),r*math.sin(a+da),z*side)
+               for r,da,z in ((.19,-.006,.082),(.77,-.006,.082),(.77,.006,.098),(.19,.006,.098))]
+            face(p,[(0,0,float(side))]*4,'coin_rim')
+            cx,cy=.858*math.cos(a),.858*math.sin(a)
+            # Low-resolution domes are intentional: the token is 30–70 px in game.
+            for j in range(8):
+                u,v=j*math.tau/8,(j+1)*math.tau/8
+                p=[(cx,cy,.136*side),(cx+math.cos(u)*.019,cy+math.sin(u)*.019,.108*side),
+                   (cx+math.cos(v)*.019,cy+math.sin(v)*.019,.108*side)]
+                face(p,[(0,0,float(side))]*3,'coin_rim')
 
 
 def main():
@@ -118,7 +120,9 @@ def main():
     # Embed the generator itself so the local .hipnc remains editable without
     # depending on any developer-specific filesystem path.
     source = Path(__file__).read_text(encoding="utf-8")
-    embedded = source[:source.index("\ndef main():")]
+    cabinet = Path(__file__).with_name('build_cabinet.py').read_text(encoding='utf-8')
+    symbols = Path(__file__).with_name('build_symbols.py').read_text(encoding='utf-8')
+    embedded = symbols[:symbols.index('\ndef main():')] + '\n' + cabinet[:cabinet.index('\ndef main():')].replace('from build_symbols import Model','') + '\n' + source[:source.index('\ndef main():')].replace('from build_cabinet import make_seven','').replace('from build_symbols import Model','')
     generator.parm("python").set(embedded + "\nnode = hou.pwd()\nbuild_geometry(node.geometry(), node.evalParm('segments'), node.evalParm('reeds'))\n")
     triangles = container.createNode("divide", "triangulate_for_web")
     triangles.setInput(0, generator)
