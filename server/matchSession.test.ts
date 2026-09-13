@@ -844,7 +844,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('does not run a second direct-loan decision when a Live delegation arrives after the same turn settles', async () => {
+  it('resolves a later Live delegation without a second loan decision after the same direct-request turn settles', async () => {
     vi.mocked(chooseLoanDecision).mockResolvedValueOnce('reject_loan');
     const { session } = setup('deduplicated-player-loan', 'manual', 'audio');
     await session.initialize();
@@ -859,6 +859,29 @@ describe('live match cleanup', () => {
     provider.events?.onDelegation({ id: 'duplicate-player-loan', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseLoanDecision).toHaveBeenCalledOnce();
+    expect(provider.delegationThinking).toHaveBeenCalledWith('duplicate-player-loan', expect.stringContaining('Continue the ordinary conversation'));
+    await session.shutdown('test_finished');
+  });
+
+  it('resolves a later Live delegation while the direct loan decision is still pending', async () => {
+    const pending = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
+    vi.mocked(chooseLoanDecision).mockReturnValueOnce(pending.promise);
+    const { session } = setup('pending-direct-player-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'お金を貸してほしい', { startMs: 0, endMs: 300 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(1);
+    provider.events?.onDelegation({ id: 'pending-direct-player-loan', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseLoanDecision).toHaveBeenCalledOnce();
+    expect(provider.delegationThinking).toHaveBeenCalledWith('pending-direct-player-loan', expect.stringContaining('Continue the ordinary conversation'));
+    pending.resolve('reject_loan');
+    await pending.promise;
     await session.shutdown('test_finished');
   });
 
@@ -1017,10 +1040,32 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(4_900);
     provider.events?.onUserSpeech();
     await vi.advanceTimersByTimeAsync(200);
+    provider.events?.onUserSpeechEnd();
     provider.events?.onTranscript('user', 'いいよ、', { startMs: 0, endMs: 100 });
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await vi.advanceTimersByTimeAsync(150);
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'player_to_rival', amount: 5 });
     expect(chooseLoanDecision).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not transfer a comma-ended rival-loan reply when a later transcript delta refuses it', async () => {
+    const { session, messages } = setup('refused-settled-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    const speechId = startLoanOffer();
+    finishLoanOffer(session, speechId);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', 'いいよ、', { startMs: 0, endMs: 100 });
+    provider.events?.onTranscript('user', 'でも無理', { startMs: 101, endMs: 200 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await session.shutdown('test_finished');
   });
 

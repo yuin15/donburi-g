@@ -132,8 +132,14 @@ describe('loan choice', () => {
     expect(acceptsLoanOffer(transcript)).toBe(false);
   });
 
-  it.each(['いいよ', 'いいよ、', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
+  it.each(['いいよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(true);
+  });
+
+  it('waits for speech completion before accepting a Japanese affirmative ending in a comma', () => {
+    expect(acceptsImmediateLoanOffer('いいよ、')).toBe(false);
+    expect(acceptsImmediateLoanOffer('いいよ、', true)).toBe(true);
+    expect(acceptsImmediateLoanOffer('いいよ、でも無理', true)).toBe(false);
   });
 
   it.each(['いや', '貸して', '貸してくれない？', 'いいよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {

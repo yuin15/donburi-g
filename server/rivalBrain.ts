@@ -37,10 +37,10 @@ export function acceptsLoanOffer(transcript: string): boolean {
 }
 
 /** Strict enough to move money immediately, without relying on model judgment. */
-export function acceptsImmediateLoanOffer(transcript: string): boolean {
+export function acceptsImmediateLoanOffer(transcript: string, afterSpeech = false): boolean {
   const normalized = transcript.normalize('NFKC').trim();
   if (rejectsLoanOffer(normalized)) return false;
-  if (/^(?:うん|はい|いいよ|もちろん|了解)(?:[、。！？!?])*$/i.test(normalized)) return true;
+  if (new RegExp(`^(?:うん|はい|いいよ|もちろん|了解)(?:[${afterSpeech ? '、' : ''}。！？!?])*$`, 'i').test(normalized)) return true;
   if (/^(?:yes|yeah|yep|sure|okay|ok)(?:[。！？!?])*$/i.test(normalized)) return true;
   if (/^(?:(?:うん|はい|いいよ|もちろん|了解)[、,\s]+)?(?:\$?\s*5ドル(?:なら|だけ)?[、,\s]*)?(?:貸す|貸してあげる|貸してやる)(?:よ|ね)?[、。！？!?\s]*$/i.test(normalized)) return true;
   return /^(?:(?:yes|yeah|yep|sure|okay|ok)[,!\s]+)?(?:i(?:'|’)ll|i will)\s+(?:lend|loan)\s+you(?:\s+(?:\$?5|five|some))?[.!\s]*$/i.test(normalized);

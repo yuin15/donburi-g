@@ -137,6 +137,7 @@ export class MatchSession {
   private loanDelegation: { id: string | null; generation: number; direction: LoanDirection } | null = null;
   private directLoanRequestSettle: { turn: number; generation: number; deadline: number; timer: NodeJS.Timeout } | null = null;
   private readonly directLoanRequestTurns = new Set<number>();
+  private loanOfferReplySettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
@@ -257,6 +258,7 @@ export class MatchSession {
         this.emit({ type: 'transcript', role, delta });
         if (role === 'user') {
           this.acceptRivalLoanFromCurrentTurn();
+          this.queueSettledRivalLoanReply(generation);
           this.queueDirectLoanRequest(generation);
         }
       },
@@ -276,6 +278,7 @@ export class MatchSession {
         if (!current() || resultOnly) return;
         this.tick();
         this.userSpeaking = false;
+        this.queueSettledRivalLoanReply(generation);
         this.settleDirectLoanRequest(this.userSpeechTurn, generation);
       },
       onDelegation: delegation => {
@@ -339,6 +342,7 @@ export class MatchSession {
       this.extensionDelegation = null;
       this.loanDelegation = null;
       this.directLoanRequestSettle = null;
+      this.loanOfferReplySettle = null;
       this.loanOffer = null;
       this.loanDecisionPending = false;
       this.extensionDecisionPending = false;
@@ -413,6 +417,7 @@ export class MatchSession {
     this.extensionDelegation = null;
     this.loanDelegation = null;
     this.directLoanRequestSettle = null;
+    this.loanOfferReplySettle = null;
     this.loanOffer = null;
     this.loanDecisionPending = false;
     this.extensionDecisionPending = false;
@@ -794,7 +799,10 @@ export class MatchSession {
     const timer = setTimeout(() => {
       this.delegationSettles.delete(timer);
       if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration) return;
-      if (this.loanDecisionPending || this.directLoanRequestTurns.has(this.userSpeechTurn)) return;
+      if (this.loanDecisionPending || this.directLoanRequestTurns.has(this.userSpeechTurn)) {
+        this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
+        return;
+      }
       // An explicit late extension request remains an extension request even
       // if a bankroll happens to be empty. It cancels an unanswered loan
       // invitation so the two conversational decisions cannot overlap.
@@ -876,7 +884,7 @@ export class MatchSession {
   }
 
   /** A live, clear reply to the rival's own offer transfers without AI delay. */
-  private acceptRivalLoanFromCurrentTurn(): void {
+  private acceptRivalLoanFromCurrentTurn(afterSpeech = false): void {
     const pendingRivalLoan = this.loanDecisionPending && this.loanDelegation?.direction === 'player_to_rival';
     if (
       this.closed
@@ -890,7 +898,7 @@ export class MatchSession {
       || this.extensionNegotiation
       || this.extensionSpeech
       || (this.loanDecisionPending && !pendingRivalLoan)
-      || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript())
+      || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript(), afterSpeech)
     ) return;
     this.tick();
     if (this.state.status !== 'playing') return;
@@ -901,6 +909,24 @@ export class MatchSession {
     const line = '助かった、$5借りるよ。ここから巻き返す。';
     if (!this.completeLoanTransfer('player_to_rival', line)) return;
     this.gpt?.requestConfirmedLine(line);
+  }
+
+  /** Wait briefly after speech end so a trailing comma cannot hide a refusal. */
+  private queueSettledRivalLoanReply(generation: number): void {
+    if (this.userSpeaking || !this.isLoanOfferReplyEligibleForCurrentTurn(Date.now())) return;
+    if (this.loanOfferReplySettle) {
+      clearTimeout(this.loanOfferReplySettle.timer);
+      this.delegationSettles.delete(this.loanOfferReplySettle.timer);
+    }
+    const turn = this.userSpeechTurn;
+    const timer = setTimeout(() => {
+      this.delegationSettles.delete(timer);
+      if (this.loanOfferReplySettle?.timer !== timer) return;
+      this.loanOfferReplySettle = null;
+      if (!this.userSpeaking && generation === this.voiceGeneration && turn === this.userSpeechTurn) this.acceptRivalLoanFromCurrentTurn(true);
+    }, 150);
+    this.loanOfferReplySettle = { turn, generation, timer };
+    this.delegationSettles.add(timer);
   }
 
   /** A clear borrower request still reaches the existing AI decision without a Live delegation. */
