@@ -171,7 +171,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
     const resultVoice = provider.bridges[1];
     expect(matchVoice.close).toHaveBeenCalledOnce();
     expect(resultVoice.close).not.toHaveBeenCalled();
-    expect(resultVoice.openingContext).toContain(`プレイヤー${ended.snapshot.scores.player}点、あなた${ended.snapshot.scores.rival}点`);
+    expect(resultVoice.openingContext).toContain(`プレイヤー所持金$${ended.snapshot.scores.player}、あなた所持金$${ended.snapshot.scores.rival}`);
     expect(resultVoice.openingContext).toContain(`状態=result,勝者=${ended.snapshot.winner}`);
     expect(resultVoice.openingContext).toContain('プレイヤー30回目');
     expect(resultVoice.updateGameContext).toHaveBeenCalledOnce();
@@ -214,9 +214,9 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   for (const side of ['player', 'rival'] as const) {
     const history = spins.filter(spin => spin.side === side);
     expect(history.map(spin => spin.round)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
-    let total = 0;
+    let total = 30;
     for (const spin of history) {
-      total += spin.payout;
+      total += spin.payout - 1;
       expect(spin.total).toBe(total);
     }
     expect(ended.snapshot.scores[side]).toBe(total);

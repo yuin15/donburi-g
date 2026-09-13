@@ -68,7 +68,9 @@ export const UPGRADE_DEFINITIONS: Record<UpgradeId, UpgradeDefinition> = {
   },
 };
 
-export const PAYOUT: Record<SymbolId, number> = { cherry: 120, bell: 240, seven: 1200 };
+export const STARTING_BALANCE = 30;
+export const SPIN_COST = 1;
+export const PAYOUT: Record<SymbolId, number> = { cherry: 3, bell: 6, seven: 30 };
 export const BASE_POOL: readonly SymbolId[] = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'];
 
 function makeId(): string {
@@ -94,7 +96,9 @@ function nextSeq(state: MatchState): number {
   return state.eventSeq;
 }
 
-function spinSide(state: MatchState, side: Side): SpinView {
+function spinSide(state: MatchState, side: Side): SpinView | null {
+  if (state.scores[side] < SPIN_COST) return null;
+  state.scores[side] -= SPIN_COST;
   state.rounds[side] += 1;
   state.round = state.rounds.player;
   const pool = state.activePools[side];
@@ -131,7 +135,7 @@ export function createMatch(
     remaining: MATCH_SECONDS,
     round: 0,
     rounds: { player: 0, rival: 0 },
-    scores: { player: 0, rival: 0 },
+    scores: { player: STARTING_BALANCE, rival: STARTING_BALANCE },
     stats: createMatchStats(),
     pools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
     activePools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
@@ -166,19 +170,25 @@ export function submitUpgrade(
   return true;
 }
 
-function performSpin(state: MatchState, at: number, events: GameEvent[], side?: Side): void {
+function performSpin(state: MatchState, at: number, events: GameEvent[], side?: Side): boolean {
   const leaderBefore = currentLeader(state.scores);
-  if (side) events.push({ type: 'side_spin', seq: nextSeq(state), at, spin: spinSide(state, side) });
-  else {
-    const player = spinSide(state, 'player');
-    const rival = spinSide(state, 'rival');
-    events.push({ type: 'spin', seq: nextSeq(state), at, player, rival });
+  const spins = side
+    ? [spinSide(state, side)]
+    : [spinSide(state, 'player'), spinSide(state, 'rival')];
+  const settled = spins.filter((spin): spin is SpinView => spin !== null);
+  if (side) {
+    if (settled[0]) events.push({ type: 'side_spin', seq: nextSeq(state), at, spin: settled[0] });
+  } else if (settled.length === 2) {
+    events.push({ type: 'spin', seq: nextSeq(state), at, player: settled[0], rival: settled[1] });
+  } else {
+    settled.forEach(spin => events.push({ type: 'side_spin', seq: nextSeq(state), at, spin }));
   }
   const leaderAfter = currentLeader(state.scores);
-  if (leaderAfter !== leaderBefore && leaderAfter !== state.lastLeader) {
+  if (settled.length && leaderAfter !== leaderBefore && leaderAfter !== state.lastLeader) {
     state.lastLeader = leaderAfter;
     events.push({ type: 'leader_change', seq: nextSeq(state), at, leader: leaderAfter });
   }
+  return settled.length > 0;
 }
 
 function processSecond(state: MatchState, second: number, events: GameEvent[]): void {
@@ -242,8 +252,9 @@ export function requestManualSpin(state: MatchState, elapsedSeconds: number): Ga
   if (state.status !== 'playing' || state.spinMode !== 'manual' || state.elapsed >= MATCH_SECONDS) return events;
   // Ignore binary floating-point noise at exact 1.1-second boundaries.
   if (state.lastManualSpinAt !== null && state.elapsed + 1e-9 < state.lastManualSpinAt + MANUAL_SPIN_INTERVAL) return events;
-  state.lastManualSpinAt = state.elapsed;
+  const playerRound = state.rounds.player;
   performSpin(state, state.elapsed, events, 'player');
+  if (state.rounds.player > playerRound) state.lastManualSpinAt = state.elapsed;
   return events;
 }
 

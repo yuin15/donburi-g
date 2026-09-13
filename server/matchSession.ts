@@ -8,6 +8,8 @@ import {
   createMatch,
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
+  PAYOUT,
+  SPIN_COST,
   requestManualSpin,
   startMatch,
   submitUpgrade,
@@ -341,9 +343,11 @@ export class MatchSession {
         this.publishEvents(requestManualSpin(this.state, Math.max(0, (Date.now() - this.startedAt) / 1000)));
         accepted = this.state.round > round;
       }
-      const retryAfterMs = this.state.status === 'playing' && this.state.lastManualSpinAt !== null
-        ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
-        : 0;
+      const retryAfterMs = !accepted && this.state.scores.player < SPIN_COST
+        ? 0
+        : this.state.status === 'playing' && this.state.lastManualSpinAt !== null
+          ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
+          : 0;
       this.emitSpinStatus(message.commandId, accepted, retryAfterMs);
       return;
     }
@@ -410,7 +414,7 @@ export class MatchSession {
   private handleGameEvent(event: GameEvent): void {
     if (event.type === 'side_spin') {
       this.emit({ type: 'side_spin', spin: event.spin });
-      if (event.spin.payout >= 1200) {
+      if (event.spin.payout >= PAYOUT.seven) {
         const player = event.spin.side === 'player';
         this.react(player ? 'player_jackpot' : 'rival_jackpot', player
           ? 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。'
@@ -420,9 +424,9 @@ export class MatchSession {
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= 1200 && event.rival.payout >= 1200) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した得点差を踏まえて短く反応して。', event.player.round);
-      else if (event.player.payout >= 1200) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
-      else if (event.rival.payout >= 1200) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
+      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した得点差を踏まえて短く反応して。', event.player.round);
+      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
+      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
       return;
     }
     if (event.type === 'leader_change') {
@@ -554,7 +558,7 @@ export class MatchSession {
       ? `直近の確定回転: ${(['player', 'rival'] as const).map(side => {
         const spin = this.lastSpins[side];
         const name = side === 'player' ? 'プレイヤー' : 'あなた';
-        return spin ? `${name}${spin.round}回目、絵柄[${spin.symbols.join(',')}]、配当${spin.payout}点` : `${name}はまだ回転していない`;
+        return spin ? `${name}${spin.round}回目、絵柄[${spin.symbols.join(',')}]、配当$${spin.payout}` : `${name}はまだ回転していない`;
       }).join(';')}。`
       : '直近の確定回転: まだ回転していない。';
     const leader = snapshot.scores.player === snapshot.scores.rival ? '同点' : snapshot.scores.player > snapshot.scores.rival ? 'プレイヤー' : 'あなた';
@@ -562,12 +566,18 @@ export class MatchSession {
       ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
       : '';
     // Static rules belong in the startup persona; repeat only the current facts.
-    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー${snapshot.scores.player}点、あなた${snapshot.scores.rival}点、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
+    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー所持金$${snapshot.scores.player}、あなた所持金$${snapshot.scores.rival}、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {
     this.lastSnapshotAt = Date.now();
-    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), ...(this.state.spinMode === 'manual' ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
+    const snapshot = getSnapshot(this.state);
+    const needsSeparateLatest = this.state.spinMode === 'manual'
+      || !this.lastSpin
+      || snapshot.rounds.player !== snapshot.rounds.rival
+      || this.lastSpin.player.total !== snapshot.scores.player
+      || this.lastSpin.rival.total !== snapshot.scores.rival;
+    this.emit({ type: 'snapshot', snapshot, ...(needsSeparateLatest ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
   }
 
   private emitSpinStatus(commandId: string, accepted: boolean, retryAfterMs: number): void {

@@ -23,7 +23,7 @@ app.innerHTML = `
   <section class="machine" aria-label="Your slot machine">
     <div id="machineTitle"><span id="winLabel">MATCH 3 · WIN BIG</span><strong id="pay" aria-live="polite">0</strong></div>
     <div class="event-cue" id="eventCue" role="status" hidden></div>
-    <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
+    <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>CASH</span></div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>
     <div id="machineTrim">3 MATCHING SYMBOLS · CENTER LINE</div>
   </section>
@@ -33,7 +33,7 @@ app.innerHTML = `
     <span id="rivalMood">60 seconds. Let's play.</span><p id="line">Think you can beat me?</p><small id="heard"></small>
     <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS</span><strong id="rivalPay" hidden></strong></div>
     <strong class="sr-only" id="rivalReels">Cherry, Bell, Seven</strong>
-    <div id="duelRules"><strong>MOST COINS WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>
+    <div id="duelRules"><strong>MOST CASH WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>
     <div id="voicePanel" aria-label="Microphone controls" hidden>
       <button id="mic" aria-label="Mute your microphone" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="13" rx="4"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/><path class="mic-slash" d="M3 3l18 18"/></svg>
@@ -48,14 +48,14 @@ app.innerHTML = `
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
       <small id="resultRounds">60 SECOND DUEL</small>
       <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>
-      <div class="result-score" id="resultScore"><div><small>YOUR COINS</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>RIVAL COINS</small><strong id="resultRival"></strong></div></div>
+      <div class="result-score" id="resultScore"><div><small>YOUR CASH</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>RIVAL CASH</small><strong id="resultRival"></strong></div></div>
       <p id="resultGap"></p>
       <div class="result-records" id="resultRecords"><div><small id="recordLabel">SESSION BEST</small><strong id="recordCoins">0</strong></div><div><small>WIN STREAK</small><strong id="recordStreak">0</strong></div></div>
-      <details id="resultDetails"><summary>ROUND STATS <span aria-hidden="true">＋</span></summary><table aria-label="Match coin breakdown"><thead><tr><th scope="col">COIN BREAKDOWN</th><th scope="col">YOU</th><th scope="col">RIVAL</th></tr></thead><tbody id="resultStats"></tbody></table></details>
+      <details id="resultDetails"><summary>ROUND STATS <span aria-hidden="true">＋</span></summary><table aria-label="Match cash breakdown"><thead><tr><th scope="col">CASH BREAKDOWN</th><th scope="col">YOU</th><th scope="col">RIVAL</th></tr></thead><tbody id="resultStats"></tbody></table></details>
       <p class="result-again" id="resultAgain">One more round?</p>
     </section>
     <button id="start" disabled>PLAY</button><span id="spinHint" aria-live="polite">CLICK / SPACE TO SPIN</span>
-    <div id="paytable" aria-label="Three cherries pay 120, bells 240, sevens 1200"><span><small>×3</small><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><small>×3</small><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><small>×3</small><i class="symbol-icon seven"></i>1,200</span></div>
+    <div id="paytable" aria-label="Three cherries pay $3, bells $6, sevens $30"><span><small>×3</small><i class="symbol-icon cherry"></i>$${PAYOUT.cherry}</span><span><small>×3</small><i class="symbol-icon bell"></i>$${PAYOUT.bell}</span><span><small>×3</small><i class="symbol-icon seven"></i>$${PAYOUT.seven}</span></div>
     <div id="roundStatus"><kbd id="spaceKey">SPACE</kbd><div id="bestRun" hidden><small>SESSION BEST</small><strong id="bestScore"></strong></div><small id="queueStatus">CLICK TO SPIN</small></div>
   </footer>
 </section>
@@ -63,8 +63,8 @@ app.innerHTML = `
   <div class="gate-card">
     <div class="eyebrow">60 SECOND DUEL</div>
     <h2 id="gateTitle">SPIN FAST.<br><em>BEAT YOUR RIVAL.</em></h2>
-    <p>Click or press SPACE to spin.<br>Your rival spins automatically.<br>Win the most coins in 60 seconds.</p>
-    <p class="gate-strategy">Match 3 symbols on the center line.<br>Three 7s win 1,200 coins.<br>Every spin could turn the game.</p>
+    <p>Start with $30. Every spin costs $1.<br>Your rival spins automatically.<br>Win the most cash in 60 seconds.</p>
+    <p class="gate-strategy">Match 3 symbols on the center line.<br>Three 7s win $30.<br>Every spin could turn the game.</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>One more press?<br>Your next spin is queued.</span></div>
     <button id="practice" class="primary">PLAY NOW <span>→</span></button>
     <small>Free · No mic needed · Desktop 1280×720 or larger</small>

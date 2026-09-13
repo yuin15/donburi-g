@@ -94,9 +94,9 @@ async function socket() {
 function resultSnapshot() {
   return {
     matchId: 'test-match', status: 'result', round: 30, rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0,
-    scores: { player: 1200, rival: 0 },
+    scores: { player: 30, rival: 0 },
     stats: {
-      player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 1200 } },
+      player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 30 } },
       rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null },
     },
     upgrades: { player: [], rival: [] }, eventSeq: 40, winner: 'player',
@@ -174,7 +174,7 @@ describe('browser live connection lifecycle', () => {
     ws.open(); ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' }); ws.message({ type: 'voice_status', status: 'ready' });
     await connection;
     const snapshot = resultSnapshot();
-    const lastSpin = { player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 1200 }, rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } };
+    const lastSpin = { player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 30 }, rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } };
     ws.sequence += 1; // The last spin was lost before it reached the listener.
     ws.message({ type: 'match_ended', snapshot });
     expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'snapshot' }));
@@ -208,7 +208,7 @@ describe('browser live connection lifecycle', () => {
     ws.message({
       type, snapshot: resultSnapshot(),
       ...(type === 'snapshot' ? { lastSpin: {
-        player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 1200, total: 1200 },
+        player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 30 },
         rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 },
       } } : {}),
     });

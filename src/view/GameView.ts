@@ -138,8 +138,8 @@ export class GameView implements GamePresentation {
         { transform: 'scale(1)', color: '#ffac8c' },
       ], { duration: 260, easing: 'ease-out' });
     }
-    this.text('#ps', state.scores.player.toLocaleString());
-    this.text('#rs', state.scores.rival.toLocaleString());
+    this.text('#ps', '$' + state.scores.player.toLocaleString());
+    this.text('#rs', '$' + state.scores.rival.toLocaleString());
     const total = state.scores.player + state.scores.rival;
     const gap = state.scores.player - state.scores.rival;
     this.q('#playerMeter').style.width = `${total ? state.scores.player / total * 100 : 50}%`;
@@ -158,10 +158,10 @@ export class GameView implements GamePresentation {
     this.text('#lastSpin', state.lastSpin?.player ? this.glyphs(state.lastSpin.player) : 'Cherry, Bell, Seven');
     this.text('#rivalReels', state.lastSpin?.rival ? this.glyphs(state.lastSpin.rival) : 'Cherry, Bell, Seven');
 
-    this.text('#pay', state.payout?.player ? `+${state.payout.player.toLocaleString()}` : '0');
+    this.text('#pay', state.payout?.player ? `+$${state.payout.player.toLocaleString()}` : '0');
     this.text('#winLabel', state.payout?.player ? 'WIN' : 'MATCH 3 · WIN BIG');
     this.q('#pay').dataset.jackpot = String((state.payout?.player ?? 0) >= PAYOUT.seven);
-    this.text('#rivalPay', state.payout?.rival ? `+${state.payout.rival.toLocaleString()}` : '');
+    this.text('#rivalPay', state.payout?.rival ? `+$${state.payout.rival.toLocaleString()}` : '');
     this.q('#rivalPay').dataset.jackpot = String((state.payout?.rival ?? 0) >= PAYOUT.seven);
     this.q('#rivalPay').hidden = !state.payout?.rival;
     this.text('#rivalWinLabel', (state.payout?.rival ?? 0) >= PAYOUT.seven ? 'BIG WIN' : state.payout?.rival ? 'WIN' : 'RIVAL REELS');
@@ -174,7 +174,7 @@ export class GameView implements GamePresentation {
     const burst = this.q('#winBurst');
     burst.hidden = !reward || !!state.result;
     burst.dataset.jackpot = String(reward >= PAYOUT.seven);
-    this.text('#winBurstAmount', '+' + reward.toLocaleString());
+    this.text('#winBurstAmount', '+$' + reward.toLocaleString());
     this.text('#winBurstLabel', reward >= PAYOUT.seven ? 'BIG WIN' : reward >= PAYOUT.bell ? 'BELL WIN' : 'CHERRY WIN');
     this.q('#scoreGap').hidden = !burst.hidden || !!state.result;
     if (previous && !state.result && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -207,8 +207,8 @@ export class GameView implements GamePresentation {
     const record = state.sessionRecord;
     this.q('#bestRun').hidden = !record.best;
     this.q('#spaceKey').hidden = !!record.best;
-    this.text('#bestScore', record.best.toLocaleString());
-    this.text('#recordCoins', record.best.toLocaleString());
+    this.text('#bestScore', '$' + record.best.toLocaleString());
+    this.text('#recordCoins', '$' + record.best.toLocaleString());
     this.text('#recordStreak', record.streak ? '× ' + record.streak : '—');
     this.text('#recordLabel', record.newBest ? 'NEW PERSONAL BEST' : 'SESSION BEST');
     this.q('#resultRecords').dataset.record = String(record.newBest);
@@ -246,10 +246,10 @@ export class GameView implements GamePresentation {
     this.q<HTMLDetailsElement>('#resultDetails').open = false;
     this.text('#resultEnglish', 'ROUND COMPLETE');
     this.text('#resultTitle', snapshot.winner === 'player' ? 'YOU WIN!' : snapshot.winner === 'rival' ? 'RIVAL WINS' : 'DRAW');
-    this.text('#resultPlayer', snapshot.scores.player.toLocaleString());
-    this.text('#resultRival', snapshot.scores.rival.toLocaleString());
+    this.text('#resultPlayer', '$' + snapshot.scores.player.toLocaleString());
+    this.text('#resultRival', '$' + snapshot.scores.rival.toLocaleString());
     const margin = Math.abs(snapshot.scores.player - snapshot.scores.rival).toLocaleString();
-    this.text('#resultGap', snapshot.winner === 'player' ? `You won by ${margin} coins.` : snapshot.winner === 'rival' ? `${margin} coins behind. Go again?` : 'Same coins. One more round to settle it.');
+    this.text('#resultGap', snapshot.winner === 'player' ? `You won by $${margin}.` : snapshot.winner === 'rival' ? `$${margin} behind. Go again?` : 'Same cash. One more round to settle it.');
     this.text('#resultAgain', snapshot.winner === 'player' ? 'Keep the streak going. One more round?' : 'Beat your best. Your next spin could change everything.');
     const rows = this.q<HTMLTableSectionElement>('#resultStats');
     rows.replaceChildren();
@@ -272,13 +272,13 @@ export class GameView implements GamePresentation {
     for (const [symbol, label] of [['cherry', 'CHERRY'], ['bell', 'BELL'], ['seven', 'SEVEN']] as const) {
       const value = (side: 'player' | 'rival') => {
         const count = snapshot.stats[side].wins[symbol];
-        return `${count} ${count === 1 ? 'HIT' : 'HITS'} · ${(count * PAYOUT[symbol]).toLocaleString()}`;
+        return `${count} ${count === 1 ? 'HIT' : 'HITS'} · $${(count * PAYOUT[symbol]).toLocaleString()}`;
       };
       addRow(label, value('player'), value('rival'), symbol);
     }
     const best = (side: 'player' | 'rival') => {
       const spin = snapshot.stats[side].bestSpin;
-      return spin ? `${spin.payout.toLocaleString()} · SPIN ${spin.round}` : 'NO WIN';
+      return spin ? `$${spin.payout.toLocaleString()} · SPIN ${spin.round}` : 'NO WIN';
     };
     addRow('BEST SPIN', best('player'), best('rival'));
   }

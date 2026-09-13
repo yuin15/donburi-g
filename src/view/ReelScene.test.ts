@@ -247,18 +247,18 @@ describe('stage rendering and cleanup', () => {
     frame(180);
     expect(frames.size).toBe(0);
   });
-  it.each([[1200, 0], [0, 1200], [120, 1200]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
+  it.each([[30, 0], [0, 30], [3, 30]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
     const { view, host } = setup();
-    const player = spin(1, playerPayout === 1200 ? ['seven', 'seven', 'seven'] : playerPayout ? ['cherry', 'cherry', 'cherry'] : ['cherry', 'bell', 'seven'], playerPayout);
+    const player = spin(1, playerPayout === 30 ? ['seven', 'seven', 'seven'] : playerPayout ? ['cherry', 'cherry', 'cherry'] : ['cherry', 'bell', 'seven'], playerPayout);
     const rival = { ...spin(1, rivalPayout ? ['seven', 'seven', 'seven'] : ['bell', 'cherry', 'seven'], rivalPayout), side: 'rival' as const };
     view.play(player, rival, vi.fn());
     frame(1060);
     expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]);
     expect(reelWins()).toEqual([playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0]);
-    expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= 1200) });
-    expect(coins().filter(coin => coin.visible)).toHaveLength((playerPayout >= 1200 ? 12 : 0) + (rivalPayout >= 1200 ? 12 : 0));
+    expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= 30) });
+    expect(coins().filter(coin => coin.visible)).toHaveLength((playerPayout >= 30 ? 12 : 0) + (rivalPayout >= 30 ? 12 : 0));
     frame(650);
-    if (playerPayout === 120) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
+    if (playerPayout === 3) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
     if (rivalPayout > 0) expect(reelWins().slice(3)).toEqual([1, 1, 1]);
     frame(550);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
@@ -292,7 +292,7 @@ describe('stage rendering and cleanup', () => {
   it('bounds rival-only flashes, supports a still preview, and clears them on reset, stop and disposal', () => {
     const { view, host } = setup();
     const symbols: [SymbolId, SymbolId, SymbolId] = ['bell', 'bell', 'bell'];
-    view.show(symbols, 0, symbols, false, 240);
+    view.show(symbols, 0, symbols, false, 6);
     frame();
     expect(reelWins()).toEqual([0, 0, 0, 1, 1, 1]);
     expect(coins().filter(coin => coin.visible)).toHaveLength(6);
@@ -300,11 +300,11 @@ describe('stage rendering and cleanup', () => {
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(frames.size).toBe(0);
     motion.matches = true;
-    view.show(symbols, 0, symbols, false, 1200);
+    view.show(symbols, 0, symbols, false, 30);
     frame(180);
     expect(host.dataset).toMatchObject({ rivalWin: 'false', rivalJackpot: 'false' });
     expect(frames.size).toBe(0);
-    view.show(symbols, 0, symbols, true, 240);
+    view.show(symbols, 0, symbols, true, 6);
     frame();
     expect(reelWins().slice(3)).toEqual([1, 1, 1]);
     expect(frames.size).toBe(0);

@@ -266,7 +266,7 @@ describe('live match cleanup', () => {
     if (first?.type !== 'side_spin') throw new Error('missing manual spin');
     expect(first.spin.round).toBe(1);
     expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'rival')).toHaveLength(2);
-    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、絵柄[${first.spin.symbols.join(',')}]、配当${first.spin.payout}点`);
+    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、絵柄[${first.spin.symbols.join(',')}]、配当$${first.spin.payout}`);
     const contextOrder = provider.context.mock.invocationCallOrder.at(-1)!;
     session.handleRaw('{"type":"mic","audio":"AQID"}');
     expect(provider.mic.mock.invocationCallOrder.at(-1)).toBeGreaterThan(contextOrder);
@@ -296,7 +296,7 @@ describe('live match cleanup', () => {
     vi.setSystemTime(Date.now() + 60_000);
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
     expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(0);
-    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 30 }, remaining: 0, winner: 'rival' } });
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 30 }, remaining: 0, winner: 'player' } });
     expect(messages.at(-1)).toMatchObject({ type: 'spin_status', commandId: 'at-deadline', accepted: false, retryAfterMs: 0 });
     session.handleRaw('{"type":"spin","commandId":"after-result","matchId":"test-match"}');
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
@@ -539,17 +539,17 @@ describe('live match cleanup', () => {
     const reactionsBefore = provider.reaction.mock.calls.length;
     await vi.advanceTimersByTimeAsync(1000);
     const latestSpin = messages.filter(m => m.type === 'spin').at(-1);
-    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], payout: 240, total: 1680 }, rival: { round: 7, payout: 0, total: 0 } });
+    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 65 }, rival: { round: 7, payout: 0, total: 23 } });
     if (latestSpin?.type !== 'spin') throw new Error('missing ordinary win');
     // The boundary tick must include the just-confirmed spin, not wait for the next tick.
     expect(provider.context).toHaveBeenCalledTimes(16);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー7回目、絵柄[bell,bell,bell]、配当240点'));
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`あなた7回目、絵柄[${latestSpin.rival.symbols.join(',')}]、配当0点`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー7回目、絵柄[bell,bell,bell]、配当$6'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`あなた7回目、絵柄[${latestSpin.rival.symbols.join(',')}]、配当$0`));
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
     expect(provider.context).toHaveBeenCalledTimes(16);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー1680点、あなた0点'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー所持金$65、あなた所持金$23'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('首位=プレイヤー'));
     expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
     // Ready + start + one changed context per elapsed second, not every 100ms tick.
@@ -571,12 +571,12 @@ describe('live match cleanup', () => {
     expect(latest).toMatchObject({ snapshot: { elapsed: 24.1, round: 12, upgrades: { player: ['jackpot'], rival: ['steady'] } } });
     if (latest?.type !== 'snapshot') throw new Error('missing caught-up snapshot');
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り36秒、プレイヤー${latest.snapshot.scores.player}点、あなた${latest.snapshot.scores.rival}点`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り36秒、プレイヤー所持金$${latest.snapshot.scores.player}、あなた所持金$${latest.snapshot.scores.rival}`));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー改造[jackpot],あなた改造[steady]'));
     if (!latest.lastSpin) throw new Error('missing caught-up spin');
     for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
       expect(latest.lastSpin[side].round).toBe(12);
-      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}12回目、絵柄[${latest.lastSpin[side].symbols.join(',')}]、配当${latest.lastSpin[side].payout}点`));
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}12回目、絵柄[${latest.lastSpin[side].symbols.join(',')}]、配当$${latest.lastSpin[side].payout}`));
     }
     expect(provider.mic).toHaveBeenCalledExactlyOnceWith('AAAA');
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
@@ -598,13 +598,13 @@ describe('live match cleanup', () => {
     const final = messages.find(m => m.type === 'match_ended');
     if (final?.type !== 'match_ended') throw new Error('missing final result');
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り0秒、プレイヤー${final.snapshot.scores.player}点、あなた${final.snapshot.scores.rival}点`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り0秒、プレイヤー所持金$${final.snapshot.scores.player}、あなた所持金$${final.snapshot.scores.rival}`));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`状態=result,勝者=${final.snapshot.winner}`));
     const finalSpin = messages.filter(m => m.type === 'spin').at(-1);
     if (finalSpin?.type !== 'spin') throw new Error('missing final spin');
     for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
       expect(finalSpin[side].round).toBe(30);
-      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}30回目、絵柄[${finalSpin[side].symbols.join(',')}]、配当${finalSpin[side].payout}点`));
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}30回目、絵柄[${finalSpin[side].symbols.join(',')}]、配当$${finalSpin[side].payout}`));
     }
     expect(provider.mic).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -680,7 +680,7 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"upgrade","matchId":"test-match","commandId":"bad","offerIndex":0,"upgradeId":"always-seven"}');
     session.handleRaw('{"type":"mic","audio":"not base64"}');
     session.handleRaw('{"type":"snapshot"}');
-    expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, scores: { player: 0, rival: 0 } } });
+    expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, scores: { player: 30, rival: 30 } } });
     expect(messages.filter(m => m.type === 'error')).toHaveLength(3);
     for (let i = 0; i < 130; i += 1) session.handleRaw('{"type":"snapshot"}');
     await vi.advanceTimersByTimeAsync(1);
@@ -802,8 +802,8 @@ describe('live match cleanup', () => {
     expect(final).toMatchObject({ snapshot: { matchId: 'test-match', status: 'result', elapsed: 60, round: 30, upgrades: { player: ['steady', 'jackpot'] } } });
     expect(messages.filter(m => m.type === 'spin')).toHaveLength(30);
     if (before?.type === 'snapshot' && final?.type === 'match_ended') {
-      expect(final.snapshot.scores.player).toBeGreaterThanOrEqual(before.snapshot.scores.player);
-      expect(final.snapshot.scores.rival).toBeGreaterThanOrEqual(before.snapshot.scores.rival);
+      expect(final.snapshot.scores.player).toBeGreaterThanOrEqual(0);
+      expect(final.snapshot.scores.rival).toBeGreaterThanOrEqual(0);
     }
     expect(chooseRivalUpgrade).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(8_000);
