@@ -19,7 +19,6 @@ app.innerHTML = `
   <div class="scores">
     <div class="you" id="playerScore"><span class="score-name"><i aria-hidden="true"><svg viewBox="0 0 40 48"><path d="M4 5 20 1 36 5v22c0 10-16 19-16 19S4 37 4 27Z"/><path d="m10 17 6 5 4-12 4 12 6-5-3 15H13Z"/><path d="M13 36h14"/></svg></i><b>YOU</b><small><em id="roundCount">00</em> SPINS</small></span><strong id="ps">0</strong><span class="score-meter" aria-hidden="true"><i id="playerMeter"></i></span></div>
     <div class="rival" id="rivalScore"><span class="score-name"><i aria-hidden="true"><svg viewBox="0 0 40 48"><path d="M4 5 20 1 36 5v22c0 10-16 19-16 19S4 37 4 27Z"/><path d="m20 9 3.6 10.4L31 23l-7.4 3.6L20 37l-3.6-10.4L9 23l7.4-3.6Z"/></svg></i><b>RIVAL</b><small><em id="rivalRoundCount">00</em> SPINS</small></span><strong id="rs">0</strong><span class="score-meter" aria-hidden="true"><i id="rivalMeter"></i></span></div>
-    <span class="duel-gap" id="scoreGap" role="status">EVEN</span>
   </div>
   <section class="machine" aria-label="Your slot machine">
     <div id="machineTitle"><span id="winLabel">MATCH 3 · WIN BIG</span><strong id="pay" aria-live="polite">0</strong></div>
@@ -64,7 +63,7 @@ app.innerHTML = `
       <p class="result-again" id="resultAgain">One more round?</p>
     </section>
     <button id="start" disabled>PLAY</button><span id="spinHint" aria-live="polite">CLICK / SPACE TO SPIN</span>
-    <div id="paytable" aria-label="Each winning line pays cherries 3, bells 6, sevens 30"><span><small>LINE</small><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><small>LINE</small><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><small>LINE</small><i class="symbol-icon seven"></i>${PAYOUT.seven}</span></div>
+    <div id="paytable" aria-label="Each winning line pays cherries $3, bells $6, sevens $30"><span><small>LINE</small><i class="symbol-icon cherry"></i>$${PAYOUT.cherry}</span><span><small>LINE</small><i class="symbol-icon bell"></i>$${PAYOUT.bell}</span><span><small>LINE</small><i class="symbol-icon seven"></i>$${PAYOUT.seven}</span></div>
     <div id="roundStatus"><kbd id="spaceKey">SPACE</kbd><div id="bestRun" hidden><small>SESSION BEST</small><strong id="bestScore"></strong></div><small id="queueStatus">CLICK TO SPIN</small></div>
   </footer>
 </section>

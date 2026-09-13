@@ -11,7 +11,6 @@ export const OVERLAYS: Record<string, Rect> = {
   playerScore: { x: 56, y: 22, w: 649, h: 108 },
   rivalScore: { x: 966, y: 22, w: 649, h: 108 },
   machineTitle: { x: 336, y: 185, w: 435, h: 49 },
-  scoreGap: { x: 365, y: 842, w: 338, h: 35 },
   eventCue: { x: 275, y: 249, w: 528, h: 87 },
   winBurst: { x: 304, y: 638, w: 460, h: 91 },
   line: { x: 1200, y: 147, w: 403, h: 111 },

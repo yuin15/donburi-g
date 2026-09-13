@@ -52,7 +52,6 @@
 #duelRules { gap: .45cqw; border: 0; background: linear-gradient(90deg,transparent,#080b11a8,transparent); }
 #duelRules strong { font: 650 1.04cqw/1.4 system-ui; letter-spacing: .15em; color: #ddc7a3; }
 #duelRules span { font-size: .64cqw; color: #998d79; }
-.duel-gap { border-color: #8a6b4444; background: linear-gradient(90deg,#0c0906a8,#0b090df2,#0c0906a8); box-shadow: 0 2px 8px #0006; font-size: .9cqw; }
 #machineTitle:not([data-win=true]) #pay { display: none; }
 #machineTitle:not([data-win=true]) { justify-content: center; }
 #paytable .symbol-icon { visibility: hidden; }

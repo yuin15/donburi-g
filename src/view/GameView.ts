@@ -153,11 +153,8 @@ export class GameView implements GamePresentation {
     this.text('#ps', '$' + state.scores.player.toLocaleString());
     this.text('#rs', '$' + state.scores.rival.toLocaleString());
     const total = state.scores.player + state.scores.rival;
-    const gap = state.scores.player - state.scores.rival;
     this.q('#playerMeter').style.width = `${total ? state.scores.player / total * 100 : 50}%`;
     this.q('#rivalMeter').style.width = `${total ? state.scores.rival / total * 100 : 50}%`;
-    this.text('#scoreGap', gap === 0 ? 'EVEN' : `${Math.abs(gap).toLocaleString()} ${gap > 0 ? 'AHEAD' : 'BEHIND'}`);
-    this.q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
     const selectedBet = state.bets.player;
     this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
       const bet = Number(button.dataset.bet) as Bet;
@@ -202,7 +199,6 @@ export class GameView implements GamePresentation {
     burst.dataset.jackpot = String(reward >= PAYOUT.seven);
     this.text('#winBurstAmount', '+' + reward.toLocaleString());
     this.text('#winBurstLabel', reward >= PAYOUT.seven ? 'BIG WIN' : reward >= PAYOUT.bell ? 'BELL WIN' : 'CHERRY WIN');
-    this.q('#scoreGap').hidden = !burst.hidden || !!state.result;
     if (previous && !state.result && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
       for (const side of ['player', 'rival'] as const) {
         const spin = state.lastSpin?.[side];
