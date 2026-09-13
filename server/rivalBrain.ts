@@ -10,26 +10,39 @@ interface ChoiceResult {
 export type TimeExtensionDecision = 'accept_extension_10s' | 'reject_extension' | 'no_request';
 export type LoanDecision = 'accept_loan' | 'reject_loan' | 'no_request';
 
+export function rejectsLoanRequest(transcript: string): boolean {
+  const normalized = transcript.normalize('NFKC').trim();
+  return /(?:貸して(?:ほしく|欲しく)(?:ない|ありません)|借り(?:たく(?:は)?(?:ない|ありません)|(?:る)?(?:必要|つもり|気)(?:は|が)?(?:ない|ありません)|ない|ません)|(?:お金|金|money|cash).{0,12}(?:いらない|不要|足りて)|\b(?:i\s+)?(?:do\s+not|don't|cannot|can't|won't|will\s+not)\s+(?:want\s+to\s+)?(?:borrow|lend|loan)\b)/i.test(normalized);
+}
+
 /** Routes a likely borrower request to the bounded model decision; it never approves a transfer. */
 export function requestsLoan(transcript: string): boolean {
   const normalized = transcript.normalize('NFKC');
-  return /(?:貸して|貸してほしい|借り|お金|金|lend\b|loan\b|borrow\b|cash\b|money\b)|(?:(?:もう一(?:回|度)|one more).{0,12}(?:勝負|spin\b|shot\b))/i.test(normalized);
+  return !rejectsLoanRequest(normalized) && /(?:貸して|貸してほしい|借り|お金|金|lend\b|loan\b|borrow\b|cash\b|money\b)|(?:(?:もう一(?:回|度)|one more).{0,12}(?:勝負|spin\b|shot\b))/i.test(normalized);
+}
+
+/** A direct transcript route needs a complete request, not a loose money mention. */
+export function requestsDirectLoan(transcript: string): boolean {
+  const normalized = transcript.normalize('NFKC').trim();
+  if (rejectsLoanRequest(normalized)) return false;
+  return /(?:(?:お金|金|\$?\s*5\s*ドル?|money|cash).{0,16}(?:貸して(?:ほしい|欲しい|ください|下さい|くれ(?:ない)?|ちょうだい)?|借り(?:たい|させて|られる|られない)?)|(?:貸して(?:ほしい|欲しい|ください|下さい|くれ(?:ない)?|ちょうだい)?|借り(?:たい|させて|られる|られない)?).{0,16}(?:お金|金|\$?\s*5\s*ドル?|money|cash)|^(?:貸して(?:ほしい|欲しい|ください|下さい|くれ(?:ない)?|ちょうだい)?|借り(?:たい|させて|られる|られない)?)[、。！？!?]?$|\b(?:can|could|would|please)\b.{0,24}\b(?:lend|loan)\b.{0,24}\b(?:money|cash|\$?5)\b|\b(?:can|could)\s+i\s+(?:please\s+)?borrow\s+(?:\$?\s*5|five(?:\s+dollars?)?|some\s+(?:money|cash)|money|cash)\b)/i.test(normalized);
 }
 
 /** A reply is eligible only inside the server's currently audible loan offer. */
 export function acceptsLoanOffer(transcript: string): boolean {
   const normalized = transcript.normalize('NFKC').trim();
   if (/(?:^|[、。！？!?]\s*)(?:いや|いいえ|だめ|no|nope)(?:[、。！？!?]|\s|$)/i.test(normalized)) return false;
-  if (/^(?:うん|はい|いいよ|もちろん|了解|yes|yeah|sure|okay|ok)(?:[、。！？!?])?$/i.test(normalized)) return true;
+  if (/^(?:うん|はい|いいですよ|いいよ|もちろん|了解|yes|yeah|sure|okay|ok)(?:[、。！？!?])?$/i.test(normalized)) return true;
   return /(?:貸す|貸して|lend\b|loan\b)/i.test(normalized);
 }
 
 /** Strict enough to move money immediately, without relying on model judgment. */
-export function acceptsImmediateLoanOffer(transcript: string): boolean {
+export function acceptsImmediateLoanOffer(transcript: string, afterSpeech = false): boolean {
   const normalized = transcript.normalize('NFKC').trim();
   if (rejectsLoanOffer(normalized)) return false;
-  if (/^(?:うん|はい|いいよ|もちろん|了解|yes|yeah|yep|sure|okay|ok)(?:[。！？!?])*$/i.test(normalized)) return true;
-  if (/^(?:(?:うん|はい|いいよ|もちろん|了解)[、,\s]+)?(?:\$?\s*5ドル(?:なら|だけ)?[、,\s]*)?(?:貸す|貸してあげる|貸してやる)(?:よ|ね)?[、。！？!?\s]*$/i.test(normalized)) return true;
+  if (new RegExp(`^(?:うん|はい|いいですよ|いいよ|もちろん|了解)(?:[${afterSpeech ? '、' : ''}。！？!?])*$`, 'i').test(normalized)) return true;
+  if (/^(?:yes|yeah|yep|sure|okay|ok)(?:[。！？!?])*$/i.test(normalized)) return true;
+  if (/^(?:(?:うん|はい|いいですよ|いいよ|もちろん|了解)[、,\s]+)?(?:\$?\s*5ドル(?:なら|だけ)?[、,\s]*)?(?:貸す|貸してあげる|貸してやる)(?:よ|ね)?[、。！？!?\s]*$/i.test(normalized)) return true;
   return /^(?:(?:yes|yeah|yep|sure|okay|ok)[,!\s]+)?(?:i(?:'|’)ll|i will)\s+(?:lend|loan)\s+you(?:\s+(?:\$?5|five|some))?[.!\s]*$/i.test(normalized);
 }
 
@@ -37,7 +50,7 @@ export function rejectsLoanOffer(transcript: string): boolean {
   return /^(?:いや|いいえ|だめ|no|nope)(?:[、。！？!?])?$/i.test(transcript.normalize('NFKC').trim());
 }
 
-const EXTENSION_NEGATION = /(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:時間)?伸ば\s*(?:は|を)?\s*(?:いらない|不要|さない|さなくて|やめ(?:て)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;
+const EXTENSION_NEGATION = /(?:時間(?:を|の)?|タイム)?延長(?:を)?して(?:ほしく|欲しく)(?:ない|ありません)|(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:時間)?伸ば\s*(?:は|を)?\s*(?:いらない|不要|さない|さなくて|やめ(?:て)?|結構)|(?:時間)?延長して[、。！？!?\s]*(?:やっぱり[、。！？!?\s]*)?(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て|る)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;
 const EXTENSION_REQUEST = /(?:時間(?:を|の)?|タイム)?延長(?:を)?(?:して|してください|下さい|できる[？?]?|お願い(?:します)?|頼む|してほしい|して欲しい|してくれ|してちょうだい)|(?:時間(?:を|の)?|タイム)?(?:伸ば|増や|足)(?:して|してください|下さい|せる[？?]?|ほしい|欲しい|くれ|ちょうだい)|(?:もっと|もう少し|あとちょっと(?:だけ)?)(?:時間)?\s*(?:を)?\s*(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して|できる[？?]?)?|(?:伸ば|増や|足)(?:して|せる[？?]?)?|ほしい|欲しい|お願い)|(?:(?:あと|もう|さらに|追加で)\s*(?:(?:10|十)\s*秒?)?(?:だけ|ほど|ちょっと)?|(?:10|十)\s*秒(?:だけ|ほど)?)\s*(?:を)?\s*(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して|できる[？?]?)?|(?:伸ば|増や|足)(?:して|せる[？?]?)?|ほしい|欲しい|お願い)|\b(?:give|grant|add|extend)\s+(?:me\s+)?(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:can i have|i need|let me have)\s+(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:give|grant|allow)\s+(?:me\s+)?(?:more|extra)\s+time\b|\bextend\s+(?:the\s+)?time\b/i;
 
 export function requestsTimeExtension(transcript: string): boolean {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsLoan, requestsTimeExtension } from './rivalBrain';
+import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -55,7 +55,7 @@ describe('time extension choice', () => {
     expect(requestsTimeExtension(transcript)).toBe(true);
   });
 
-  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', 'お願い', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
+  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', '延長してほしくない', '延長して欲しくない', '延長してほしくありません', '延長して欲しくありません', 'お願い', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
     expect(requestsTimeExtension(transcript)).toBe(false);
   });
 
@@ -112,11 +112,19 @@ describe('loan choice', () => {
     expect(requestsLoan(transcript)).toBe(true);
   });
 
-  it.each(['うん', '延長して', '今どっちが上？'])('does not route an unrelated response as a borrower request: %s', transcript => {
+  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない', "I can't borrow $5", "I don't want to borrow cash"])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
     expect(requestsLoan(transcript)).toBe(false);
   });
 
-  it.each(['Sure!', 'はい', 'okay', "Okay, I'll lend you some.", 'うん、5ドル貸してあげるよ'])('accepts a clear rival-loan reply: %s', transcript => {
+  it.each(['お金を貸してほしい', 'お金を貸してくれない？', 'お金を借りられない？', '貸して', '5ドル貸して', 'Can you lend me $5?', 'Can I borrow $5?', 'Could I borrow some cash?'])('recognizes only a clear direct borrower request: %s', transcript => {
+    expect(requestsDirectLoan(transcript)).toBe(true);
+  });
+
+  it.each(['お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて', "I can't borrow $5", "I don't want to borrow cash"])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
+    expect(requestsDirectLoan(transcript)).toBe(false);
+  });
+
+  it.each(['Sure!', 'はい', 'いいですよ', 'okay', "Okay, I'll lend you some.", 'うん、5ドル貸してあげるよ'])('accepts a clear rival-loan reply: %s', transcript => {
     expect(acceptsLoanOffer(transcript)).toBe(true);
   });
 
@@ -124,11 +132,17 @@ describe('loan choice', () => {
     expect(acceptsLoanOffer(transcript)).toBe(false);
   });
 
-  it.each(['いいよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
+  it.each(['いいよ', 'いいですよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(true);
   });
 
-  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、', 'いいよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
+  it.each(['いいよ', 'いいですよ'])('waits for speech completion before accepting a Japanese affirmative ending in a comma: %s', affirmative => {
+    expect(acceptsImmediateLoanOffer(`${affirmative}、`)).toBe(false);
+    expect(acceptsImmediateLoanOffer(`${affirmative}、`, true)).toBe(true);
+    expect(acceptsImmediateLoanOffer(`${affirmative}、でも無理`, true)).toBe(false);
+  });
+
+  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、でも無理', 'いいですよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(false);
   });
 
