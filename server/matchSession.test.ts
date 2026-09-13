@@ -765,6 +765,61 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('routes a clear late-game extension transcript without a Live delegation and applies it after tagged playback', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages } = setup('direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number) }), '延長して', expect.any(String), expect.any(AbortSignal), false);
+    expect(provider.delegationResult).not.toHaveBeenCalled();
+    const [line, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
+    expect(line).toBe('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？');
+    expect(speechId).toEqual(expect.any(String));
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    provider.events?.onSpeechAudioEnded(speechId as string);
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ decision: 'accepted', after: { duration: 70 } });
+    await session.shutdown('test_finished');
+  });
+
+  it('speaks a clarification without consuming a direct extension request when the decision is no_request', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('no_request');
+    const { session, messages } = setup('direct-extension-clarification', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('もう一度、延長してって言ってくれる？', undefined);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    provider.events?.onDelegation({ id: 'late-direct-extension', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledOnce();
+    expect(provider.delegationThinking).toHaveBeenCalledWith('late-direct-extension', expect.stringContaining('Continue the ordinary conversation'));
+    await session.shutdown('test_finished');
+  });
+
+  it('does not direct-route an extension that began before the final fifteen seconds', async () => {
+    const { session } = setup('early-direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(44_000);
+    provider.events?.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
   it('authoritatively transfers one fixed $5 loan to a bankrupt player only after the delegated decision', async () => {
     vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
     const { session, messages } = setup('player-loan', 'manual', 'audio');
@@ -825,7 +880,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('waits for speech end before rejecting a later negation in a direct borrower transcript', async () => {
+  it('waits past one second for speech end before rejecting a later negation in a direct borrower transcript', async () => {
     const { session, messages } = setup('settled-player-loan', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -834,11 +889,29 @@ describe('live match cleanup', () => {
     state.scores.rival = 10;
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 100 });
-    await vi.advanceTimersByTimeAsync(300);
+    await vi.advanceTimersByTimeAsync(1_100);
     expect(chooseLoanDecision).not.toHaveBeenCalled();
     provider.events?.onTranscript('user', 'ほしくない', { startMs: 101, endMs: 300 });
     provider.events?.onUserSpeechEnd();
     await vi.advanceTimersByTimeAsync(300);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('does not settle a direct borrower request after a new speech turn begins', async () => {
+    const { session, messages } = setup('interrupted-direct-player-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(250);
     expect(chooseLoanDecision).not.toHaveBeenCalled();
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await session.shutdown('test_finished');
@@ -1374,7 +1447,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it.each(['いや', 'no'])('does not extend after an explicit declined offer: %s', async transcript => {
+  it.each(['いや', 'no'])('keeps an explicit declined offer in that turn, then routes a later clear request: %s', async transcript => {
     const { session, messages } = setup('declined-rival-offer', 'manual', 'audio', () => 0);
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1384,11 +1457,12 @@ describe('live match cleanup', () => {
     provider.events?.onUserSpeechEnd();
     await vi.advanceTimersByTimeAsync(300);
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
     provider.events?.onUserSpeech();
-    provider.events?.onTranscript('user', '延長して');
+    provider.events?.onTranscript('user', 'やっぱり延長して');
     provider.events?.onUserSpeechEnd();
     await vi.advanceTimersByTimeAsync(300);
-    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.anything(), 'やっぱり延長して', expect.any(String), expect.any(AbortSignal), false);
     await session.shutdown('test_finished');
   });
 

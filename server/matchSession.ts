@@ -23,7 +23,7 @@ import {
 import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
-import { acceptsImmediateLoanOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
+import { acceptsImmediateLoanOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
 import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
 
@@ -69,7 +69,6 @@ const LOAN_OFFER_REPLY_MS = 5000;
 // response turn that began before the reply deadline gets this small grace.
 const LOAN_OFFER_TRANSCRIPT_GRACE_MS = 1000;
 const DIRECT_LOAN_TRANSCRIPT_SETTLE_MS = 250;
-const DIRECT_LOAN_TRANSCRIPT_MAX_WAIT_MS = 1000;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
@@ -124,10 +123,11 @@ export class MatchSession {
   private loanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number; replyTurn: number | null; transcriptGraceExpiresAt: number | null } | null = null;
   private userSpeaking = false;
   private userSpeechTurn = 0;
+  private userSpeechTurnStartedRemaining: number | null = null;
   private assistantOutputUntil = 0;
   private transcriptSequence = 0;
   private transcriptHistory: Array<{ sequence: number; role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
-  private extensionDelegation: { id: string; generation: number; offsetMs: number } | null = null;
+  private extensionDelegation: { id: string | null; generation: number; offsetMs: number } | null = null;
   private readonly seenDelegations = new Set<string>();
   private readonly delegationSettles = new Set<NodeJS.Timeout>();
   /** A completed delegated decision consumes the one extension opportunity. */
@@ -135,9 +135,11 @@ export class MatchSession {
   private extensionDecisionPending = false;
   private loanDecisionPending = false;
   private loanDelegation: { id: string | null; generation: number; direction: LoanDirection } | null = null;
-  private directLoanRequestSettle: { turn: number; generation: number; deadline: number; timer: NodeJS.Timeout } | null = null;
+  private directLoanRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private readonly directLoanRequestTurns = new Set<number>();
   private loanOfferReplySettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
+  private directExtensionRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
+  private readonly directExtensionRequestTurns = new Set<number>();
   private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
@@ -249,6 +251,10 @@ export class MatchSession {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.reactions.conversationActivity();
           if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
+          if (this.extensionOffer && rejectsTimeExtensionOffer(this.currentUserTurnTranscript())) {
+            this.extensionOffer = null;
+            this.pushContext();
+          }
         } else {
           this.assistantOutputUntil = Date.now() + 750;
         }
@@ -259,12 +265,14 @@ export class MatchSession {
         if (role === 'user') {
           this.acceptRivalLoanFromCurrentTurn();
           this.queueSettledRivalLoanReply(generation);
+          this.queueDirectTimeExtensionRequest(generation);
           this.queueDirectLoanRequest(generation);
         }
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
         this.userSpeechTurn += 1;
+        this.userSpeechTurnStartedRemaining = this.state.remaining;
         this.markLoanOfferReplyStarted();
         this.userSpeaking = true;
         this.reactions.conversationActivity();
@@ -279,10 +287,16 @@ export class MatchSession {
         this.tick();
         this.userSpeaking = false;
         this.queueSettledRivalLoanReply(generation);
+        this.settleDirectTimeExtensionRequest(this.userSpeechTurn, generation);
         this.settleDirectLoanRequest(this.userSpeechTurn, generation);
       },
       onDelegation: delegation => {
         if (!current() || resultOnly) return;
+        if (this.directExtensionRequestSettle?.turn === this.userSpeechTurn) {
+          clearTimeout(this.directExtensionRequestSettle.timer);
+          this.delegationSettles.delete(this.directExtensionRequestSettle.timer);
+          this.directExtensionRequestSettle = null;
+        }
         this.queueDelegationRoute(delegation.id, delegation.offsetMs, generation);
       },
       onError: () => { if (current()) this.failVoice('gptLive'); },
@@ -343,6 +357,7 @@ export class MatchSession {
       this.loanDelegation = null;
       this.directLoanRequestSettle = null;
       this.loanOfferReplySettle = null;
+      this.directExtensionRequestSettle = null;
       this.loanOffer = null;
       this.loanDecisionPending = false;
       this.extensionDecisionPending = false;
@@ -418,6 +433,7 @@ export class MatchSession {
     this.loanDelegation = null;
     this.directLoanRequestSettle = null;
     this.loanOfferReplySettle = null;
+    this.directExtensionRequestSettle = null;
     this.loanOffer = null;
     this.loanDecisionPending = false;
     this.extensionDecisionPending = false;
@@ -799,7 +815,7 @@ export class MatchSession {
     const timer = setTimeout(() => {
       this.delegationSettles.delete(timer);
       if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration) return;
-      if (this.loanDecisionPending || this.directLoanRequestTurns.has(this.userSpeechTurn)) {
+      if (this.loanDecisionPending || this.extensionDecisionPending || this.directLoanRequestTurns.has(this.userSpeechTurn) || this.directExtensionRequestTurns.has(this.userSpeechTurn)) {
         this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
         return;
       }
@@ -933,28 +949,22 @@ export class MatchSession {
   private queueDirectLoanRequest(generation: number): void {
     const turn = this.userSpeechTurn;
     if (!requestsLoan(this.currentUserTurnTranscript()) || this.loanDecisionPending || this.directLoanRequestTurns.has(turn)) return;
-    const deadline = this.directLoanRequestSettle?.turn === turn
-      ? this.directLoanRequestSettle.deadline
-      : Date.now() + DIRECT_LOAN_TRANSCRIPT_MAX_WAIT_MS;
+    if (this.userSpeaking) return;
     if (this.directLoanRequestSettle) {
       clearTimeout(this.directLoanRequestSettle.timer);
       this.delegationSettles.delete(this.directLoanRequestSettle.timer);
     }
-    this.scheduleDirectLoanRequest(turn, generation, deadline);
+    this.scheduleDirectLoanRequest(turn, generation);
   }
 
-  private scheduleDirectLoanRequest(turn: number, generation: number, deadline: number): void {
+  private scheduleDirectLoanRequest(turn: number, generation: number): void {
     const timer = setTimeout(() => {
       this.delegationSettles.delete(timer);
       if (this.directLoanRequestSettle?.timer !== timer) return;
-      if (this.userSpeaking && Date.now() < deadline) {
-        this.scheduleDirectLoanRequest(turn, generation, deadline);
-        return;
-      }
       this.directLoanRequestSettle = null;
       this.settleDirectLoanRequest(turn, generation);
     }, DIRECT_LOAN_TRANSCRIPT_SETTLE_MS);
-    this.directLoanRequestSettle = { turn, generation, deadline, timer };
+    this.directLoanRequestSettle = { turn, generation, timer };
     this.delegationSettles.add(timer);
   }
 
@@ -965,7 +975,7 @@ export class MatchSession {
       this.delegationSettles.delete(pending.timer);
       this.directLoanRequestSettle = null;
     }
-    if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration || turn !== this.userSpeechTurn || this.loanDelegation || this.loanDecisionPending || this.directLoanRequestTurns.has(turn)) return;
+    if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration || turn !== this.userSpeechTurn || this.userSpeaking || this.loanDelegation || this.loanDecisionPending || this.directLoanRequestTurns.has(turn)) return;
     const transcript = this.currentUserTurnTranscript();
     if (!requestsDirectLoan(transcript) || !this.isLoanDelegationEligible(transcript, false)) return;
     const { conversation } = this.selectedDelegationTranscript(Number.MAX_SAFE_INTEGER);
@@ -979,6 +989,62 @@ export class MatchSession {
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
     void this.decideLoan(null, 'rival_to_player', transcript, conversation, generation, false);
+  }
+
+  /** A clear late-game request still reaches the existing decision without a Live delegation. */
+  private queueDirectTimeExtensionRequest(generation: number): void {
+    const turn = this.userSpeechTurn;
+    if (!requestsTimeExtension(this.currentUserTurnTranscript()) || this.extensionDecisionPending || this.directExtensionRequestTurns.has(turn) || this.userSpeaking) return;
+    if (this.directExtensionRequestSettle) {
+      clearTimeout(this.directExtensionRequestSettle.timer);
+      this.delegationSettles.delete(this.directExtensionRequestSettle.timer);
+    }
+    const timer = setTimeout(() => {
+      this.delegationSettles.delete(timer);
+      if (this.directExtensionRequestSettle?.timer !== timer) return;
+      this.directExtensionRequestSettle = null;
+      this.settleDirectTimeExtensionRequest(turn, generation);
+    }, 150);
+    this.directExtensionRequestSettle = { turn, generation, timer };
+    this.delegationSettles.add(timer);
+  }
+
+  private settleDirectTimeExtensionRequest(turn: number, generation: number): void {
+    const pending = this.directExtensionRequestSettle;
+    if (pending?.turn === turn && pending.generation === generation) {
+      clearTimeout(pending.timer);
+      this.delegationSettles.delete(pending.timer);
+      this.directExtensionRequestSettle = null;
+    }
+    if (
+      this.closed
+      || this.voiceDisabled
+      || generation !== this.voiceGeneration
+      || turn !== this.userSpeechTurn
+      || this.userSpeaking
+      || this.userSpeechTurnStartedRemaining === null
+      || this.userSpeechTurnStartedRemaining > 15
+      || this.directExtensionRequestTurns.has(turn)
+      || this.extensionDelegation
+      || this.extensionNegotiation
+      || this.extensionDecisionPending
+      || this.loanDelegation
+      || this.loanDecisionPending
+    ) return;
+    const transcript = this.currentUserTurnTranscript();
+    if (!requestsTimeExtension(transcript)) return;
+    const { conversation } = this.selectedDelegationTranscript(Number.MAX_SAFE_INTEGER);
+    this.tick();
+    if (this.state.status !== 'playing' || this.state.extensionUsed || this.state.remaining > 15) return;
+    this.directExtensionRequestTurns.add(turn);
+    if (this.directExtensionRequestTurns.size > 16) this.directExtensionRequestTurns.delete(this.directExtensionRequestTurns.values().next().value!);
+    this.loanOffer = null;
+    this.extensionDelegation = { id: null, generation, offsetMs: 0 };
+    this.extensionDecisionPending = true;
+    this.gpt?.suppressOutput();
+    this.media?.interrupt();
+    this.emit({ type: 'voice_interrupt' });
+    void this.decideTimeExtension(null, transcript, conversation, generation, false);
   }
 
   private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {
@@ -1155,7 +1221,7 @@ export class MatchSession {
     return this.extensionDecisionPending;
   }
 
-  private async decideTimeExtension(delegationId: string, requestTranscript: string, conversation: string, generation: number, offerActive: boolean): Promise<void> {
+  private async decideTimeExtension(delegationId: string | null, requestTranscript: string, conversation: string, generation: number, offerActive: boolean): Promise<void> {
     const requestedAt = getSnapshot(this.state);
     const decision = await chooseTimeExtension(
       requestedAt,
@@ -1175,7 +1241,10 @@ export class MatchSession {
     if (decision === 'no_request') {
       this.extensionDecisionPending = false;
       this.extensionDelegation = null;
-      this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
+      if (requestsTimeExtension(requestTranscript)) {
+        const line = 'もう一度、延長してって言ってくれる？';
+        this.requestExtensionDecisionLine(delegationId, line);
+      } else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
       return;
     }
     this.extensionNegotiation = true;
@@ -1191,7 +1260,7 @@ export class MatchSession {
       this.pushContext();
       this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line });
       this.emitSnapshot();
-      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      this.requestExtensionDecisionLine(delegationId, line);
       return;
     }
     const id = randomUUID();
@@ -1201,7 +1270,12 @@ export class MatchSession {
     this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false };
     // Existing commentary is the supported GPT-Live speech path. It is queued
     // after the suppressed turn so stale speech cannot precede this decision.
-    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, id);
+    this.requestExtensionDecisionLine(delegationId, line, id);
+  }
+
+  private requestExtensionDecisionLine(delegationId: string | null, line: string, speechId?: string): void {
+    if (delegationId) this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, speechId ?? randomUUID());
+    else this.gpt?.requestConfirmedLine(line, speechId);
   }
 
   private commitExtensionSpeech(force = false): void {
