@@ -80,13 +80,20 @@ describe('time extension choice', () => {
     expect(await chooseTimeExtension(state, 'あと10秒ください', 'P:あと10秒ください')).toBe('accept_extension_10s');
     const body = JSON.parse(request.mock.calls[0][1].body);
     expect(body.store).toBe(false);
-    expect(JSON.parse(body.input)).toMatchObject({ legalChoices: ['accept_extension_10s', 'reject_extension'], remaining: 8, playerScore: 30, rivalScore: 30 });
+    expect(JSON.parse(body.input)).toMatchObject({ legalChoices: ['accept_extension_10s', 'reject_extension', 'no_request'], remaining: 8, playerScore: 30, rivalScore: 30, rivalExtensionOfferActive: false });
     expect(body.input).not.toMatch(/rngState|seed|pending|activePools/);
   });
 
   it.each(['accept it', 'accept_extension_10s please', ''])('fails closed for non-exact model output: %s', async (output_text) => {
     request.mockResolvedValue(Response.json({ status: 'completed', output_text }));
-    expect(await chooseTimeExtension(snapshot(), 'more time', '')).toBe('reject_extension');
+    expect(await chooseTimeExtension(snapshot(), 'more time', '')).toBe('no_request');
+  });
+
+  it('passes an active rival offer separately from untrusted conversation text', async () => {
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: 'accept_extension_10s' }));
+    expect(await chooseTimeExtension(snapshot(), 'うん', 'P:うん', undefined, true)).toBe('accept_extension_10s');
+    const body = JSON.parse(request.mock.calls[0][1].body);
+    expect(JSON.parse(body.input)).toMatchObject({ rivalExtensionOfferActive: true });
   });
 
   it('rejects if the provider does not respond inside the existing 2.5 second budget', async () => {
@@ -96,6 +103,6 @@ describe('time extension choice', () => {
     }));
     const choice = chooseTimeExtension(snapshot(), 'more time', '');
     await vi.advanceTimersByTimeAsync(2500);
-    expect(await choice).toBe('reject_extension');
+    expect(await choice).toBe('no_request');
   });
 });

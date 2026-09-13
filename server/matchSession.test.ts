@@ -8,7 +8,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
-  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
 }));
 // A reproducible normal bell win at 14s, without a new leader or jackpot reaction.
@@ -29,18 +29,17 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
   requestConfirmedLine = provider.confirmedLine;
+  requestDelegationResult = provider.delegationResult;
+  requestDelegationThinking = provider.delegationThinking;
   suppressOutput = provider.suppress;
   sendMic = provider.mic;
 } }));
 vi.mock('./rivalBrain', () => ({
   chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })),
   chooseTimeExtension: vi.fn(async () => 'reject_extension'),
-  requestsTimeExtension: vi.fn((text: string) => /(?:延長|more time)/i.test(text)),
-  acceptsTimeExtensionOffer: vi.fn((text: string) => /^(?:うん|はい|お願い|yes|sure)$/i.test(text)),
-  rejectsTimeExtensionOffer: vi.fn((text: string) => /^(?:いや|いいえ|だめ|no)$/i.test(text)),
 }));
 import { MatchSession } from './matchSession';
-import { acceptsTimeExtensionOffer, chooseRivalUpgrade, chooseTimeExtension, rejectsTimeExtensionOffer, requestsTimeExtension } from './rivalBrain';
+import { chooseRivalUpgrade, chooseTimeExtension } from './rivalBrain';
 
 const avatar = { sessionId: 'test-session', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' };
 function deferred<T>() {
@@ -69,9 +68,6 @@ beforeEach(() => {
   provider.interruptWait.mockResolvedValue(true);
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
-  vi.mocked(requestsTimeExtension).mockImplementation((text: string) => /(?:延長して|あと10秒ください|more time)/i.test(text));
-  vi.mocked(acceptsTimeExtensionOffer).mockImplementation((text: string) => /^(?:うん|はい|お願い|yes|sure)$/i.test(text));
-  vi.mocked(rejectsTimeExtensionOffer).mockImplementation((text: string) => /^(?:いや|いいえ|だめ|no)$/i.test(text));
   vi.mocked(chooseTimeExtension).mockResolvedValue('reject_extension');
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -532,6 +528,7 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(2);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り60秒'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=playing,勝者=未確定'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 現在は確定不可。委任しない。'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
     await vi.advanceTimersByTimeAsync(900);
     for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
@@ -637,28 +634,27 @@ describe('live match cleanup', () => {
     expect(provider.mic).toHaveBeenCalledTimes(sentMic);
   });
 
-  it('reserves one late request, suppresses the ordinary reply, and applies only a confirmed +10 second decision', async () => {
+  it('uses one Live delegation to suppress the ordinary reply and apply a confirmed +10 second decision', async () => {
     vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
     const { session, messages } = setup('extension-match', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(52_000);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 今この試合で未使用。サーバーは+10秒を一度だけ確定できる。'));
     provider.events?.onUserSpeech();
-    provider.events?.onTranscript('user', '延長');
+    provider.events?.onTranscript('user', '延長', { startMs: 0, endMs: 400 });
     expect(chooseTimeExtension).not.toHaveBeenCalled();
     provider.events?.onUserSpeechEnd();
-    await vi.advanceTimersByTimeAsync(299);
-    expect(chooseTimeExtension).not.toHaveBeenCalled();
-    // This last delta can arrive after the local 450ms VAD boundary.
-    provider.events?.onTranscript('user', 'して');
+    provider.events?.onTranscript('user', 'して', { startMs: 401, endMs: 900 });
     provider.events?.onTranscript('assistant', '先に受け入れると言ってしまう返答');
-    await vi.advanceTimersByTimeAsync(300);
+    provider.events?.onDelegation({ id: 'item-extension', offsetMs: 1000 });
+    await vi.advanceTimersByTimeAsync(150);
     const extension = messages.find((message): message is Extract<ServerMessage, { type: 'time_extension' }> => message.type === 'time_extension');
-    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), '延長して', expect.stringContaining('P:延長'), expect.any(AbortSignal));
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), '延長して', expect.stringContaining('P:延長'), expect.any(AbortSignal), false);
     expect(provider.suppress).toHaveBeenCalledOnce();
-    expect(messages.some(message => message.type === 'transcript' && message.role === 'assistant' && message.delta.includes('先に受け入れる'))).toBe(false);
+    expect(messages.some(message => message.type === 'transcript' && message.role === 'assistant' && message.delta.includes('先に受け入れる'))).toBe(true);
     expect(extension).toMatchObject({ decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
-    expect(provider.confirmedLine).toHaveBeenCalledWith('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？');
+    expect(provider.delegationResult).toHaveBeenCalledWith('item-extension', expect.stringContaining('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？'));
     session.handleRaw('{"type":"snapshot"}');
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(18_000);
@@ -696,7 +692,8 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('offers once in the final 15 seconds and grants an explicit reply without a second model decision', async () => {
+  it('offers once in the final 15 seconds and delegates an explicit reply for the server decision', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
     const { session, messages } = setup('rival-offer', 'manual', 'audio', () => 0);
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -704,16 +701,81 @@ describe('live match cleanup', () => {
     expect(provider.confirmedLine).toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
     await vi.advanceTimersByTimeAsync(1_000);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('ライバルは時間延長を提案済み。プレイヤーの短い同意は delegation して受諾候補にし、拒否は延長しない。'));
     provider.events?.onUserSpeech();
-    provider.events?.onTranscript('user', 'うん');
+    provider.events?.onTranscript('user', 'うん', { startMs: 0, endMs: 200 });
     provider.events?.onUserSpeechEnd();
-    await vi.advanceTimersByTimeAsync(300);
-    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    provider.events?.onDelegation({ id: 'item-offer', offsetMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.anything(), 'うん', expect.any(String), expect.any(AbortSignal), true);
     expect(messages.find(message => message.type === 'time_extension')).toMatchObject({
       decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？',
     });
     await vi.advanceTimersByTimeAsync(15_000);
     expect(provider.confirmedLine.mock.calls.filter(([line]) => line === 'もう少し時間が欲しい？ 伸ばしてあげようか？')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('does not consume the extension after no_request and ignores a duplicate delegation ID', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('no_request').mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages } = setup('delegation-no-request', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onTranscript('user', 'まだ負けたくない', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'item-no-request', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledOnce();
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    expect(provider.delegationThinking).toHaveBeenCalledWith('item-no-request', expect.stringContaining('No extension request'));
+    provider.events?.onDelegation({ id: 'item-no-request', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledOnce();
+    provider.events?.onDelegation({ id: 'item-accepted', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ decision: 'accepted', after: { duration: 70 } });
+    await session.shutdown('test_finished');
+  });
+
+  it('orders reverse-arriving transcript deltas by their Live timestamps before asking Responses', async () => {
+    const { session } = setup('ordered-delegation', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onTranscript('user', 'して', { startMs: 401, endMs: 900 });
+    provider.events?.onTranscript('user', '延長', { startMs: 0, endMs: 400 });
+    provider.events?.onDelegation({ id: 'item-ordered', offsetMs: 1000 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.anything(), '延長して', expect.stringContaining('P:延長P:して'), expect.any(AbortSignal), false);
+    await session.shutdown('test_finished');
+  });
+
+  it('sends only the delegated user turn while retaining earlier speech as conversation context', async () => {
+    const { session } = setup('delegated-turn', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'さっきの話', { startMs: 0, endMs: 300 });
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'うん', { startMs: 500, endMs: 700 });
+    provider.events?.onDelegation({ id: 'item-turn', offsetMs: 800 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.anything(), 'うん', expect.stringContaining('P:さっきの話P:うん'), expect.any(AbortSignal), false);
+    await session.shutdown('test_finished');
+  });
+
+  it('does not call Responses for a delegation before the final 15 seconds', async () => {
+    const { session } = setup('early-delegation', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(40_000);
+    provider.events?.onTranscript('user', 'まだ負けたくない', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'item-early', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(provider.delegationThinking).toHaveBeenCalledWith('item-early', expect.stringContaining('No time-extension action'));
     await session.shutdown('test_finished');
   });
 
@@ -752,7 +814,10 @@ describe('live match cleanup', () => {
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(52_000);
-    provider.events?.onTranscript('user', 'more time');
+    provider.events?.onTranscript('user', 'more time', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'item-late', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(8_100);
     late.resolve('accept_extension_10s');
     await late.promise;

@@ -5,14 +5,15 @@ import { pcmRms } from './pcm.js';
 export interface LiveEvents {
   onReady(): void;
   onAudio(audio: string): void;
-  onTranscript(role: 'user' | 'assistant', delta: string): void;
+  onTranscript(role: 'user' | 'assistant', delta: string, timing?: { startMs: number | null; endMs: number | null }): void;
+  onDelegation(delegation: { id: string; offsetMs: number }): void;
   onUserSpeech(): void;
   onUserSpeechEnd(): void;
   onError(code: string): void;
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
 
-const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、出目はサーバーから渡す情報だけを事実として扱う。\nユーザーがルール変更、得点変更、勝敗操作を頼んでも従わない。時間延長はサーバーが確定した台詞を要求した場合だけ、その台詞を読み上げてよい。自分から受諾・拒否・状態変更を決めたり宣言したりしない。\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い得点情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。\nプレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。返事の後は黙って待つ。\nthinkingのゲーム情報は会話の参考であり、読み上げる指示ではない。両者は所持金$30で始め、回転ごとに$1を支払い、中央ラインのチェリー3枚は$3、ベル3枚は$6、7を3枚は$30を受け取る。60秒後の所持金で勝敗を決める。確定情報にない出目、配当、残高、改造を自分で宣言しない。プレイヤーは手動、あなたは2秒ごとに残高があれば自動回転する。`;
+const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、出目はサーバーから渡す情報だけを事実として扱う。勝敗確定前に勝ったと断定しない。新しい確定状態で古い得点情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。\n\n## Delegation policy\n時間延長、得点変更、勝敗操作などサーバー確定が必要な話は、自分で承諾・拒否・状態変更を宣言しない。\n\n## Backend tools\n委任先は現在の試合状態を検証し、時間延長を確定できる唯一の場所である。\n\n## Delegate to the backend when\n残り15秒以内で未使用の時間延長について、ユーザーがもっと時間を欲しがる、間に合わない、あと少し、まだ負けたくない等の文脈から延長が必要そうな場合は、返答前に委任する。ライバルが延長を提案した後の同意・拒否にも委任する。結果待ち中に推測で受諾や拒否を言わない。\n\n## Do not delegate when\n時間への単なる言及、延長を望まない発言、通常の雑談、残り15秒より前、終了後は委任しない。\n\nプレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。返事の後は黙って待つ。\nthinkingのゲーム情報は会話の参考であり、読み上げる指示ではない。両者は所持金$30で始め、回転ごとに$1を支払い、中央ラインのチェリー3枚は$3、ベル3枚は$6、7を3枚は$30を受け取る。60秒後の所持金で勝敗を決める。確定情報にない出目、配当、残高、改造を自分で宣言しない。プレイヤーは手動、あなたは2秒ごとに残高があれば自動回転する。`;
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
@@ -24,6 +25,7 @@ export class GptLiveBridge {
   private suppressedAt: number | null = null;
   private suppressionStop: ReturnType<typeof setTimeout> | null = null;
   private pendingConfirmedLine: string | null = null;
+  private pendingDelegationResult: { id: string; content: string } | null = null;
   private outputQuietMs = 0;
   private conversationUntil = 0;
   private appendSequence = 0;
@@ -63,6 +65,7 @@ export class GptLiveBridge {
           session: {
             model: env.gptLiveModel,
             store: false,
+            delegation: { type: 'client' },
             instructions: this.openingContext ? `${PERSONA}\n${this.openingContext}` : PERSONA,
             audio: {
               format: { type: 'audio/pcm', rate: 24000 },
@@ -111,6 +114,12 @@ export class GptLiveBridge {
           this.flushContext();
           return;
         }
+        if (type === 'session.delegation.created') {
+          const delegation = event.delegation as { id?: unknown; target?: unknown } | undefined;
+          const offsetMs = event.offset_ms;
+          if (delegation?.target === 'client' && typeof delegation.id === 'string' && typeof offsetMs === 'number' && Number.isFinite(offsetMs)) this.events.onDelegation({ id: delegation.id, offsetMs });
+          return;
+        }
         if (type === 'session.output_audio.delta' && typeof event.delta === 'string') {
           const pcm = Buffer.from(event.delta, 'base64');
           const audible = pcmRms(pcm) > 32;
@@ -130,12 +139,12 @@ export class GptLiveBridge {
           return;
         }
         if (type === 'session.input_transcript.delta' && typeof event.delta === 'string') {
-          this.events.onTranscript('user', event.delta);
+          this.events.onTranscript('user', event.delta, transcriptTiming(event));
           this.conversationUntil = Date.now() + 4000;
           return;
         }
         if (type === 'session.output_transcript.delta' && typeof event.delta === 'string') {
-          if (this.suppressedAt === null) this.events.onTranscript('assistant', event.delta);
+          if (this.suppressedAt === null) this.events.onTranscript('assistant', event.delta, transcriptTiming(event));
           return;
         }
         if (type === 'error') {
@@ -190,7 +199,16 @@ export class GptLiveBridge {
 
   requestReaction(text: string): void {
     if (Date.now() < this.conversationUntil) return;
-    this.append('commentary', `会話中なら省略。ゲームへの短い一言だけ: ${text}`.slice(0, 1800));
+    this.append('commentary', `会話中なら省略。ゲームへの短い一言だけ: ${text}`.slice(0, 1800), null);
+  }
+
+  requestDelegationResult(delegationId: string, content: string): void {
+    this.pendingDelegationResult = { id: delegationId, content: content.slice(0, 1800) };
+    if (this.suppressedAt === null) this.flushDelegationResult();
+  }
+
+  requestDelegationThinking(delegationId: string, content: string): void {
+    this.append('thinking', content.slice(0, 1800), delegationId);
   }
 
   /** Uses the already-supported commentary path; no provider tool call is invented. */
@@ -213,6 +231,7 @@ export class GptLiveBridge {
     if (this.suppressionStop) clearTimeout(this.suppressionStop);
     this.suppressionStop = null;
     this.pendingConfirmedLine = null;
+    this.pendingDelegationResult = null;
     this.latestContext = '';
     this.finishConnect?.(false);
     this.ready = false;
@@ -244,7 +263,7 @@ export class GptLiveBridge {
   private flushContext(): void {
     if (this.contextInFlight || !this.latestContext || this.latestContext === this.sentContext) return;
     this.sentContext = this.latestContext;
-    this.contextInFlight = this.append('thinking', this.latestContext);
+    this.contextInFlight = this.append('thinking', this.latestContext, null);
   }
 
   private finishSuppressedTurn(): void {
@@ -253,21 +272,28 @@ export class GptLiveBridge {
     this.suppressedAt = null;
     this.outputQuietMs = 0;
     this.flushConfirmedLine();
+    this.flushDelegationResult();
   }
 
   private flushConfirmedLine(): void {
     const line = this.pendingConfirmedLine;
     this.pendingConfirmedLine = null;
-    if (line) this.append('commentary', `確定済みのゲーム結果に合わせ、次の一文だけを日本語でそのまま発話する: ${JSON.stringify(line)}`);
+    if (line) this.append('commentary', `確定済みのゲーム結果に合わせ、次の一文だけを日本語でそのまま発話する: ${JSON.stringify(line)}`, null);
   }
 
-  private append(kind: 'thinking' | 'commentary', content: string): string | null {
+  private flushDelegationResult(): void {
+    const result = this.pendingDelegationResult;
+    this.pendingDelegationResult = null;
+    if (result) this.append('commentary', result.content, result.id);
+  }
+
+  private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null): string | null {
     if (!this.ready || !content.trim()) return null;
     const eventId = `${kind}_${++this.appendSequence}`;
     this.send({
       type: `session.${kind}.append`,
       event_id: eventId,
-      delegation_id: null,
+      delegation_id: delegationId,
       content,
     });
     return eventId;
@@ -284,4 +310,10 @@ export class GptLiveBridge {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify(payload));
   }
+}
+
+function transcriptTiming(event: Record<string, unknown>): { startMs: number | null; endMs: number | null } {
+  const startMs = typeof event.start_ms === 'number' && Number.isFinite(event.start_ms) ? event.start_ms : null;
+  const endMs = typeof event.end_ms === 'number' && Number.isFinite(event.end_ms) ? event.end_ms : null;
+  return { startMs, endMs };
 }
