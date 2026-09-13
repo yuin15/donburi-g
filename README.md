@@ -8,9 +8,9 @@
 
 対象は **PC・横画面1280×720以上・マウスとキーボード**。ゲーム画面は英語です。
 
-![立体装飾を増やした筐体と作り直したチェリー・ベル・7](docs/evidence/game-art-direction/normal-1600.webp)
+![公開中の3D筐体とチェリー・ベル・7](docs/evidence/game-art-direction/public-play-1600.webp)
 
-*更新後のゲーム画面。上の画像は開発用の固定局面プレビューです。公開状況は下の公開記録で管理しています。*
+*PR #110反映後の公開サイトで、通常のCPU対戦をChrome・1600×900で撮影。制作目標との比較や当たり別の画像は[画面改善の記録](docs/game-art-direction.md)へ。*
 
 ## 遊び方
 

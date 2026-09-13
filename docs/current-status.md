@@ -29,7 +29,7 @@
 - #8 / PR #105で、割り込みを音声のみ・映像付きの両方からViewModelへ届け、古い字幕の混在を修正。聞き取りと返事の状態を画面に表示した。[画面と確認範囲](conversation-feedback.md)。
 - #106 / #108 / PR #107で7と筐体のHoudiniモデルを公開。曲線の7、丸い金枠、曲面の側板と操作盤、金属・塗装の材質を仕上げ、回転リールの絵柄とWINモデルを揃えた。[モデルと公開画面](houdini-finish.md)。
 - #109 / PR #110で[採用した3枚の制作目標](art-reference/README.md)から、赤いエナメルの7、中空の星付きベル、くぼみのあるチェリー、両面に赤い7を持つコインを再制作。筐体は曲線アーチ・ルビー・立体の金の葉・緑の石材・照明柱・張り出す操作盤を備える。背景の二重写り、影、絵柄の白飛び、結果下の表示の詰まりも修正。[参考と実ゲームの比較](game-art-direction.md)。
-- 更新した主JSは1,964.54KB gzip、CSSは7.52KB gzip。詳細なOBJを主JSへ含めるため転送量が増えている。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
+- 更新した主JSは1,964.56KB gzip、CSSは7.52KB gzip。詳細なOBJを主JSへ含めるため転送量が増えている。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
 
 ## 確認した範囲
 
@@ -45,6 +45,17 @@
 
 ## 公開記録
 
+### 採用画像に沿った3Dモデル・筐体・当たり演出
+
+[PR #110](https://github.com/yuin15/donburi-g/pull/110)をマージし、[採用した制作目標と実ゲームの比較](game-art-direction.md)に記載したモデル・材質・演出・配置を公開した。
+
+- 公開実装: `4fba4d8b4bd913d16e6d10ea473e02cfc4f845fc`。URL: https://slot-chan.vercel.app/
+- Vercel READY: `dpl_BGZL8ztU8kHcEjUtyveDQymwCvMh`。
+- 公開JS `index-D0B2P2F2.js` / CSS `index-B8K7AMrc.css`。公開JSのSHA-256 `3F15159A0A34B4E82C585206FB8931ED3FD15BE7F74CAEA34C1EFAAC6B8BDA34` がマージ後のローカルビルドと一致。
+- PRのCI: https://github.com/yuin15/donburi-g/actions/runs/34730028975 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34730128733 （success）。
+- 接続ツールの送信量上限に合わせ、OBJを可逆圧縮して送信。公開先のビルドで5モデルすべてのSHA-256を検査し、元のOBJを復元してから通常ビルドした。モデルの形・精度は削減していない。
+- 公開Chromeで無操作の自分0回・0点対ライバル30回・1,560点の60秒完走、結果、再戦時の60秒・0回・0点への初期化、クリックとSpaceの予約を確認。再戦も手動2回・120点対自動30回・1,680点で完走し、退出で入口へ戻った。[公開の実画面](game-art-direction.md#公開の実画面)。今回の確認で音声・映像APIは使っていない。
+
 ### 7と筐体の公開
 
 Issue #106 / #108、[PR #107](https://github.com/yuin15/donburi-g/pull/107)をマージし、仕上げたHoudini製の7・筐体・リール絵柄を公開済み。公開Chromeで通常対戦の見栄え、60秒完走、結果、再戦、Space予約、退出を確認した。[仕上げ後のモデルと公開記録](houdini-finish.md)、[初版の記録](houdini-cabinet.md)。
@@ -52,7 +63,7 @@ Issue #106 / #108、[PR #107](https://github.com/yuin15/donburi-g/pull/107)を�
 ### 公開済みの記録
 
 - URL: https://slot-chan.vercel.app
-- 最新の公開実装: `b91cf95c3d073f7b2057b5ef1d3c7aae1bfd623c`（PR #107のマージ）。Vercel READY: `dpl_AKUTGMNp1hUAGGMSNfBtDzMmrYkb`。公開JS `index-A1LCvRUt.js` / CSS `index-Cc9CF3BY.css`、JSは確認済み本番ビルドとSHA-256が一致。公開Chromeで手動3回/240点対自動30回/1,560点の60秒対戦、結果・再戦を確認。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34716975443 （success）。音声・映像APIはこの反映確認では使っていない。[公開画面](houdini-finish.md#公開反映)。
+- PR #107の公開実装: `b91cf95c3d073f7b2057b5ef1d3c7aae1bfd623c`（PR #107のマージ）。Vercel READY: `dpl_AKUTGMNp1hUAGGMSNfBtDzMmrYkb`。公開JS `index-A1LCvRUt.js` / CSS `index-Cc9CF3BY.css`、JSは確認済み本番ビルドとSHA-256が一致。公開Chromeで手動3回/240点対自動30回/1,560点の60秒対戦、結果・再戦を確認。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34716975443 （success）。音声・映像APIはこの反映確認では使っていない。[公開画面](houdini-finish.md#公開反映)。
 - 公開した実装: `5dcdd5e510dca6945e1a23423c6b51b823700fc7`（PR #105の実装コミット）。Houdiniの3モデルと連打中の立体演出を維持し、会話の割り込みと字幕を仕上げた。[今回の変更](conversation-feedback.md)。
 - Vercel READY: `dpl_HF5AGihuBt7Uns7bzELRAmDapD9H`。登録済みのSecretを維持し、招待付きLiveを有効化。許可Originは `https://slot-chan.vercel.app`。
 - #105の実装CI: https://github.com/yuin15/donburi-g/actions/runs/34709592578 （success）。公開JS `index-B1FQWJZ3.js` / CSS `index-Cc9CF3BY.css` を照合し、JSは本番ビルドとSHA-256が一致。公開Chromeで6回/0点対30回/960点の60秒完走、結果・再戦の初期化を確認。今回の修正確認に音声・映像APIは使っていない。[公開画面](conversation-feedback.md#公開確認)。
