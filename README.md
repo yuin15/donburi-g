@@ -8,9 +8,9 @@
 
 対象は **PC・横画面1280×720以上・マウスとキーボード**。ゲーム画面は英語です。
 
-![公開中の3D筐体とチェリー・ベル・7](docs/evidence/game-art-direction/public-play-1600.webp)
+![公開中の3D筐体とチェリー・ベル・7](docs/evidence/physical-win/public-play-1600.webp)
 
-*PR #110反映後の公開サイトで、通常のCPU対戦をChrome・1600×900で撮影。制作目標との比較や当たり別の画像は[画面改善の記録](docs/game-art-direction.md)へ。*
+*PR #113反映後の公開サイトをChrome・1600×900で撮影。3つの絵柄がリールからせり出し、厚い金の獲得数字・コイン・筐体が動きます。[実画面・演出動画・制作目標](docs/physical-win-presentation.md)。*
 
 ## 遊び方
 
