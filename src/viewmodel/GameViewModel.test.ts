@@ -181,9 +181,11 @@ describe('game view model', () => {
     await h.clock.advance(1060);
     first.stopped();
     expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 30 });
+    expect(h.vm.state.lastSpin?.player?.round).toBe(first.spin.round);
     await h.clock.advance(1200);
     expect(h.rounds).toHaveLength(1);
     h.vm.requestSpin();
+    expect(h.vm.state.lastSpin?.player).toBeUndefined();
     const interrupted = h.rounds[1];
     h.vm.requestSpin();
     h.vm.leave();

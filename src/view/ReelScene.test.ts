@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Mesh, Scene, ShaderMaterial, Texture, type BufferGeometry, type Material } from 'three';
+import { AmbientLight, DirectionalLight, Mesh, Object3D, Scene, ShaderMaterial, Texture, type BufferGeometry, type Material } from 'three';
 import type { SpinView, SymbolId } from '../../shared/protocol';
 import { SYMBOLS } from './ReelMotion';
 import { PAYOUT } from '../domain/game';
 import { createSymbolAtlas } from './SymbolAtlas';
 
-const graphics = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), size: vi.fn() }));
+const graphics = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), size: vi.fn(), remove: vi.fn(), backgrounds: [] as unknown[] }));
 // These tests exercise scene scheduling; the GPU bake is checked in Chrome.
 vi.mock('./SymbolAtlas', async () => {
   const { WebGLRenderTarget } = await import('three');
@@ -16,12 +16,12 @@ vi.mock('three', async (importOriginal) => {
   return {
     ...actual,
     WebGLRenderer: class {
-      domElement = { style: {} };
+      domElement = { style: {}, remove: graphics.remove };
       shadowMap = { enabled: false, type: 0, autoUpdate: true, needsUpdate: false };
       info = { render: { calls: 9, triangles: 396, frame: 1 }, memory: { textures: 4, geometries: 9 } };
       setPixelRatio = vi.fn();
       setSize = graphics.size;
-      render = graphics.render;
+      render = (scene: Scene, camera: unknown) => { graphics.backgrounds.push(scene.background); graphics.render(scene, camera); };
       dispose = graphics.dispose;
     },
     TextureLoader: class {
@@ -43,6 +43,13 @@ function setup() {
   const view = new ReelScene(host as unknown as HTMLElement);
   views.push(view);
   return { view, host };
+}
+function setupWithEffects() {
+  const host = { clientWidth: 1280, clientHeight: 720, dataset: {}, append: vi.fn(), replaceChildren: vi.fn() };
+  const effectsHost = { append: vi.fn() };
+  const view = new ReelScene(host as unknown as HTMLElement, undefined, effectsHost as unknown as HTMLElement);
+  views.push(view);
+  return { view, host, effectsHost };
 }
 function spin(round = 1, symbols: [SymbolId, SymbolId, SymbolId] = ['seven', 'cherry', 'bell'], payout = 0): SpinView {
   return { side: 'player', round, symbols, payout, total: payout };
@@ -83,6 +90,7 @@ function reelCenters() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  graphics.backgrounds.splice(0);
   frames = new Map();
   nextFrame = 0;
   page = Object.assign(new EventTarget(), { hidden: false });
@@ -114,6 +122,37 @@ describe('stage rendering and cleanup', () => {
     vi.advanceTimersByTime(5000);
     expect(graphics.render).toHaveBeenCalledOnce();
   });
+  it('renders foreground effects transparently with lit generated reward meshes and removes their canvas', () => {
+    const { view, effectsHost } = setupWithEffects();
+    frame();
+    expect(graphics.render).toHaveBeenCalledTimes(2);
+    expect(graphics.backgrounds).toContain(null);
+    expect(view.stats()).toMatchObject({ calls: 18, triangles: 792, textures: 8, geometries: 18, frames: 2 });
+
+    const player: SpinView = {
+      side: 'player', round: 1, stops: [0, 2, 7], symbols: ['cherry', 'seven', 'cherry'],
+      grid: [['seven', 'bell', 'bell'], ['cherry', 'seven', 'cherry'], ['bell', 'cherry', 'seven']],
+      bet: 5, winningLines: ['diagonalDown'], payout: PAYOUT.seven, total: 55,
+    };
+    view.showSpins(player, { ...spin(1), side: 'rival' }, true);
+    frame();
+    const stage = scene();
+    const lights: (AmbientLight | DirectionalLight)[] = [];
+    let generatedReward: Object3D | undefined;
+    stage.traverse(node => {
+      if (node instanceof AmbientLight || node instanceof DirectionalLight) lights.push(node);
+      if (node.name === 'player-physical-reward-seven') generatedReward = node;
+    });
+    expect(lights).toHaveLength(3);
+    expect(lights.every(light => light.layers.isEnabled(1))).toBe(true);
+    expect(generatedReward).toBeDefined();
+    generatedReward!.traverse(node => expect(node.layers.isEnabled(1)).toBe(true));
+
+    view.dispose();
+    expect(effectsHost.append).toHaveBeenCalledOnce();
+    expect(graphics.remove).toHaveBeenCalledOnce();
+  });
+
   it('reveals the exact middle symbols before notifying, left then middle then right', () => {
     const { view } = setup();
     frame();
