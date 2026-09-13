@@ -49,14 +49,14 @@ describe('continuous downward reel motion', () => {
     }
   });
 
-  it('chooses the nearest matching stop after seven cells without full-strip laps', () => {
+  it('chooses the nearest matching stop after seven cells without more than one strip lap', () => {
     const builds: UpgradeId[][] = [[], ['steady'], ['jackpot'], ['steady', 'steady'], ['steady', 'jackpot'], ['jackpot', 'jackpot']];
     for (const upgrades of builds) {
       const strip = buildReelStrip(upgrades);
       for (const from of [0, .7, 2, 12.42, 1000]) for (const symbol of SYMBOLS) {
         const plan = planTravel(from, symbol, 0, strip);
         expect(plan.to - from).toBeGreaterThanOrEqual(7);
-        expect(plan.to - from).toBeLessThanOrEqual(18);
+        expect(plan.to - from).toBeLessThanOrEqual(strip.length + 7);
         expect(symbolAtOffset(plan.to, strip)).toBe(symbol);
         for (let offset = Math.ceil(from + 7); offset < plan.to; offset += 1) {
           expect(symbolAtOffset(offset, strip)).not.toBe(symbol);

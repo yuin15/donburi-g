@@ -33,6 +33,21 @@ describe('bankroll reel wire', () => {
     };
     expect(parseServerEnvelope(JSON.stringify(envelope({ type: 'side_spin', spin: { ...spin, payout: spin.payout + 3 } })))).toBeNull();
     expect(parseServerEnvelope(JSON.stringify(envelope({ type: 'side_spin', spin: { ...spin, grid: [grid[0], grid[2], grid[1]] } })))).toBeNull();
+    expect(parseServerEnvelope(JSON.stringify(envelope({ type: 'side_spin', spin: { ...spin, stops: [9, 0, 0] } })))).toBeNull();
+  });
+
+  it('round-trips an upgraded strip using its confirmed draw order', () => {
+    const upgrades = ['steady', 'jackpot'] as const;
+    const pool = [...['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'] as const, ...Array(6).fill('cherry'), 'seven'] as SpinView['symbols'][number][];
+    const stops: [number, number, number] = [14, 15, 0];
+    const grid = gridFromStops(stops, pool);
+    const outcome = evaluateGrid(grid, 3);
+    const spin: SpinView = {
+      side: 'player', round: 12, symbols: grid[1], grid, stops, bet: 3,
+      winningLines: outcome.winningLines, payout: outcome.payout, total: 30, upgrades: [...upgrades],
+    };
+    const message: ServerMessage = { type: 'side_spin', spin };
+    expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
   });
 
   it('round-trips a snapshot whose statistics include all simultaneous winning lines in one round', () => {

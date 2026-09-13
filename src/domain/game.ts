@@ -16,14 +16,30 @@ const LINE_ROWS: Record<WinningLine, readonly [number, number, number]> = {
 };
 
 export interface MatchState {
-  matchId: string; status: MatchStatus; spinMode: 'automatic' | 'manual'; lastManualSpinAt: number | null;
-  elapsed: number; remaining: number; round: number; rounds: Record<Side, number>;
-  balances: Record<Side, number>; /** Compatibility projection for older adapters. */ scores: Record<Side, number>; bets: Record<Side, Bet>;
-  stats: MatchStats; upgradesEnabled: boolean; upgrades: Record<Side, UpgradeId[]>;
-  pools: Record<Side, SymbolId[]>; activePools: Record<Side, SymbolId[]>;
-  pending: Record<Side, Partial<Record<0 | 1, UpgradeId>>>; openOffers: Set<0 | 1>;
-  winner?: Side | 'draw'; eventSeq: number; processedSecond: number;
-  rngState: Record<Side, number>; lastLeader: Side | 'draw';
+  matchId: string;
+  status: MatchStatus;
+  spinMode: 'automatic' | 'manual';
+  lastManualSpinAt: number | null;
+  elapsed: number;
+  remaining: number;
+  round: number;
+  rounds: Record<Side, number>;
+  /** Compatibility projection for older adapters. It shares the bankroll object. */
+  balances: Record<Side, number>;
+  scores: Record<Side, number>;
+  bets: Record<Side, Bet>;
+  stats: MatchStats;
+  upgradesEnabled: boolean;
+  upgrades: Record<Side, UpgradeId[]>;
+  pools: Record<Side, SymbolId[]>;
+  activePools: Record<Side, SymbolId[]>;
+  pending: Record<Side, Partial<Record<0 | 1, UpgradeId>>>;
+  openOffers: Set<0 | 1>;
+  winner?: Side | 'draw';
+  eventSeq: number;
+  processedSecond: number;
+  rngState: Record<Side, number>;
+  lastLeader: Side | 'draw';
 }
 export type GameEvent =
   | { type: 'spin'; seq: number; at: number; player: SpinView; rival: SpinView }
@@ -38,8 +54,8 @@ export const UPGRADE_OPEN_SECONDS = [20, 40] as const;
 export const UPGRADE_CLOSE_SECONDS = [24, 44] as const;
 export const DEFAULT_UPGRADE: UpgradeId = 'steady';
 export const UPGRADE_DEFINITIONS = {
-  steady: { id: 'steady' as const, label: 'Retired', description: 'Not available', addedSymbol: 'cherry' as const, addedCount: 6 },
-  jackpot: { id: 'jackpot' as const, label: 'Retired', description: 'Not available', addedSymbol: 'seven' as const, addedCount: 1 },
+  steady: { id: 'steady' as const, label: '安定型', description: 'チェリーを6枚追加', addedSymbol: 'cherry' as const, addedCount: 6 },
+  jackpot: { id: 'jackpot' as const, label: '大勝負', description: '7を1枚追加', addedSymbol: 'seven' as const, addedCount: 1 },
 };
 
 function makeId(): string {
@@ -53,15 +69,21 @@ function nextRandom(state: MatchState, side: Side): number {
   state.rngState[side] = x >>> 0;
   return state.rngState[side] / 0x1_0000_0000;
 }
-function currentLeader(balances: Record<Side, number>): Side | 'draw' {
-  return balances.player === balances.rival ? 'draw' : balances.player > balances.rival ? 'player' : 'rival';
+function currentLeader(scores: Record<Side, number>): Side | 'draw' {
+  return scores.player === scores.rival ? 'draw' : scores.player > scores.rival ? 'player' : 'rival';
 }
 function nextSeq(state: MatchState): number { state.eventSeq += 1; return state.eventSeq; }
-function at(stop: number): SymbolId { return BASE_POOL[((stop % BASE_POOL.length) + BASE_POOL.length) % BASE_POOL.length]; }
+function at(pool: readonly SymbolId[], stop: number): SymbolId {
+  return pool[((stop % pool.length) + pool.length) % pool.length];
+}
 
 /** One adjacent strip window is the outcome and the visible 3x3 grid. */
-export function gridFromStops(stops: [number, number, number]): ReelGrid {
-  return [[at(stops[0] - 1), at(stops[1] - 1), at(stops[2] - 1)], [at(stops[0]), at(stops[1]), at(stops[2])], [at(stops[0] + 1), at(stops[1] + 1), at(stops[2] + 1)]];
+export function gridFromStops(stops: [number, number, number], pool: readonly SymbolId[] = BASE_POOL): ReelGrid {
+  return [
+    [at(pool, stops[0] - 1), at(pool, stops[1] - 1), at(pool, stops[2] - 1)],
+    [at(pool, stops[0]), at(pool, stops[1]), at(pool, stops[2])],
+    [at(pool, stops[0] + 1), at(pool, stops[1] + 1), at(pool, stops[2] + 1)],
+  ];
 }
 export function evaluateGrid(grid: ReelGrid, bet: Bet): { winningLines: WinningLine[]; payout: number } {
   const winningLines = ACTIVE_LINES[bet].filter(line => {
@@ -71,59 +93,96 @@ export function evaluateGrid(grid: ReelGrid, bet: Bet): { winningLines: WinningL
   return { winningLines: [...winningLines], payout: winningLines.reduce((sum, line) => sum + PAYOUT[grid[LINE_ROWS[line][0]][0]], 0) };
 }
 export function chooseRivalBet(state: MatchState): Bet {
-  const balance = state.balances.rival, gap = balance - state.balances.player;
+  const balance = state.scores.rival, gap = balance - state.scores.player;
   if (state.remaining <= 10 && gap < 0 && balance >= 5) return 5;
   if (gap >= 25 || balance < 3) return 1;
   return 3;
 }
 function spinSide(state: MatchState, side: Side): SpinView | null {
-  if (state.upgradesEnabled) {
-    const pool = state.activePools[side];
-    const symbols = [0, 1, 2].map(() => pool[Math.floor(nextRandom(state, side) * pool.length)]) as [SymbolId, SymbolId, SymbolId];
-    const payout = symbols[0] === symbols[1] && symbols[1] === symbols[2] ? ({ cherry: 120, bell: 240, seven: 1200 } as Record<SymbolId, number>)[symbols[0]] : 0;
-    state.scores[side] += payout;
-    state.balances[side] = state.scores[side];
-    state.rounds[side] += 1;
-    state.round = state.rounds.player;
-    const result: SpinView = { round: state.rounds[side], side, symbols, bet: 3, payout, total: state.scores[side], upgrades: [...state.upgrades[side]] };
-    recordSpin(state.stats, result);
-    return result;
-  }
   const bet = state.bets[side];
-  if (state.balances[side] < bet) return null;
-  state.balances[side] -= bet;
-  state.scores[side] = state.balances[side];
-  const stops = [0, 1, 2].map(() => Math.floor(nextRandom(state, side) * BASE_POOL.length)) as [number, number, number];
-  const grid = gridFromStops(stops), { winningLines, payout } = evaluateGrid(grid, bet);
-  state.balances[side] += payout;
-  state.scores[side] = state.balances[side];
+  if (state.scores[side] < bet) return null;
+  state.scores[side] -= bet;
+  const pool = state.activePools[side];
+  const stops = [0, 1, 2].map(() => Math.floor(nextRandom(state, side) * pool.length)) as [number, number, number];
+  const grid = gridFromStops(stops, pool);
+  const { winningLines, payout } = evaluateGrid(grid, bet);
+  state.scores[side] += payout;
   state.rounds[side] += 1;
   state.round = state.rounds.player;
-  const result: SpinView = { round: state.rounds[side], side, symbols: grid[1], grid, stops, bet, winningLines, payout, total: state.balances[side] };
+  const result: SpinView = {
+    round: state.rounds[side],
+    side,
+    symbols: grid[1],
+    grid,
+    stops,
+    bet,
+    winningLines,
+    payout,
+    total: state.scores[side],
+    ...(state.upgrades[side].length ? { upgrades: [...state.upgrades[side]] } : {}),
+  };
   recordSpin(state.stats, result);
   return result;
 }
-export function createMatch(seed = 0x51f15e, matchId = makeId(), spinMode: 'automatic' | 'manual' = 'automatic', _legacyOptions: { upgrades?: boolean } = {}): MatchState {
-  const playerSeed = (seed ^ 0x9e3779b9) >>> 0 || 1, rivalSeed = (seed ^ 0x85ebca6b) >>> 0 || 2;
+export function createMatch(
+  seed = 0x51f15e,
+  matchId = makeId(),
+  spinMode: 'automatic' | 'manual' = 'automatic',
+  _legacyOptions: { upgrades?: boolean } = {},
+): MatchState {
+  const playerSeed = (seed ^ 0x9e3779b9) >>> 0 || 1;
+  const rivalSeed = (seed ^ 0x85ebca6b) >>> 0 || 2;
   const upgradesEnabled = _legacyOptions.upgrades ?? false;
-  return { matchId, status: 'ready', spinMode, lastManualSpinAt: null, elapsed: 0, remaining: MATCH_SECONDS, round: 0, rounds: { player: 0, rival: 0 }, balances: { player: upgradesEnabled ? 0 : STARTING_BALANCE, rival: upgradesEnabled ? 0 : STARTING_BALANCE }, scores: { player: upgradesEnabled ? 0 : STARTING_BALANCE, rival: upgradesEnabled ? 0 : STARTING_BALANCE }, bets: { player: 3, rival: 3 }, stats: createMatchStats(), upgradesEnabled, upgrades: { player: [], rival: [] }, pools: { player: [...BASE_POOL], rival: [...BASE_POOL] }, activePools: { player: [...BASE_POOL], rival: [...BASE_POOL] }, pending: { player: {}, rival: {} }, openOffers: new Set(), eventSeq: 0, processedSecond: 0, rngState: { player: playerSeed, rival: rivalSeed }, lastLeader: 'draw' };
+  const scores = { player: STARTING_BALANCE, rival: STARTING_BALANCE };
+  return {
+    matchId,
+    status: 'ready',
+    spinMode,
+    lastManualSpinAt: null,
+    elapsed: 0,
+    remaining: MATCH_SECONDS,
+    round: 0,
+    rounds: { player: 0, rival: 0 },
+    balances: scores,
+    scores,
+    bets: { player: 3, rival: 3 },
+    stats: createMatchStats(),
+    upgradesEnabled,
+    upgrades: { player: [], rival: [] },
+    pools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
+    activePools: { player: [...BASE_POOL], rival: [...BASE_POOL] },
+    pending: { player: {}, rival: {} },
+    openOffers: new Set(),
+    eventSeq: 0,
+    processedSecond: 0,
+    rngState: { player: playerSeed, rival: rivalSeed },
+    lastLeader: 'draw',
+  };
 }
-/** Old upgrade UI is deliberately disabled by #115. */
+/** Retained for the upgrade flow; normal matches never open these offers. */
 export function submitUpgrade(state: MatchState, side: Side, offer: 0 | 1, id: UpgradeId, elapsed = state.elapsed): boolean {
-  if (!state.upgradesEnabled || state.status !== 'playing' || !state.openOffers.has(offer) || elapsed < UPGRADE_OPEN_SECONDS[offer] || elapsed >= UPGRADE_CLOSE_SECONDS[offer] || state.pending[side][offer]) return false;
-  state.pending[side][offer] = id; return true;
+  if (
+    !state.upgradesEnabled
+    || state.status !== 'playing'
+    || !state.openOffers.has(offer)
+    || elapsed < UPGRADE_OPEN_SECONDS[offer]
+    || elapsed >= UPGRADE_CLOSE_SECONDS[offer]
+    || state.pending[side][offer]
+  ) return false;
+  state.pending[side][offer] = id;
+  return true;
 }
 export function startMatch(state: MatchState): void {
   if (state.status !== 'ready') throw new Error('match_not_ready');
   state.status = 'playing';
 }
 export function setBet(state: MatchState, side: Side, bet: Bet): boolean {
-  if ((state.status !== 'playing' && state.status !== 'ready') || !BETS.includes(bet) || state.balances[side] < bet) return false;
+  if ((state.status !== 'playing' && state.status !== 'ready') || !BETS.includes(bet) || state.scores[side] < bet) return false;
   state.bets[side] = bet;
   return true;
 }
 function performSpin(state: MatchState, atElapsed: number, events: GameEvent[], side?: Side): void {
-  const leaderBefore = currentLeader(state.balances);
+  const leaderBefore = currentLeader(state.scores);
   if (side) {
     if (side === 'rival') state.bets.rival = chooseRivalBet(state);
     const spin = spinSide(state, side);
@@ -135,7 +194,7 @@ function performSpin(state: MatchState, atElapsed: number, events: GameEvent[], 
     else if (player) events.push({ type: 'side_spin', seq: nextSeq(state), at: atElapsed, spin: player });
     else if (rival) events.push({ type: 'side_spin', seq: nextSeq(state), at: atElapsed, spin: rival });
   }
-  const leaderAfter = currentLeader(state.balances);
+  const leaderAfter = currentLeader(state.scores);
   if (leaderAfter !== leaderBefore && leaderAfter !== state.lastLeader) {
     state.lastLeader = leaderAfter;
     events.push({ type: 'leader_change', seq: nextSeq(state), at: atElapsed, leader: leaderAfter });
@@ -164,7 +223,7 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
   }
   if (second === MATCH_SECONDS) {
     state.status = 'result';
-    state.winner = currentLeader(state.balances);
+    state.winner = currentLeader(state.scores);
     state.remaining = 0;
     events.push({ type: 'match_end', seq: nextSeq(state), at: second, snapshot: getSnapshot(state) });
   }
@@ -184,9 +243,41 @@ export function advanceMatch(state: MatchState, elapsedSeconds: number): GameEve
   return events;
 }
 export function requestManualSpin(state: MatchState, elapsedSeconds: number): GameEvent[] {
-  const events = advanceMatch(state, elapsedSeconds); if (state.status !== 'playing' || state.spinMode !== 'manual' || state.elapsed >= MATCH_SECONDS || (state.lastManualSpinAt !== null && state.elapsed + 1e-9 < state.lastManualSpinAt + MANUAL_SPIN_INTERVAL) || state.balances.player < state.bets.player) return events;
-  state.lastManualSpinAt = state.elapsed; performSpin(state, state.elapsed, events, 'player'); return events;
+  const events = advanceMatch(state, elapsedSeconds);
+  if (
+    state.status !== 'playing'
+    || state.spinMode !== 'manual'
+    || state.elapsed >= MATCH_SECONDS
+    || (state.lastManualSpinAt !== null && state.elapsed + 1e-9 < state.lastManualSpinAt + MANUAL_SPIN_INTERVAL)
+    || state.scores.player < state.bets.player
+  ) return events;
+  state.lastManualSpinAt = state.elapsed;
+  performSpin(state, state.elapsed, events, 'player');
+  return events;
 }
-export function abortMatch(state: MatchState): void { if (state.status !== 'result') state.status = 'aborted'; }
-export function getSnapshot(state: MatchState): MatchSnapshot { return { matchId: state.matchId, status: state.status, elapsed: state.elapsed, remaining: state.remaining, round: state.round, rounds: { ...state.rounds }, balances: { ...state.balances }, bets: { ...state.bets }, scores: { ...state.scores }, stats: cloneMatchStats(state.stats), upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] }, winner: state.winner, eventSeq: state.eventSeq }; }
-export function getPoolCounts(state?: MatchState, side: Side = 'player'): Record<SymbolId, number> { return (state?.pools[side] ?? BASE_POOL).reduce<Record<SymbolId, number>>((counts, symbol) => ({ ...counts, [symbol]: counts[symbol] + 1 }), { cherry: 0, bell: 0, seven: 0 }); }
+export function abortMatch(state: MatchState): void {
+  if (state.status !== 'result') state.status = 'aborted';
+}
+export function getSnapshot(state: MatchState): MatchSnapshot {
+  return {
+    matchId: state.matchId,
+    status: state.status,
+    elapsed: state.elapsed,
+    remaining: state.remaining,
+    round: state.round,
+    rounds: { ...state.rounds },
+    balances: { ...state.scores },
+    bets: { ...state.bets },
+    scores: { ...state.scores },
+    stats: cloneMatchStats(state.stats),
+    upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
+    winner: state.winner,
+    eventSeq: state.eventSeq,
+  };
+}
+export function getPoolCounts(state?: MatchState, side: Side = 'player'): Record<SymbolId, number> {
+  return (state?.pools[side] ?? BASE_POOL).reduce<Record<SymbolId, number>>(
+    (counts, symbol) => ({ ...counts, [symbol]: counts[symbol] + 1 }),
+    { cherry: 0, bell: 0, seven: 0 },
+  );
+}

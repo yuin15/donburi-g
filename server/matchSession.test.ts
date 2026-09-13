@@ -226,7 +226,7 @@ describe('provider status lifecycle', () => {
 });
 
 describe('live match cleanup', () => {
-  it('keeps a manual match on base reels and rejects retired upgrade messages', async () => {
+  it('keeps a manual match on base reels and rejects disabled upgrade messages', async () => {
     const { session, messages } = setup('base-only', 'manual');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -240,7 +240,7 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', round: 4, upgrades: { player: [], rival: [] } } });
     expect(messages.some(message => message.type === 'upgrade_offer' || message.type === 'upgrade_applied')).toBe(false);
-    expect(messages.filter(message => message.type === 'error' && message.code === 'bad_message')).toHaveLength(4);
+    expect(messages.filter(message => message.type === 'error' && message.code === 'upgrade_rejected')).toHaveLength(4);
     expect(provider.context.mock.calls.every(([text]) => !text.includes('プレイヤー改造'))).toBe(true);
     await session.shutdown('test_finished');
   });
@@ -718,25 +718,25 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(close).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce();
   });
-  it('rejects a retired upgrade command without mutating a stalled match', async () => {
+  it('rejects a disabled upgrade command without mutating a stalled match', async () => {
     const { session, messages } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(20_000);
     vi.setSystemTime(Date.now() + 4_100);
     session.handleRaw('{"type":"upgrade","matchId":"test-match","commandId":"legacy-after-stall","offerIndex":0,"upgradeId":"jackpot"}');
-    expect(messages.filter(m => m.type === 'error' && m.code === 'bad_message')).toHaveLength(1);
+    expect(messages.filter(m => m.type === 'error' && m.code === 'upgrade_rejected')).toHaveLength(1);
     session.handleRaw('{"type":"snapshot"}');
     expect(messages.filter(m => m.type === 'snapshot').at(-1)).toMatchObject({ snapshot: { elapsed: 24.1, upgrades: { player: [], rival: [] } } });
     await session.shutdown('test_finished');
   });
-  it('keeps an ended match settled when a retired command arrives after the deadline', async () => {
+  it('keeps an ended match settled when a disabled upgrade command arrives after the deadline', async () => {
     const { session, messages } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     vi.setSystemTime(Date.now() + 60_000);
     session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'test-match', commandId: crypto.randomUUID(), offerIndex: 0, upgradeId: 'jackpot' }));
-    expect(messages.some(m => m.type === 'error' && m.code === 'bad_message')).toBe(true);
+    expect(messages.some(m => m.type === 'error' && m.code === 'upgrade_rejected')).toBe(true);
     session.handleRaw('{"type":"snapshot"}');
     expect(messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', elapsed: 60, remaining: 0, upgrades: { player: [], rival: [] } } });
     await session.shutdown('test_finished');

@@ -21,11 +21,11 @@ export class RoundPresentation {
     return this.revealed.player >= this.latest.player && this.revealed.rival >= this.latest.rival;
   }
 
-  reset(): void {
+  reset(scores: Record<Side, number> = { player: 0, rival: 0 }): void {
     this.revision += 1;
     this.latest = { player: 0, rival: 0 };
     this.revealed = { player: 0, rival: 0 };
-    this.scores = { player: 0, rival: 0 };
+    this.scores = { ...scores };
     this.result = null;
     this.didEnd = false;
   }
@@ -34,6 +34,7 @@ export class RoundPresentation {
     const { side, round } = spin;
     if (round <= this.latest[side] || this.didEnd) return false;
     this.latest[side] = round;
+    this.scores = { ...this.scores, [side]: spin.total - spin.payout };
     const revision = this.revision;
     this.port.play(spin, (celebrate = true) => {
       if (revision !== this.revision || round !== this.latest[side] || round <= this.revealed[side]) return;

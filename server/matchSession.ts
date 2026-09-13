@@ -12,17 +12,26 @@ import {
   requestManualSpin,
   setBet,
   startMatch,
+  submitUpgrade,
   type GameEvent,
   type MatchState,
 } from '../src/domain/game.js';
 import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
+import { chooseRivalUpgrade } from './rivalBrain.js';
 import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('start') }),
   z.object({ type: z.literal('spin'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100) }),
+  z.object({
+    type: z.literal('upgrade'),
+    matchId: z.string().min(1).max(100),
+    commandId: z.string().min(1).max(80),
+    upgradeId: z.enum(['steady', 'jackpot']),
+    offerIndex: z.union([z.literal(0), z.literal(1)]),
+  }),
   z.object({
     type: z.literal('set_bet'),
     matchId: z.string().min(1).max(100),
@@ -95,7 +104,7 @@ export class MatchSession {
     deps: { spinMode?: 'automatic' | 'manual'; upgrades?: boolean; voiceMode?: 'audio' | 'avatar' } = {},
   ) {
     const seed = randomBytes(4).readUInt32BE(0);
-    this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual');
+    this.state = createMatch(seed, sessionId, deps.spinMode ?? 'manual', { upgrades: deps.upgrades });
     this.releaseQuota = releaseQuota;
     this.voiceMode = deps.voiceMode ?? 'avatar';
   }
@@ -360,6 +369,18 @@ export class MatchSession {
       this.commands.add(message.commandId);
       const accepted = setBet(this.state, 'player', message.bet);
       this.emit({ type: 'bet_status', commandId: message.commandId, accepted, bet: this.state.bets.player });
+      return;
+    }
+    if (message.type === 'upgrade') {
+      if (message.matchId !== this.sessionId) {
+        this.emitSafeError('wrong_match', '別の対戦への操作は受付できません。', true);
+        return;
+      }
+      this.tick();
+      if (this.commands.has(message.commandId)) return;
+      this.commands.add(message.commandId);
+      const accepted = submitUpgrade(this.state, 'player', message.offerIndex, message.upgradeId, this.state.elapsed);
+      if (!accepted) this.emitSafeError('upgrade_rejected', 'この改造は受付できませんでした。', true);
     }
   }
 
@@ -431,6 +452,21 @@ export class MatchSession {
       if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', round, side);
       return;
     }
+    if (event.type === 'upgrade_open') {
+      this.emit({ type: 'upgrade_offer', offerIndex: event.offerIndex, closesAtElapsed: event.closesAt });
+      void this.decideRivalUpgrade(event.offerIndex);
+      return;
+    }
+    if (event.type === 'upgrade_applied') {
+      this.emit({
+        type: 'upgrade_applied',
+        offerIndex: event.offerIndex,
+        player: event.player,
+        rival: event.rival,
+      });
+      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing');
+      return;
+    }
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
@@ -494,6 +530,25 @@ export class MatchSession {
   private clearBrowserAudio(): Promise<boolean> {
     this.emit({ type: 'voice_interrupt' });
     return Promise.resolve(true);
+  }
+
+  private async decideRivalUpgrade(offerIndex: 0 | 1): Promise<void> {
+    const snapshot = getSnapshot(this.state);
+    const fallback = {
+      upgradeId: snapshot.scores.rival < snapshot.scores.player ? 'jackpot' as const : 'steady' as const,
+      source: 'fallback' as const,
+    };
+    const proposed = this.voiceReady
+      ? await chooseRivalUpgrade(snapshot, offerIndex, this.recentUserText, this.voiceAbort.signal)
+      : fallback;
+    if (this.closed) return;
+    const choice = this.voiceDisabled ? fallback : proposed;
+    const arrivedAt = Math.max(this.state.elapsed, (Date.now() - this.startedAt) / 1000);
+    const accepted = submitUpgrade(this.state, 'rival', offerIndex, choice.upgradeId, arrivedAt);
+    if (accepted) {
+      const label = choice.upgradeId === 'jackpot' ? '大勝負' : '安定型';
+      this.emit({ type: 'rival_line', text: `作戦を決めた。${label}で行く。`, reason: `upgrade_${choice.source}` });
+    }
   }
 
 

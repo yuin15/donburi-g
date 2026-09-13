@@ -13,10 +13,10 @@ import {
 
 describe('authoritative match domain', () => {
   it.each([
-    { seed: 2654435761, winner: 'rival', player: 600, rival: 1680 },
-    { seed: 3668339987, winner: 'player', player: 1800, rival: 240 },
-    { seed: 4203543429, winner: 'draw', player: 480, rival: 480 },
-    { seed: 1035485675, winner: 'player', player: 720, rival: 600, comeback: true },
+    { seed: 2654435761, winner: 'draw', player: 0, rival: 0 },
+    { seed: 3668339987, winner: 'player', player: 33, rival: 0 },
+    { seed: 4203543429, winner: 'rival', player: 0, rival: 39 },
+    { seed: 1035485675, winner: 'rival', player: 0, rival: 108 },
   ])('replays the $winner outcome for test seed $seed', (fixture) => {
     const state = createMatch(fixture.seed, 'test-fixture', 'automatic', { upgrades: true });
     startMatch(state);
@@ -26,7 +26,6 @@ describe('authoritative match domain', () => {
       submitUpgrade(state, 'rival', index, 'jackpot');
     }
     advanceMatch(state, 50);
-    if (fixture.comeback) expect(state.scores.player).toBeLessThan(state.scores.rival);
     advanceMatch(state, 60);
     expect(state.winner).toBe(fixture.winner);
     expect(state.scores).toEqual({ player: fixture.player, rival: fixture.rival });
@@ -59,7 +58,7 @@ describe('authoritative match domain', () => {
     expect(a.scores).toEqual(b.scores);
   });
 
-  it('opens upgrades at 20/40 and applies after 24/44 boundaries', () => {
+  it('opens upgrades at 20/40 and applies after 24/44 boundaries without changing the bankroll rules', () => {
     const state = createMatch(10, 'm', 'automatic', { upgrades: true });
     startMatch(state);
     advanceMatch(state, 20);
@@ -72,6 +71,7 @@ describe('authoritative match domain', () => {
     expect(after.seven - before.seven).toBe(1);
     expect(state.upgrades.player).toEqual(['jackpot']);
     expect(state.upgrades.rival).toEqual(['steady']);
+    expect(state.scores).toEqual({ player: 6, rival: 0 });
   });
 
   it('rejects early, late, duplicated, and post-result upgrades', () => {

@@ -8,6 +8,10 @@ const index = z.union([z.literal(0), z.literal(1)]);
 const score = z.number().int().min(0).max(10000);
 const symbols = z.enum(['cherry', 'bell', 'seven']);
 const basePool = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'] as const;
+const upgradeEntries = {
+  steady: Array<z.infer<typeof symbols>>(6).fill('cherry'),
+  jackpot: Array<z.infer<typeof symbols>>(1).fill('seven'),
+} as const;
 const lineRows = { top: [0, 0, 0], middle: [1, 1, 1], bottom: [2, 2, 2], diagonalDown: [0, 1, 2], diagonalUp: [2, 1, 0] } as const;
 const activeLines = { 1: ['middle'], 3: ['top', 'middle', 'bottom'], 5: ['top', 'middle', 'bottom', 'diagonalDown', 'diagonalUp'] } as const;
 const payout = { cherry: 3, bell: 6, seven: 30 } as const;
@@ -24,7 +28,7 @@ const spin = z.object({
     z.tuple([symbols, symbols, symbols]),
     z.tuple([symbols, symbols, symbols]),
   ]).optional(),
-  stops: z.tuple([z.number().int().min(0).max(8), z.number().int().min(0).max(8), z.number().int().min(0).max(8)]).optional(),
+  stops: z.tuple([z.number().int().min(0).max(20), z.number().int().min(0).max(20), z.number().int().min(0).max(20)]).optional(),
   bet: z.union([z.literal(1), z.literal(3), z.literal(5)]).optional(),
   winningLines: z.array(z.enum(['middle', 'top', 'bottom', 'diagonalDown', 'diagonalUp'])).max(5).optional(),
   payout: z.number().int().min(0).max(150), total: score,
@@ -35,7 +39,9 @@ const spin = z.object({
   if (fields.some(field => field === undefined)) return false;
   const { grid, stops, bet, winningLines } = value as Required<Pick<typeof value, 'grid' | 'stops' | 'bet' | 'winningLines'>> & typeof value;
   if (grid[1][0] !== value.symbols[0] || grid[1][1] !== value.symbols[1] || grid[1][2] !== value.symbols[2]) return false;
-  if (!grid.every((row, rowIndex) => row.every((symbol, column) => symbol === basePool[(stops[column] + rowIndex - 1 + basePool.length) % basePool.length]))) return false;
+  const pool = [...basePool, ...(value.upgrades ?? []).flatMap(id => upgradeEntries[id])];
+  if (stops.some(stop => stop >= pool.length)) return false;
+  if (!grid.every((row, rowIndex) => row.every((symbol, column) => symbol === pool[(stops[column] + rowIndex - 1 + pool.length) % pool.length]))) return false;
   if (new Set(winningLines).size !== winningLines.length || !winningLines.every(line => (activeLines[bet] as readonly string[]).includes(line))) return false;
   const total = winningLines.reduce((sum, line) => {
     const [a, b, c] = lineRows[line];
