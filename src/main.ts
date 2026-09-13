@@ -22,14 +22,23 @@ const model = new GameViewModel({
 });
 
 let unsubscribe = () => {};
+let disposeAiDebug = () => {};
+let disposed = false;
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-review')) {
   void import('./dev/GameReview').then(({ mountGameReview }) => mountGameReview(view, model.state));
 } else {
   view.bind(model);
   unsubscribe = model.subscribe(state => view.render(state));
+  // This entire module (including its markup and CSS) is eliminated from production builds.
+  if (import.meta.env.DEV) void import('./dev/AiDebug').then(({ mountAiDebug }) => {
+    if (!disposed) disposeAiDebug = mountAiDebug(model);
+  });
 }
 
 const dispose = () => {
+  if (disposed) return;
+  disposed = true;
+  disposeAiDebug();
   unsubscribe();
   model.dispose();
   view.dispose();
