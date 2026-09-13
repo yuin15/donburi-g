@@ -993,6 +993,8 @@ describe('live match cleanup', () => {
     provider.events?.onTranscript('user', 'お金を貸してほしい', { startMs: 0, endMs: 300 });
     await vi.advanceTimersByTimeAsync(250);
     expect(chooseLoanDecision).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 10 } }), 'rival_to_player', 'お金を貸してほしい', expect.any(String), expect.any(AbortSignal), false);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await vi.advanceTimersByTimeAsync(250);
     expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'rival_to_player', amount: 5 });
     expect(provider.delegationResult).not.toHaveBeenCalled();
     expect(provider.confirmedLine).toHaveBeenCalledWith('しょうがないな、$5だけ貸すよ。無駄にしないで。');
@@ -1058,6 +1060,28 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('waits one bounded transcript grace after a fast direct loan acceptance before transfer', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('fast-direct-loan-withdrawal', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(chooseLoanDecision).toHaveBeenCalledOnce();
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onTranscript('user', '、やっぱりいらない', { startMs: 101, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(provider.confirmedLine).not.toHaveBeenCalledWith('しょうがないな、$5だけ貸すよ。無駄にしないで。');
+    await session.shutdown('test_finished');
+  });
+
   it('re-evaluates a pending direct loan with a same-turn positive supplement only once', async () => {
     const first = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
     const second = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
@@ -1081,6 +1105,7 @@ describe('live match cleanup', () => {
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
     second.resolve('accept_loan');
     await second.promise;
+    await vi.advanceTimersByTimeAsync(250);
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
@@ -1109,6 +1134,7 @@ describe('live match cleanup', () => {
     expect(chooseLoanDecision).toHaveBeenCalledTimes(2);
     second.resolve('accept_loan');
     await second.promise;
+    await vi.advanceTimersByTimeAsync(250);
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     await session.shutdown('test_finished');
   });

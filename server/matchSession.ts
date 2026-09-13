@@ -69,6 +69,11 @@ const LOAN_OFFER_REPLY_MS = 5000;
 // response turn that began before the reply deadline gets this small grace.
 const LOAN_OFFER_TRANSCRIPT_GRACE_MS = 1000;
 const DIRECT_LOAN_TRANSCRIPT_SETTLE_MS = 250;
+// GPT-Live forwards input transcript deltas but no final-transcript event. A
+// direct borrower acceptance therefore gets one fixed, bounded grace before
+// money moves, so a same-turn withdrawal can still arrive without delaying
+// every request indefinitely.
+const DIRECT_LOAN_ACCEPTANCE_SETTLE_MS = 250;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
@@ -1177,6 +1182,13 @@ export class MatchSession {
       || this.loanDelegation?.id !== delegationId
       || (directDecision !== null && (this.directLoanDecision?.turn !== directDecision.turn || this.directLoanDecision.transcriptSequence !== directDecision.transcriptSequence))
     ) return;
+    if (directDecision && decision === 'accept_loan') {
+      const line = direction === 'rival_to_player'
+        ? 'しょうがないな、$5だけ貸すよ。無駄にしないで。'
+        : '助かった、$5借りるよ。ここから巻き返す。';
+      this.queueSettledDirectLoanAcceptance(directDecision, generation, direction, line);
+      return;
+    }
     if (directDecision) this.directLoanDecision = null;
     this.tick();
     if (this.state.status !== 'playing') {
@@ -1210,6 +1222,39 @@ export class MatchSession {
       return;
     }
     this.requestLoanDecisionLine(delegationId, line);
+  }
+
+  /** Commit a direct borrower acceptance after one finite transcript grace. */
+  private queueSettledDirectLoanAcceptance(
+    directDecision: { turn: number; transcriptSequence: number },
+    generation: number,
+    direction: LoanDirection,
+    line: string,
+  ): void {
+    const timer = setTimeout(() => {
+      this.delegationSettles.delete(timer);
+      if (
+        this.closed
+        || this.voiceDisabled
+        || generation !== this.voiceGeneration
+        || directDecision.turn !== this.userSpeechTurn
+        || this.directLoanDecision !== directDecision
+        || !this.loanDelegation
+        || this.loanDelegation.id !== null
+        || this.loanDelegation.direction !== direction
+      ) return;
+      this.directLoanDecision = null;
+      this.loanDelegation = null;
+      this.loanDecisionPending = false;
+      this.tick();
+      if (this.state.status !== 'playing') return;
+      if (!this.completeLoanTransfer(direction, line)) {
+        this.requestLoanDecisionLine(null, '今はその話はなしで、勝負を続けよう。');
+        return;
+      }
+      this.requestLoanDecisionLine(null, line);
+    }, DIRECT_LOAN_ACCEPTANCE_SETTLE_MS);
+    this.delegationSettles.add(timer);
   }
 
   private requestLoanDecisionLine(delegationId: string | null, line: string): void {
