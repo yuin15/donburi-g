@@ -67,5 +67,15 @@ describe('bankroll reel wire', () => {
     };
     const message: ServerMessage = { type: 'snapshot', snapshot, lastSpins: { player: spin } };
     expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+
+    const active: MatchSnapshot = { ...snapshot, status: 'playing', elapsed: 58, remaining: 2, winner: undefined, rivalDistraction: { untilElapsed: 60, seconds: 2 } };
+    const activeMessage: ServerMessage = { type: 'snapshot', snapshot: active, lastSpins: { player: spin } };
+    expect(parseServerEnvelope(JSON.stringify(envelope(activeMessage)))).toEqual(envelope(activeMessage));
+  });
+
+  it('round-trips only legal rival-distraction events', () => {
+    const message: ServerMessage = { type: 'rival_distraction', state: 'started', seconds: 4, line: 'え？ 後ろに誰かいるの？' };
+    expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+    expect(parseServerEnvelope(JSON.stringify({ ...envelope(message), seconds: 3 }))).toBeNull();
   });
 });

@@ -60,6 +60,8 @@ export interface MatchSnapshot {
   stats: MatchStats;
   upgradeSpent?: number;
   upgrades: Record<Side, UpgradeId[]>;
+  /** Authoritative rival-only pause. It survives snapshot recovery during a Live match. */
+  rivalDistraction?: { untilElapsed: number; seconds: 2 | 4 };
   winner?: Side | 'draw';
   eventSeq: number;
 }
@@ -97,6 +99,12 @@ export type ServerMessage =
     decision: 'accepted' | 'rejected';
     before: MatchSnapshot;
     after: MatchSnapshot;
+    line: string;
+  }
+  | {
+    type: 'rival_distraction';
+    state: 'started' | 'ended';
+    seconds: 2 | 4;
     line: string;
   }
   | { type: 'transcript'; role: 'user' | 'assistant'; delta: string }

@@ -26,6 +26,7 @@ export interface MatchState {
   remaining: number;
   duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
   extensionUsed: boolean;
+  rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
   round: number;
   rounds: Record<Side, number>;
   /** Compatibility projection for older adapters. It shares the bankroll object. */
@@ -150,6 +151,7 @@ export function createMatch(
     remaining: MATCH_SECONDS,
     duration: MATCH_SECONDS,
     extensionUsed: false,
+    rivalDistraction: null,
     round: 0,
     rounds: { player: 0, rival: 0 },
     balances: scores,
@@ -228,8 +230,10 @@ function performSpin(state: MatchState, atElapsed: number, events: GameEvent[], 
     events.push({ type: 'leader_change', seq: nextSeq(state), at: atElapsed, leader: leaderAfter });
   }
 }
-function processSecond(state: MatchState, second: number, events: GameEvent[]): void {
-  if (second % SPIN_INTERVAL === 0 && second <= state.duration) performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
+function processSecond(state: MatchState, second: number, events: GameEvent[], rivalPaused: boolean): void {
+  if (second % SPIN_INTERVAL === 0 && second <= state.duration) {
+    if (state.spinMode !== 'manual' || !rivalPaused) performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
+  }
   const openIndex = UPGRADE_OPEN_SECONDS.indexOf(second as 20 | 40);
   if (state.upgradesEnabled && openIndex >= 0) {
     const offerIndex = openIndex as 0 | 1;
@@ -256,6 +260,7 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
     events.push({ type: 'match_end', seq: nextSeq(state), at: second, snapshot: getSnapshot(state) });
   }
 }
+/** A pause skips only rival turns; elapsed time and the normal cadence continue. */
 export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
   if (state.status !== 'playing') return [];
   const target = Math.min(state.duration, Math.max(state.elapsed, elapsedSeconds));
@@ -264,12 +269,21 @@ export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDe
     if (holdAtDeadline && second === state.duration) break;
     state.elapsed = second;
     state.remaining = state.duration - second;
-    processSecond(state, second, events);
+    processSecond(state, second, events, Boolean(state.rivalDistraction && second < state.rivalDistraction.untilElapsed));
     state.processedSecond = second;
   }
   state.elapsed = Math.min(target, state.duration);
   state.remaining = Math.max(0, state.duration - state.elapsed);
+  if (state.rivalDistraction && state.elapsed >= state.rivalDistraction.untilElapsed) state.rivalDistraction = null;
   return events;
+}
+
+/** The server may apply only the exact short pause selected by its allowlist. */
+export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot | null {
+  if (state.status !== 'playing' || state.rivalDistraction || (seconds !== 2 && seconds !== 4)) return null;
+  state.rivalDistraction = { seconds, untilElapsed: state.elapsed + seconds };
+  nextSeq(state);
+  return getSnapshot(state);
 }
 
 /** The domain is the only place that can turn a model decision into extra time. */
@@ -317,6 +331,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     stats: cloneMatchStats(state.stats),
     upgradeSpent: state.upgradeSpent,
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
+    ...(state.rivalDistraction ? { rivalDistraction: { ...state.rivalDistraction } } : {}),
     winner: state.winner,
     eventSeq: state.eventSeq,
   };

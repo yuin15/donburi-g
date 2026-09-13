@@ -3,6 +3,7 @@ import {
   advanceMatch,
   applyTimeExtension,
   createMatch,
+  distractRival,
   getPoolCounts,
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
@@ -186,6 +187,31 @@ describe('authoritative match domain', () => {
     expect(applyTimeExtension(state)).toBeNull();
     advanceMatch(state, 60);
     expect(applyTimeExtension(state)).toBeNull();
+  });
+
+  it('skips only rival turns during an authoritative distraction without pausing time or catching up', () => {
+    const state = createMatch(123, 'distracted', 'manual');
+    startMatch(state);
+    advanceMatch(state, 10.2);
+    const snapshot = distractRival(state, 4);
+    expect(snapshot?.rivalDistraction).toEqual({ seconds: 4, untilElapsed: 14.2 });
+    requestManualSpin(state, 11.3);
+    const events = advanceMatch(state, 16);
+    expect(events.filter(event => event.type === 'side_spin' && event.spin.side === 'rival').map(event => event.at)).toEqual([16]);
+    expect(state.elapsed).toBe(16);
+    expect(state.rounds.player).toBe(1);
+    expect(state.rivalDistraction).toBeNull();
+    expect(getSnapshot(state).rivalDistraction).toBeUndefined();
+  });
+
+  it('rejects an invalid runtime pause and resumes on its exact expiry boundary', () => {
+    const state = createMatch(123, 'distraction-boundary', 'manual');
+    startMatch(state);
+    advanceMatch(state, 10);
+    expect(distractRival(state, 3 as unknown as 2)).toBeNull();
+    expect(distractRival(state, 4)).not.toBeNull();
+    const events = advanceMatch(state, 14);
+    expect(events.filter(event => event.type === 'side_spin' && event.spin.side === 'rival').map(event => event.at)).toEqual([14]);
   });
 });
 

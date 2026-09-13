@@ -63,6 +63,7 @@ const snapshot = z.object({
   scores: z.object({ player: score, rival: score }),
   stats: z.object({ player: sideStats, rival: sideStats }),
   upgrades: z.object({ player: z.array(upgrade).max(6), rival: z.array(upgrade).max(2) }),
+  rivalDistraction: z.object({ untilElapsed: z.number().min(0).max(MAX_MATCH_SECONDS), seconds: z.union([z.literal(2), z.literal(4)]) }).optional(),
   upgradeSpent: z.number().int().min(0).max(60).optional(),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
 }).refine(v => v.round === v.rounds.player)
@@ -92,6 +93,7 @@ const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('upgrade_applied'), offerIndex: index, player: upgrade, rival: upgrade }),
   z.object({ type: z.literal('rival_line'), text: z.string().max(1000), reason: z.string().max(100) }),
   z.object({ type: z.literal('time_extension'), decision: z.enum(['accepted', 'rejected']), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => v.before.matchId === v.after.matchId && (v.decision === 'accepted' ? v.after.duration === MAX_MATCH_SECONDS && Math.abs(v.after.remaining - (v.before.remaining + 10)) < 1e-6 : JSON.stringify(v.before) === JSON.stringify(v.after))),
+  z.object({ type: z.literal('rival_distraction'), state: z.enum(['started', 'ended']), seconds: z.union([z.literal(2), z.literal(4)]), line: z.string().min(1).max(1000) }),
   z.object({ type: z.literal('transcript'), role: z.enum(['user', 'assistant']), delta: z.string().max(16000) }),
   z.object({ type: z.literal('match_ended'), snapshot }),
   z.object({ type: z.literal('error'), code: z.string().max(100), message: z.string().max(1000), recoverable: z.boolean() }),
