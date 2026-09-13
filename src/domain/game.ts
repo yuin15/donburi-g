@@ -6,6 +6,9 @@ import { upgradePrice } from '../../shared/shop.js';
 export { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, TIME_EXTENSION_SECONDS } from '../../shared/protocol.js';
 export type MatchStatus = MatchSnapshot['status'];
 export const STARTING_BALANCE = 30;
+/** A loan is a fixed transfer. Neither client nor model chooses the amount. */
+export const LOAN_AMOUNT = 5;
+export type LoanDirection = 'rival_to_player' | 'player_to_rival';
 export const BETS = [1, 3, 5] as const satisfies readonly Bet[];
 export const PAYOUT: Record<SymbolId, number> = { cherry: 3, bell: 6, seven: 30 };
 export const BASE_POOL: readonly SymbolId[] = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'];
@@ -26,6 +29,7 @@ export interface MatchState {
   remaining: number;
   duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
   extensionUsed: boolean;
+  loanUsed: Record<LoanDirection, boolean>;
   rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
   round: number;
   rounds: Record<Side, number>;
@@ -53,6 +57,7 @@ export type GameEvent =
   | { type: 'upgrade_open'; seq: number; at: number; offerIndex: 0 | 1; closesAt: number }
   | { type: 'upgrade_applied'; seq: number; at: number; offerIndex: 0 | 1; player: UpgradeId; rival: UpgradeId }
   | { type: 'time_extended'; seq: number; at: number; before: MatchSnapshot; after: MatchSnapshot }
+  | { type: 'loan_transfer'; seq: number; at: number; direction: LoanDirection; before: MatchSnapshot; after: MatchSnapshot }
   | { type: 'match_end'; seq: number; at: number; snapshot: MatchSnapshot };
 export const SPIN_INTERVAL = RIVAL_SPIN_INTERVAL;
 /** Retired rules are exported only so stale review fixtures can compile. */
@@ -151,6 +156,7 @@ export function createMatch(
     remaining: MATCH_SECONDS,
     duration: MATCH_SECONDS,
     extensionUsed: false,
+    loanUsed: { rival_to_player: false, player_to_rival: false },
     rivalDistraction: null,
     round: 0,
     rounds: { player: 0, rival: 0 },
@@ -305,6 +311,27 @@ export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type
   state.remaining = Math.max(0, state.duration - state.elapsed);
   state.extensionUsed = true;
   return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };
+}
+/**
+ * The authoritative, all-or-nothing loan entry point. A transfer is possible
+ * only while the borrower cannot place the minimum bet and the lender can
+ * cover the fixed amount. `balances` shares `scores`, so snapshots stay equal.
+ */
+export function transferLoan(state: MatchState, direction: LoanDirection): Extract<GameEvent, { type: 'loan_transfer' }> | null {
+  const [lender, borrower] = direction === 'rival_to_player'
+    ? ['rival', 'player'] as const
+    : ['player', 'rival'] as const;
+  if (
+    state.status !== 'playing'
+    || state.loanUsed[direction]
+    || state.scores[borrower] >= BETS[0]
+    || state.scores[lender] < LOAN_AMOUNT
+  ) return null;
+  const before = getSnapshot(state);
+  state.scores[lender] -= LOAN_AMOUNT;
+  state.scores[borrower] += LOAN_AMOUNT;
+  state.loanUsed[direction] = true;
+  return { type: 'loan_transfer', seq: nextSeq(state), at: state.elapsed, direction, before, after: getSnapshot(state) };
 }
 export function requestManualSpin(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
   const events = advanceMatch(state, elapsedSeconds, holdAtDeadline);

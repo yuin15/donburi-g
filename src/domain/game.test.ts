@@ -12,6 +12,7 @@ import {
   STARTING_BALANCE,
   startMatch,
   submitUpgrade,
+  transferLoan,
 } from './game';
 
 describe('authoritative match domain', () => {
@@ -187,6 +188,38 @@ describe('authoritative match domain', () => {
     expect(applyTimeExtension(state)).toBeNull();
     advanceMatch(state, 60);
     expect(applyTimeExtension(state)).toBeNull();
+  });
+
+  it('moves exactly $5 once in each direction without minting bankroll', () => {
+    const state = createMatch(123, 'loan');
+    startMatch(state);
+    state.scores.player = 0;
+    state.scores.rival = 8;
+    const first = transferLoan(state, 'rival_to_player');
+    expect(first).toMatchObject({ type: 'loan_transfer', direction: 'rival_to_player', before: { scores: { player: 0, rival: 8 } }, after: { scores: { player: 5, rival: 3 }, balances: { player: 5, rival: 3 } } });
+    expect((first?.after.scores.player ?? 0) + (first?.after.scores.rival ?? 0)).toBe((first?.before.scores.player ?? 0) + (first?.before.scores.rival ?? 0));
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+
+    state.scores.player = 9;
+    state.scores.rival = 0;
+    const reverse = transferLoan(state, 'player_to_rival');
+    expect(reverse?.after.scores).toEqual({ player: 4, rival: 5 });
+    expect(reverse?.after.scores).toEqual(reverse?.after.balances);
+    expect(transferLoan(state, 'player_to_rival')).toBeNull();
+  });
+
+  it('rejects loans before play, with a funded borrower, an underfunded lender, or after result', () => {
+    const state = createMatch(123, 'loan-guard');
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    startMatch(state);
+    state.scores.player = 1;
+    state.scores.rival = 20;
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    state.scores.player = 0;
+    state.scores.rival = 4;
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    advanceMatch(state, 60);
+    expect(transferLoan(state, 'rival_to_player')).toBeNull();
   });
 
   it('skips only rival turns during an authoritative distraction without pausing time or catching up', () => {

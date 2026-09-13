@@ -378,6 +378,28 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('keeps a confirmed loan through an older lender reel stop, then uses later totals without double counting', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const inFlight: SpinView = { side: 'player', round: 1, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 25 };
+    session.emit({ type: 'side_spin', spin: inFlight });
+    expect(h.vm.state.scores.player).toBe(25);
+    const before = playingSnapshot();
+    before.elapsed = 8; before.remaining = 52;
+    before.scores = before.balances = { player: 25, rival: 0 };
+    const after = { ...before, scores: { player: 20, rival: 5 }, balances: { player: 20, rival: 5 }, eventSeq: before.eventSeq + 1 };
+    session.emit({ type: 'loan_transfer', direction: 'player_to_rival', amount: 5, before, after, line: 'All right. One more shot.' });
+    expect(h.vm.state).toMatchObject({ scores: { player: 20, rival: 5 }, loanTransfer: { direction: 'player_to_rival', amount: 5 } });
+    h.rounds[0].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 20, rival: 5 });
+
+    const later: SpinView = { ...inFlight, round: 2, total: 19 };
+    session.emit({ type: 'side_spin', spin: later });
+    h.rounds[1].stopped();
+    expect(h.vm.state.scores.player).toBe(19);
+    h.vm.dispose();
+  });
+
   it('shows an authoritative rival distraction and clears it from its recovery event or snapshot', async () => {
     const h = setup();
     const session = await beginLive(h);

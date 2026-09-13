@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type WebSocket from 'ws';
 import type { LiveEvents } from './gptLive';
-import type { ServerMessage } from '../shared/protocol';
+import type { ServerMessage, SpinView } from '../shared/protocol';
+import type { MatchState } from '../src/domain/game';
 import { parseServerEnvelope } from '../shared/wire';
 
 const provider = vi.hoisted(() => ({
@@ -34,14 +35,17 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   requestDelegationResult = provider.delegationResult;
   requestDelegationThinking = provider.delegationThinking;
   suppressOutput = provider.suppress;
+  suppressOutputAfterTaggedSpeech = provider.suppress;
   sendMic = provider.mic;
 } }));
-vi.mock('./rivalBrain', () => ({
+vi.mock('./rivalBrain', async importOriginal => ({
+  ...(await importOriginal<typeof import('./rivalBrain')>()),
   chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })),
   chooseTimeExtension: vi.fn(async () => 'reject_extension'),
+  chooseLoanDecision: vi.fn(async () => 'no_request'),
 }));
 import { MatchSession } from './matchSession';
-import { chooseTimeExtension } from './rivalBrain';
+import { chooseLoanDecision, chooseTimeExtension } from './rivalBrain';
 
 const avatar = { sessionId: 'test-session', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' };
 function deferred<T>() {
@@ -63,6 +67,17 @@ function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic'
   const release = vi.fn(async () => undefined);
   return { session: new MatchSession(socket, id, release, { spinMode, voiceMode, random }), messages, release, close };
 }
+function startLoanOffer(): string {
+  const [line, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
+  expect(line).toBe('お金がなくなっちゃった。5ドル貸してくれない？');
+  expect(speechId).toEqual(expect.any(String));
+  provider.events?.onAudio(Buffer.alloc(4800, 4).toString('base64'), speechId as string);
+  return speechId as string;
+}
+function finishLoanOffer(session: MatchSession, speechId: string): void {
+  provider.events?.onSpeechAudioEnded(speechId);
+  session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+}
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
@@ -78,6 +93,7 @@ beforeEach(() => {
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
   vi.mocked(chooseTimeExtension).mockResolvedValue('reject_extension');
+  vi.mocked(chooseLoanDecision).mockResolvedValue('no_request');
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -603,7 +619,7 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(2);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り60秒'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=playing,勝者=未確定'));
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 現在は確定不可。委任しない。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 現在は確定不可。委任しない。通常の会話を続ける。'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
     await vi.advanceTimersByTimeAsync(900);
     for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
@@ -713,7 +729,7 @@ describe('live match cleanup', () => {
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(52_000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 今この試合で未使用。サーバーは+10秒を一度だけ確定できる。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 今この試合で未使用。+10秒は一度だけ確定できる。'));
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', '延長', { startMs: 0, endMs: 400 });
     expect(chooseTimeExtension).not.toHaveBeenCalled();
@@ -747,6 +763,301 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(18_000);
     expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0 } });
     await session.shutdown('test_finished');
+  });
+
+  it('authoritatively transfers one fixed $5 loan to a bankrupt player only after the delegated decision', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('player-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'Can you lend me enough for one more spin?', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'player-loan-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseLoanDecision).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 10 } }), 'rival_to_player', expect.stringContaining('lend me'), expect.any(String), expect.any(AbortSignal), false);
+    const transfer = messages.find((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
+    expect(transfer).toMatchObject({ direction: 'rival_to_player', amount: 5, before: { scores: { player: 0, rival: 10 } }, after: { scores: { player: 5, rival: 5 }, balances: { player: 5, rival: 5 } } });
+    expect(provider.delegationResult).toHaveBeenCalledWith('player-loan-delegation', expect.stringContaining('Say only this Japanese line'), expect.any(String));
+    provider.events?.onDelegation({ id: 'player-loan-again', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('routes a loan request whose transcript arrives after its delegation', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('late-loan-route', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 30;
+    provider.events?.onUserSpeech();
+    provider.events?.onDelegation({ id: 'late-loan-route-delegation', offsetMs: 400 });
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseLoanDecision).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 30 } }), 'rival_to_player', 'お金を貸して', expect.any(String), expect.any(AbortSignal), false);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'rival_to_player', amount: 5 });
+    await session.shutdown('test_finished');
+  });
+
+  it('answers a clear borrower request when the loan decision returns no_request', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('no_request');
+    const { session, messages } = setup('loan-clarification', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 30;
+    provider.events?.onUserSpeech();
+    provider.events?.onDelegation({ id: 'loan-clarification-delegation', offsetMs: 400 });
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(provider.suppress).toHaveBeenCalledOnce();
+    expect(provider.delegationResult).toHaveBeenCalledWith('loan-clarification-delegation', expect.stringContaining('もう一度「貸して」って言ってくれる？'), expect.any(String));
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps an explicit late extension request on the extension decision path when the player is bankrupt', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('reject_extension');
+    const { session, messages } = setup('bankrupt-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    state.elapsed = state.processedSecond = 52;
+    state.remaining = 8;
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'bankrupt-extension-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 10 }, remaining: 8 }), '延長して', expect.any(String), expect.any(AbortSignal), false);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('offers a rival loan once, transfers a clear reply immediately, and ignores an expired reply', async () => {
+    const first = setup('rival-loan', 'manual', 'audio');
+    await first.session.initialize();
+    first.session.handleRaw('{"type":"start"}');
+    const firstState = (first.session as unknown as { state: MatchState }).state;
+    firstState.scores.player = 10;
+    firstState.scores.rival = 0;
+    // A loan remains available in the final seconds when no extension offer
+    // or extension decision is active.
+    firstState.elapsed = firstState.processedSecond = 50;
+    firstState.remaining = 10;
+    first.session.handleRaw('{"type":"snapshot"}');
+    startLoanOffer();
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'rival-loan-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    expect(first.messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
+    firstState.scores.player = 10;
+    firstState.scores.rival = 0;
+    first.session.handleRaw('{"type":"snapshot"}');
+    expect(provider.confirmedLine.mock.calls.filter(([line]) => line === 'お金がなくなっちゃった。5ドル貸してくれない？')).toHaveLength(1);
+    await first.session.shutdown('test_finished');
+
+    const second = setup('expired-rival-loan', 'manual', 'audio');
+    await second.session.initialize();
+    second.session.handleRaw('{"type":"start"}');
+    const secondState = (second.session as unknown as { state: MatchState }).state;
+    secondState.scores.player = 10;
+    secondState.scores.rival = 0;
+    second.session.handleRaw('{"type":"snapshot"}');
+    const secondOfferSpeechId = startLoanOffer();
+    finishLoanOffer(second.session, secondOfferSpeechId);
+    await vi.advanceTimersByTimeAsync(5_001);
+    second.session.handleRaw('{"type":"snapshot"}');
+    provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'expired-rival-loan-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(second.messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await second.session.shutdown('test_finished');
+  });
+
+  it('immediately transfers a clear reply to a spoken rival loan offer without AI judgment', async () => {
+    const { session, messages } = setup('immediate-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 59;
+    state.remaining = 1;
+    session.handleRaw('{"type":"snapshot"}');
+    startLoanOffer();
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 0, endMs: 100 });
+    const transfers = messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 101, endMs: 200 });
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('uses tagged offer audio when a delegation and an unrelated assistant transcript arrive before the affirmative', async () => {
+    const { session, messages } = setup('tagged-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    startLoanOffer();
+    provider.events?.onDelegation({ id: 'tagged-rival-loan-delegation', offsetMs: 400 });
+    provider.events?.onTranscript('assistant', 'まだ声が出始めただけ。');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 0, endMs: 100 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not immediately transfer a negative or expired rival-loan reply', async () => {
+    const { session, messages } = setup('guarded-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    const guardedOfferSpeechId = startLoanOffer();
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いや', { startMs: 0, endMs: 100 });
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    finishLoanOffer(session, guardedOfferSpeechId);
+    await vi.advanceTimersByTimeAsync(5_001);
+    session.handleRaw('{"type":"snapshot"}');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'いいよ', { startMs: 200, endMs: 300 });
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps legacy latest-spin recovery snapshots valid across a loan and the next spin', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('loan-recovery', 'automatic', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(2_000);
+    const internals = session as unknown as {
+      state: MatchState;
+      lastSpin: { player: SpinView; rival: SpinView } | undefined;
+      lastSpins: Partial<Record<'player' | 'rival', SpinView>>;
+    };
+    const pair = internals.lastSpin!;
+    // These are actual confirmed reel outcomes; set the test bankroll to the
+    // matching post-spin values needed to exercise the player-to-rival loan.
+    internals.state.scores.player = 10;
+    internals.state.scores.rival = 0;
+    // Automatic spins intentionally share this pair with lastSpins. Retain
+    // that legacy shape while making the last reel totals match the bankroll.
+    pair.player.total = 10;
+    pair.rival.total = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    startLoanOffer();
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'loan-recovery-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    const loanSnapshot = messages.filter(message => message.type === 'snapshot').at(-1)!;
+    expect(parseServerEnvelope(JSON.stringify(loanSnapshot))).not.toBeNull();
+    expect(loanSnapshot.lastSpin).toMatchObject({ player: { total: 5 }, rival: { total: 5 } });
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1_000);
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps split latest-spin recovery snapshots valid across a loan and the next manual spin', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('loan-recovery-manual', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    session.handleRaw('{"type":"spin","matchId":"loan-recovery-manual","commandId":"loan-spin-1"}');
+    await vi.advanceTimersByTimeAsync(2_000);
+    const internals = session as unknown as {
+      state: MatchState;
+      lastSpin: { player: SpinView; rival: SpinView } | undefined;
+      lastSpins: Partial<Record<'player' | 'rival', SpinView>>;
+    };
+    expect(internals.lastSpin).toBeUndefined();
+    const playerSpin = internals.lastSpins.player!;
+    const rivalSpin = internals.lastSpins.rival!;
+    internals.state.scores.player = 10;
+    internals.state.scores.rival = 0;
+    playerSpin.total = 10;
+    rivalSpin.total = 0;
+    await vi.advanceTimersByTimeAsync(100);
+    startLoanOffer();
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'loan-recovery-manual-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    const loanSnapshot = messages.filter(message => message.type === 'snapshot').at(-1)!;
+    expect(parseServerEnvelope(JSON.stringify(loanSnapshot))).not.toBeNull();
+    expect(loanSnapshot.lastSpins).toMatchObject({ player: { total: 5 }, rival: { total: 5 } });
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1_100);
+    session.handleRaw('{"type":"spin","matchId":"loan-recovery-manual","commandId":"loan-spin-2"}');
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await session.shutdown('test_finished');
+  });
+
+  it('never transfers after a delayed decision reaches result or voice disconnect', async () => {
+    const late = deferred<'accept_loan'>();
+    vi.mocked(chooseLoanDecision).mockReturnValueOnce(late.promise);
+    const first = setup('late-player-loan', 'manual', 'audio');
+    await first.session.initialize();
+    first.session.handleRaw('{"type":"start"}');
+    const firstState = (first.session as unknown as { state: MatchState }).state;
+    firstState.scores.player = 0;
+    firstState.scores.rival = 10;
+    provider.events?.onTranscript('user', 'Please lend me money.', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'late-loan-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(61_000);
+    late.resolve('accept_loan');
+    await late.promise;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(first.messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await first.session.shutdown('test_finished');
+
+    const disconnected = deferred<'accept_loan'>();
+    vi.mocked(chooseLoanDecision).mockReturnValueOnce(disconnected.promise);
+    const second = setup('disconnected-player-loan', 'manual', 'audio');
+    await second.session.initialize();
+    second.session.handleRaw('{"type":"start"}');
+    const secondState = (second.session as unknown as { state: MatchState }).state;
+    secondState.scores.player = 0;
+    secondState.scores.rival = 10;
+    provider.events?.onTranscript('user', 'Please lend me money.', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'disconnect-loan-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    second.session.handleRaw('{"type":"voice_close"}');
+    disconnected.resolve('accept_loan');
+    await disconnected.promise;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(second.messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await second.session.shutdown('test_finished');
   });
 
   it('interrupts an unacknowledged acceptance line before the 15-second fallback extends a held match', async () => {
@@ -804,7 +1115,7 @@ describe('live match cleanup', () => {
     expect(provider.confirmedLine).toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('ライバルは時間延長を提案済み。プレイヤーの短い同意は delegation して受諾候補にし、拒否は延長しない。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('ライバルは時間延長を提案済み。プレイヤーの短い同意は、結果が出るまで発話せずに扱う。拒否は延長しない。'));
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', 'うん', { startMs: 0, endMs: 200 });
     provider.events?.onUserSpeechEnd();
@@ -825,13 +1136,14 @@ describe('live match cleanup', () => {
     const { session, messages } = setup('delegation-no-request', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
+    (session as unknown as { state: MatchState }).state.scores.rival = 100;
     await vi.advanceTimersByTimeAsync(52_000);
     provider.events?.onTranscript('user', 'まだ負けたくない', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'item-no-request', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).toHaveBeenCalledOnce();
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
-    expect(provider.delegationThinking).toHaveBeenCalledWith('item-no-request', expect.stringContaining('No extension request'));
+    expect(provider.delegationThinking).toHaveBeenCalledWith('item-no-request', expect.stringContaining('Continue the ordinary conversation'));
     provider.events?.onDelegation({ id: 'item-no-request', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).toHaveBeenCalledOnce();
@@ -859,6 +1171,7 @@ describe('live match cleanup', () => {
     const { session } = setup('delegated-turn', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
+    (session as unknown as { state: MatchState }).state.scores.rival = 100;
     await vi.advanceTimersByTimeAsync(52_000);
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', 'さっきの話', { startMs: 0, endMs: 300 });
@@ -880,7 +1193,7 @@ describe('live match cleanup', () => {
     provider.events?.onDelegation({ id: 'item-early', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).not.toHaveBeenCalled();
-    expect(provider.delegationThinking).toHaveBeenCalledWith('item-early', expect.stringContaining('No time-extension action'));
+    expect(provider.delegationThinking).toHaveBeenCalledWith('item-early', expect.stringContaining('Continue the ordinary conversation'));
     await session.shutdown('test_finished');
   });
 
@@ -918,6 +1231,7 @@ describe('live match cleanup', () => {
     const { session, messages } = setup('late-extension', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
+    (session as unknown as { state: MatchState }).state.scores.rival = 100;
     await vi.advanceTimersByTimeAsync(52_000);
     provider.events?.onTranscript('user', 'more time', { startMs: 0, endMs: 300 });
     provider.events?.onDelegation({ id: 'item-late', offsetMs: 400 });

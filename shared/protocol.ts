@@ -2,6 +2,7 @@ export type VoiceMode = 'audio' | 'avatar';
 export type AiProvider = 'gptLive' | 'liveAvatar';
 export type AiProviderState = 'connecting' | 'connected' | 'failed' | 'closed';
 export type Side = 'player' | 'rival';
+export type LoanDirection = 'rival_to_player' | 'player_to_rival';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
 /** Deprecated #114 API shape. New matches never offer upgrades. */
 export type UpgradeId = 'steady' | 'jackpot';
@@ -101,6 +102,7 @@ export type ServerMessage =
     after: MatchSnapshot;
     line: string;
   }
+  | { type: 'loan_transfer'; direction: LoanDirection; amount: 5; before: MatchSnapshot; after: MatchSnapshot; line: string }
   | {
     type: 'rival_distraction';
     state: 'started' | 'ended';

@@ -62,6 +62,7 @@ export class GameViewModel implements GameCommands {
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private timeExtension: GameViewState['timeExtension'] = null;
+  private loanTransfer: GameViewState['loanTransfer'] = null;
   private rivalDistraction: GameViewState['rivalDistraction'] = null;
   private line = INITIAL_LINE;
   private videoEnabled = false;
@@ -87,6 +88,7 @@ export class GameViewModel implements GameCommands {
   private spinRequestTimer: number | undefined;
   private cueTimer: number | undefined;
   private timeExtensionTimer: number | undefined;
+  private loanTransferTimer: number | undefined;
   private payoutTimers: Partial<Record<Side, number>> = {};
   private assistantTimer: number | undefined;
   private revision = 0;
@@ -297,7 +299,7 @@ export class GameViewModel implements GameCommands {
     for (const [id, resolve] of this.waits) { this.deps.clock.clearTimeout(id); resolve(false); }
     this.waits.clear();
     this.practiceTimer = this.spinQueueTimer = this.spinRequestTimer = undefined;
-    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = undefined;
+    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = this.loanTransferTimer = undefined;
     this.payoutTimers = {};
   }
 
@@ -342,6 +344,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.timeExtension = null;
+    this.loanTransfer = null;
     this.rivalDistraction = null;
     this.assistantText = '';
     this.conversation = 'idle';
@@ -365,6 +368,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.timeExtension = null;
+    this.loanTransfer = null;
     this.rivalDistraction = null;
     this.line = INITIAL_LINE;
     this.heard = this.assistantText = '';
@@ -704,6 +708,20 @@ export class GameViewModel implements GameCommands {
         this.cancelTimer(this.timeExtensionTimer);
         this.timeExtensionTimer = this.schedule(() => { this.timeExtension = null; this.emit(); }, 1350);
       }
+    } else if (message.type === 'loan_transfer') {
+      // Apply the authoritative post-transfer snapshot before waiting for any
+      // later spin presentation. This prevents an old displayed balance from
+      // briefly returning while reels settle.
+      this.liveSnapshot = message.after;
+      this.rounds.syncLoan(message.direction, message.amount);
+      this.displayBalances = { ...message.after.balances };
+      this.consumeSnapshot(message.after);
+      this.assistantText = this.heard = '';
+      this.line = message.line;
+      this.setConversation('replying');
+      this.loanTransfer = { direction: message.direction, amount: message.amount };
+      this.cancelTimer(this.loanTransferTimer);
+      this.loanTransferTimer = this.schedule(() => { this.loanTransfer = null; this.emit(); }, 1800);
     } else if (message.type === 'rival_distraction') {
       this.line = message.line;
       this.setConversation('replying');
@@ -802,7 +820,7 @@ export class GameViewModel implements GameCommands {
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
       sessionRecord: { ...this.sessionRecord },
-      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
+      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, loanTransfer: this.loanTransfer ? { ...this.loanTransfer } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.rivalDistraction?.active ? 'DISTRACTED...' : this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },
