@@ -38,8 +38,9 @@
 .result-score { background: none; padding: .5cqw .1cqw; }
 .result-score strong { font-size: 2.9cqw; }
 .result-records, .result-records[data-record=true] { border: 0; background: none; box-shadow: none; padding: .3cqw .1cqw; }
-.result:has(details[open]) { top: 38.0%; }
-.result table { font-size: .81cqw; }
-.result th,.result td { padding-block: .26cqw; }
+.result:has(details[open]) { top: 42.8%; padding-block: .3cqw; gap: .1cqw; }
+.result table { font-size: .78cqw; line-height: 1.25; }
+.result th,.result td { padding-block: .20cqw; }
+.result .symbol-icon { display: none; }
 .result .result-again { font-size: .65cqw; }
 @media (prefers-reduced-motion: reduce) { .result { animation: none; } }

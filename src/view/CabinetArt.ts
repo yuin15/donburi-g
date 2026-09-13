@@ -82,7 +82,7 @@ export class CabinetArt {
   hideReelWin(side: Side): void { this.bursts[side].reels = false; }
   reelInkHidden(side: Side): number { return this.winSymbols.reelInkHidden(side); }
   setButtonCaption(caption: string): boolean {
-    const text = caption.replace(/[^A-Z !?.-]/g, '').replace('…', '');
+    const text = caption.replace(/[^A-Z !?.-]/g, '');
     if (text === this.buttonCaption) return false;
     this.buttonCaption = text;
     this.playerGroup.remove(this.buttonText);

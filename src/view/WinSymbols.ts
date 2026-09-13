@@ -8,32 +8,40 @@ import { PAYOUT } from '../domain/game';
 
 const clamp = THREE.MathUtils.clamp;
 const smooth = (x: number) => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
+type LiftedSymbols = { group: THREE.Group; meshes: THREE.InstancedMesh[] };
 
 /** Winning sculptures leave their reels, turn in the light, then return to the drum. */
 export class WinSymbols {
   readonly playerGroup = new THREE.Group();
   readonly rivalGroup = new THREE.Group();
   private readonly source: SymbolModels;
-  private readonly models: Record<Side, Record<WinSymbol, THREE.Group[]>>;
+  private readonly models: Record<Side, Record<WinSymbol, LiftedSymbols>>;
   private readonly rewards: Record<Side, Record<WinSymbol, THREE.Group>>;
   private readonly typography: SculptedType;
   private readonly obscured: Record<Side, number> = { player: 0, rival: 0 };
+  private readonly pose = new THREE.Object3D();
 
   constructor(environment: THREE.Texture) {
     this.source = createSymbolModels(environment);
     this.typography = new SculptedType(environment);
     const copies = (side: Side) => {
       const root = side === 'player' ? this.playerGroup : this.rivalGroup;
-      const models = {} as Record<WinSymbol, THREE.Group[]>;
+      const models = {} as Record<WinSymbol, LiftedSymbols>;
       const rewards = {} as Record<WinSymbol, THREE.Group>;
       for (const kind of ['bell', 'cherry', 'seven'] as const) {
-        models[kind] = Array.from({ length: 3 }, (_, index) => {
-          const group = this.source[kind].clone(true);
-          group.name = `${side}-lift-${kind}-${index}`;
-          group.visible = false;
-          root.add(group);
-          return group;
+        const lifted = new THREE.Group();
+        lifted.name = `${side}-lift-${kind}`;
+        lifted.visible = false;
+        const meshes: THREE.InstancedMesh[] = [];
+        this.source[kind].traverse(node => {
+          if (!(node instanceof THREE.Mesh)) return;
+          const mesh = new THREE.InstancedMesh(node.geometry, node.material, 3);
+          mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+          mesh.frustumCulled = false;
+          meshes.push(mesh); lifted.add(mesh);
         });
+        models[kind] = { group: lifted, meshes };
+        root.add(lifted);
         const group = new THREE.Group();
         group.name = `${side}-physical-reward-${kind}`;
         const player = side === 'player';
@@ -72,14 +80,14 @@ export class WinSymbols {
     const lift = reducedMotion ? 0 : smooth(progress / .19) * (1 - smooth((progress - .65) / .35));
     this.obscured[side] = kind && liftReels ? 1 : 0;
     for (const symbol of ['bell', 'cherry', 'seven'] as const) {
-      this.models[side][symbol].forEach(model => { model.visible = symbol === kind && liftReels; });
+      this.models[side][symbol].group.visible = symbol === kind && liftReels;
       this.rewards[side][symbol].visible = symbol === kind;
     }
     if (!kind) return;
     const jackpot = kind === 'seven';
     const rects = player ? REEL_RECTS : MINI_RECTS;
-    this.models[side][kind].forEach((model, i) => {
-      const rect = rects[i];
+    rects.forEach((rect, i) => {
+      const model = this.pose;
       const base = player ? kind === 'bell' ? 64 : 60 : kind === 'bell' ? 39 : 36;
       // The center artwork is hidden while the corresponding real mesh occupies its cell.
       const flourish = reducedMotion ? 0 : Math.sin(progress * Math.PI * (kind === 'bell' ? 5 : 3) + i * .6) * lift;
@@ -87,7 +95,10 @@ export class WinSymbols {
       model.rotation.set(-.05 - lift * .14, lift * ((i - 1) * .33 - .3), lift * (i - 1) * -.055 + flourish * (kind === 'bell' ? .1 : .028));
       model.scale.setScalar(base * (1 + lift * (player ? jackpot ? .36 : .24 : .12)));
       if (kind === 'seven') model.scale.z *= 1 + lift * .8;
+      model.updateMatrix();
+      this.models[side][kind].meshes.forEach(mesh => mesh.setMatrixAt(i, model.matrix));
     });
+    this.models[side][kind].meshes.forEach(mesh => { mesh.instanceMatrix.needsUpdate = true; });
     const reward = this.rewards[side][kind];
     const entrance = reducedMotion ? 1 : smooth(progress / .22);
     const leave = reducedMotion ? 0 : smooth((progress - .78) / .22);
@@ -97,6 +108,9 @@ export class WinSymbols {
   }
 
   dispose(): void {
+    for (const side of ['player', 'rival'] as const) {
+      Object.values(this.models[side]).forEach(model => model.meshes.forEach(mesh => mesh.dispose()));
+    }
     this.source.dispose(); this.typography.dispose();
     this.playerGroup.clear(); this.rivalGroup.clear();
   }

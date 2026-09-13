@@ -33,3 +33,5 @@ flowchart LR
 ViewModelにはDOM・Three.js・動画要素を渡さず、時計・乱数・可視状態・Live factory・演出portを注入する。Live factoryは任意の接続時だけ読み込む。招待コードはViewModelの非公開な接続情報として扱い、表示状態・記録へ含めない。声だけの接続が既定で、映像の選択は署名付きチケットに結び付ける。ViewModelの`showVideo`が既存のThree.jsライバル画像と動画表示を切り替え、PCM処理はViewへ持ち込まない。
 
 検証は既存のdomain・通信・描画テストを再利用し、ViewModelの境界（予約、停止待ち、退出後の古い通知、字幕・左右の回転の独立性）をDOMなしで確認する。固定画面はDEVのViewへ状態を渡す方式に限定し、本番ViewModelに任意の書換口を作らない。
+
+立体演出はView内で分担する。`CabinetArt`が筐体・光・コインの演出時間と姿勢、`WinSymbols`が3絵柄のせり出し、`SculptedType`が面取りした文字と形状の再利用を担当する。`ReelScene`が1つのRendererで合成し、リールから実メッシュへ切り替える際の二重表示を防ぐ。実際の得点や勝敗はViewModelから受け取り、演出の途中で書き換えない。[実画面と確認](physical-win-presentation.md)。
