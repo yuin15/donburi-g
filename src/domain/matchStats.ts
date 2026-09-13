@@ -13,7 +13,10 @@ export function createMatchStats(): MatchStats {
 export function recordSpin(stats: MatchStats, spin: SpinView): void {
   if (spin.payout === 0) return;
   const side = stats[spin.side];
-  side.wins[spin.symbols[0]] += 1;
+  if (spin.grid && spin.winningLines?.length) {
+    const rows = { top: 0, middle: 1, bottom: 2, diagonalDown: 0, diagonalUp: 2 } as const;
+    for (const line of spin.winningLines) side.wins[spin.grid[rows[line]][0]] += 1;
+  } else side.wins[spin.symbols[0]] += 1;
   if (side.bestSpin === null || spin.payout > side.bestSpin.payout) {
     side.bestSpin = { round: spin.round, payout: spin.payout };
   }

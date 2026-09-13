@@ -23,7 +23,7 @@ Defaults:
 - selected LiveAvatar video requests `max_session_duration: 120` in the provider token
 - result input/output window: at most 8 seconds, bounded by that original 120-second deadline
 - GPT-Live connections: at most 2 per match, sequential (play, then final reaction); zero LiveAvatar sessions in audio mode, one only for selected video
-- rival upgrade reasoning: disabled in the current game (the preserved legacy upgrade path allows at most two calls, each ~2.5 seconds)
+- CPU rival BET policy: no AI reasoning; BET3 by default, BET1 when far ahead, BET5 when losing near the end, with an affordable-BET fallback
 - mic input per one-second bucket: 192,000 base64 characters
 - messages per one-second bucket: 120; individual JSON payload: 300,000 characters
 - gap recovery on the same game socket: 5-second timeout

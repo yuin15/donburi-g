@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Side, SpinView, SymbolId } from '../../shared/protocol';
-import { advanceMatch, createMatch, PAYOUT, startMatch } from './game';
+import { advanceMatch, createMatch, PAYOUT, STARTING_BALANCE, startMatch } from './game';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats';
 
 function winningSpin(side: Side, symbol: SymbolId, round: number): SpinView {
@@ -8,24 +8,22 @@ function winningSpin(side: Side, symbol: SymbolId, round: number): SpinView {
 }
 
 describe('confirmed match statistics', () => {
-  it.each([2654435761, 3668339987, 4203543429, 1035485675])('reconciles both sides with all 30 domain spins for seed %s', seed => {
+  it.each([2654435761, 3668339987, 4203543429, 1035485675])('reconciles both sides with every funded domain spin for seed %s', seed => {
     const state = createMatch(seed, 'stats-domain-check');
     startMatch(state);
-    const spins = advanceMatch(state, 60).filter(event => event.type === 'spin');
+    const spins = advanceMatch(state, 60).flatMap(event => event.type === 'spin' ? [event.player, event.rival] : event.type === 'side_spin' ? [event.spin] : []);
     const stats = createMatchStats();
-    expect(spins).toHaveLength(30);
-    for (const event of spins) {
-      recordSpin(stats, event.player);
-      recordSpin(stats, event.rival);
-    }
+    expect(spins).toHaveLength(state.rounds.player + state.rounds.rival);
+    for (const spin of spins) recordSpin(stats, spin);
     expect(state.stats).toEqual(stats);
 
     for (const side of ['player', 'rival'] as const) {
       const summary = stats[side];
-      const history = spins.map(event => event[side]);
-      const total = summary.wins.cherry * PAYOUT.cherry + summary.wins.bell * PAYOUT.bell + summary.wins.seven * PAYOUT.seven;
-      expect(total).toBe(state.scores[side]);
-      expect(Object.values(summary.wins).reduce((sum, count) => sum + count, 0)).toBe(history.filter(spin => spin.payout > 0).length);
+      const history = spins.filter(spin => spin.side === side);
+      const total = history.reduce((sum, spin) => sum + spin.payout, 0);
+      const betCost = history.reduce((sum, spin) => sum + (spin.bet ?? 0), 0);
+      expect(state.balances[side]).toBe(STARTING_BALANCE - betCost + total);
+      expect(Object.values(summary.wins).reduce((sum, count) => sum + count, 0)).toBe(history.reduce((sum, spin) => sum + (spin.winningLines?.length ?? Number(spin.payout > 0)), 0));
 
       const highestPayout = Math.max(...history.map(spin => spin.payout));
       const firstBest = history.find(spin => spin.payout === highestPayout);

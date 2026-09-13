@@ -9,8 +9,8 @@ import {
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
   PAYOUT,
-  SPIN_COST,
   requestManualSpin,
+  setBet,
   startMatch,
   submitUpgrade,
   type GameEvent,
@@ -31,6 +31,12 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
     commandId: z.string().min(1).max(80),
     upgradeId: z.enum(['steady', 'jackpot']),
     offerIndex: z.union([z.literal(0), z.literal(1)]),
+  }),
+  z.object({
+    type: z.literal('set_bet'),
+    matchId: z.string().min(1).max(100),
+    commandId: z.string().min(1).max(80),
+    bet: z.union([z.literal(1), z.literal(3), z.literal(5)]),
   }),
   z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
   z.object({ type: z.literal('voice_close') }),
@@ -77,6 +83,8 @@ export class MatchSession {
   private media: MediaServerLeg | null = null;
   private gpt: GptLiveBridge | null = null;
   private voiceReady = false;
+  /** `onReady` may arrive before the bridge's connect promise settles. */
+  private voiceConnected = false;
   private gameReady = false;
   private voiceDisabled = false;
   private readonly voiceAbort = new AbortController();
@@ -133,6 +141,7 @@ export class MatchSession {
       this.gpt = this.createVoiceBridge();
       if (!(await this.gpt.connect())) throw new Error('gpt_not_ready');
       if (this.closed) return;
+      this.voiceConnected = true;
       this.pushContext();
     } catch {
       if (this.closed) return;
@@ -249,7 +258,7 @@ export class MatchSession {
   private failVoice(provider: AiProvider, message?: string): void {
     if (this.closed || this.voiceDisabled) return;
     this.setProviderStatus(provider, 'failed');
-    if (!this.gameReady) {
+    if (!this.gameReady && this.state.status !== 'playing') {
       this.emitSafeError('voice_error', '音声・映像へ接続できません。CPU対戦を開始できます。', false);
       void this.shutdown('voice_error');
       return;
@@ -268,6 +277,7 @@ export class MatchSession {
     if (this.voiceStopping) return this.voiceStopping;
     this.voiceDisabled = true;
     this.voiceReady = false;
+    this.voiceConnected = false;
     this.voiceGeneration += 1;
     this.resultSpeechStarted = false;
     if (this.resultSilence) clearInterval(this.resultSilence);
@@ -313,7 +323,7 @@ export class MatchSession {
     if (message.type === 'mic') {
       this.audioInWindow += message.audio.length;
       if (this.audioInWindow > 192_000) { void this.shutdown('audio_rate_exceeded'); return; }
-      if (this.voiceReady) {
+      if (this.voiceReady && this.voiceConnected) {
         // Catch up a delayed timer before the model can answer this audio.
         this.tick();
         if (!this.voiceReady || this.state.status === 'result') return;
@@ -343,12 +353,22 @@ export class MatchSession {
         this.publishEvents(requestManualSpin(this.state, Math.max(0, (Date.now() - this.startedAt) / 1000)));
         accepted = this.state.round > round;
       }
-      const retryAfterMs = !accepted && this.state.scores.player < SPIN_COST
-        ? 0
-        : this.state.status === 'playing' && this.state.lastManualSpinAt !== null
-          ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
-          : 0;
+      const retryAfterMs = this.state.status === 'playing' && this.state.lastManualSpinAt !== null
+        ? Math.max(0, Math.ceil((this.state.lastManualSpinAt + MANUAL_SPIN_INTERVAL - this.state.elapsed) * 1000 - 1e-7))
+        : 0;
       this.emitSpinStatus(message.commandId, accepted, retryAfterMs);
+      return;
+    }
+    if (message.type === 'set_bet') {
+      if (message.matchId !== this.sessionId) {
+        this.emitSafeError('wrong_match', '別の対戦への操作は受付できません。', true);
+        return;
+      }
+      this.tick();
+      if (this.commands.has(message.commandId)) return;
+      this.commands.add(message.commandId);
+      const accepted = setBet(this.state, 'player', message.bet);
+      this.emit({ type: 'bet_status', commandId: message.commandId, accepted, bet: this.state.bets.player });
       return;
     }
     if (message.type === 'upgrade') {
@@ -356,17 +376,10 @@ export class MatchSession {
         this.emitSafeError('wrong_match', '別の対戦への操作は受付できません。', true);
         return;
       }
-      // Arrival time, not the previous interval tick, decides the deadline.
       this.tick();
       if (this.commands.has(message.commandId)) return;
       this.commands.add(message.commandId);
-      const accepted = submitUpgrade(
-        this.state,
-        'player',
-        message.offerIndex,
-        message.upgradeId,
-        this.state.elapsed,
-      );
+      const accepted = submitUpgrade(this.state, 'player', message.offerIndex, message.upgradeId, this.state.elapsed);
       if (!accepted) this.emitSafeError('upgrade_rejected', 'この改造は受付できませんでした。', true);
     }
   }
@@ -414,6 +427,9 @@ export class MatchSession {
   private handleGameEvent(event: GameEvent): void {
     if (event.type === 'side_spin') {
       this.emit({ type: 'side_spin', spin: event.spin });
+      if (event.spin.side === 'rival') {
+        this.emit({ type: 'rival_line', text: `I'm on $${event.spin.bet ?? this.state.bets.rival}.`, reason: 'bet_strategy' });
+      }
       if (event.spin.payout >= PAYOUT.seven) {
         const player = event.spin.side === 'player';
         this.react(player ? 'player_jackpot' : 'rival_jackpot', player
@@ -424,7 +440,7 @@ export class MatchSession {
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した得点差を踏まえて短く反応して。', event.player.round);
+      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を踏まえて短く反応して。', event.player.round);
       else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
       else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
       return;
@@ -495,6 +511,7 @@ export class MatchSession {
       this.lastGameContext = '';
       if (!(await bridge.connect(connectBudget))) { if (resultGeneration === this.voiceGeneration) this.failVoice('gptLive'); return; }
       if (this.closed || this.voiceDisabled || resultGeneration !== this.voiceGeneration) return;
+      this.voiceConnected = true;
       if (Date.now() >= deadline) { this.endVoice('Final reaction ended · Your result is saved.'); return; }
       this.pushContext();
       this.resultSpeechStarted = true;
@@ -517,13 +534,15 @@ export class MatchSession {
 
   private async decideRivalUpgrade(offerIndex: 0 | 1): Promise<void> {
     const snapshot = getSnapshot(this.state);
-    const fallback = { upgradeId: snapshot.scores.rival < snapshot.scores.player ? 'jackpot' as const : 'steady' as const, source: 'fallback' as const };
+    const fallback = {
+      upgradeId: snapshot.scores.rival < snapshot.scores.player ? 'jackpot' as const : 'steady' as const,
+      source: 'fallback' as const,
+    };
     const proposed = this.voiceReady
       ? await chooseRivalUpgrade(snapshot, offerIndex, this.recentUserText, this.voiceAbort.signal)
       : fallback;
     if (this.closed) return;
     const choice = this.voiceDisabled ? fallback : proposed;
-    // A delayed interval must not extend the model's four-second choice window.
     const arrivedAt = Math.max(this.state.elapsed, (Date.now() - this.startedAt) / 1000);
     const accepted = submitUpgrade(this.state, 'rival', offerIndex, choice.upgradeId, arrivedAt);
     if (accepted) {
@@ -531,6 +550,7 @@ export class MatchSession {
       this.emit({ type: 'rival_line', text: `作戦を決めた。${label}で行く。`, reason: `upgrade_${choice.source}` });
     }
   }
+
 
   private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {
     if (round !== this.state.rounds[side]) return;
@@ -558,26 +578,21 @@ export class MatchSession {
       ? `直近の確定回転: ${(['player', 'rival'] as const).map(side => {
         const spin = this.lastSpins[side];
         const name = side === 'player' ? 'プレイヤー' : 'あなた';
-        return spin ? `${name}${spin.round}回目、絵柄[${spin.symbols.join(',')}]、配当$${spin.payout}` : `${name}はまだ回転していない`;
+        return spin ? `${name}${spin.round}回目、BET $${spin.bet ?? snapshot.bets[side]}、配当$${spin.payout}` : `${name}はまだ回転していない`;
       }).join(';')}。`
       : '直近の確定回転: まだ回転していない。';
-    const leader = snapshot.scores.player === snapshot.scores.rival ? '同点' : snapshot.scores.player > snapshot.scores.rival ? 'プレイヤー' : 'あなた';
-    const reelContext = this.state.upgradesEnabled
-      ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
-      : '';
+    const leader = snapshot.balances.player === snapshot.balances.rival ? '同点' : snapshot.balances.player > snapshot.balances.rival ? 'プレイヤー' : 'あなた';
     // Static rules belong in the startup persona; repeat only the current facts.
-    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー所持金$${snapshot.scores.player}、あなた所持金$${snapshot.scores.rival}、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
+    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${recentSpin}`;
   }
 
   private emitSnapshot(): void {
     this.lastSnapshotAt = Date.now();
-    const snapshot = getSnapshot(this.state);
-    const needsSeparateLatest = this.state.spinMode === 'manual'
-      || !this.lastSpin
-      || snapshot.rounds.player !== snapshot.rounds.rival
-      || this.lastSpin.player.total !== snapshot.scores.player
-      || this.lastSpin.rival.total !== snapshot.scores.rival;
-    this.emit({ type: 'snapshot', snapshot, ...(needsSeparateLatest ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
+    const splitLatest = this.state.spinMode === 'manual'
+      || this.state.rounds.player !== this.state.rounds.rival
+      || this.lastSpins.player !== this.lastSpin?.player
+      || this.lastSpins.rival !== this.lastSpin?.rival;
+    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), ...(splitLatest ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
   }
 
   private emitSpinStatus(commandId: string, accepted: boolean, retryAfterMs: number): void {

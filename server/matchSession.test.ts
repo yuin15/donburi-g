@@ -10,9 +10,10 @@ const provider = vi.hoisted(() => ({
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
   context: vi.fn(), reaction: vi.fn(), mic: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
+  seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
 // A reproducible normal bell win at 14s, without a new leader or jackpot reaction.
-vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from([1, 0, 0, 0]) }));
+vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from(provider.seed) }));
 vi.mock('./liveavatar', () => ({ startAvatarSession: provider.start, stopAvatarSession: provider.stop }));
 vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   constructor(_url: string, onFailure: () => void) { provider.mediaFailures.push(onFailure); }
@@ -30,9 +31,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   requestReaction = provider.reaction;
   sendMic = provider.mic;
 } }));
-vi.mock('./rivalBrain', () => ({ chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })) }));
 import { MatchSession } from './matchSession';
-import { chooseRivalUpgrade } from './rivalBrain';
 
 const avatar = { sessionId: 'test-session', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' };
 function deferred<T>() {
@@ -40,17 +39,18 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-// Automatic fixtures retain the old upgrade scenarios; real/manual sessions use base reels.
+// All live sessions use the bankroll rules; automatic mode remains useful for lifecycle timing.
 function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar') {
   const messages: ServerMessage[] = [];
   const close = vi.fn();
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
-  return { session: new MatchSession(socket, id, release, { spinMode, upgrades: spinMode === 'automatic', voiceMode }), messages, release, close };
+  return { session: new MatchSession(socket, id, release, { spinMode, voiceMode }), messages, release, close };
 }
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
+  provider.seed = [1, 0, 0, 0];
   provider.bridges.length = 0;
   provider.openingContexts.length = 0;
   provider.mediaFailures.length = 0;
@@ -226,7 +226,7 @@ describe('provider status lifecycle', () => {
 });
 
 describe('live match cleanup', () => {
-  it('keeps a manual match on base reels and never asks the AI to upgrade', async () => {
+  it('keeps a manual match on base reels and rejects disabled upgrade messages', async () => {
     const { session, messages } = setup('base-only', 'manual');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -241,7 +241,6 @@ describe('live match cleanup', () => {
     expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', round: 4, upgrades: { player: [], rival: [] } } });
     expect(messages.some(message => message.type === 'upgrade_offer' || message.type === 'upgrade_applied')).toBe(false);
     expect(messages.filter(message => message.type === 'error' && message.code === 'upgrade_rejected')).toHaveLength(4);
-    expect(chooseRivalUpgrade).not.toHaveBeenCalled();
     expect(provider.context.mock.calls.every(([text]) => !text.includes('プレイヤー改造'))).toBe(true);
     await session.shutdown('test_finished');
   });
@@ -266,7 +265,7 @@ describe('live match cleanup', () => {
     if (first?.type !== 'side_spin') throw new Error('missing manual spin');
     expect(first.spin.round).toBe(1);
     expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'rival')).toHaveLength(2);
-    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、絵柄[${first.spin.symbols.join(',')}]、配当$${first.spin.payout}`);
+    expect(provider.context.mock.calls.at(-1)?.[0]).toContain(`プレイヤー1回目、BET $${first.spin.bet}、配当$${first.spin.payout}`);
     const contextOrder = provider.context.mock.invocationCallOrder.at(-1)!;
     session.handleRaw('{"type":"mic","audio":"AQID"}');
     expect(provider.mic.mock.invocationCallOrder.at(-1)).toBeGreaterThan(contextOrder);
@@ -288,6 +287,32 @@ describe('live match cleanup', () => {
     await session.shutdown('test');
   });
 
+  it('applies a selected bet to the next spin and rejects it after the bankroll is exhausted', async () => {
+    provider.seed = [0, 0, 0, 1];
+    const { session, messages } = setup('bankroll-match', 'manual');
+    const spin = (commandId: string) => session.handleRaw(JSON.stringify({ type: 'spin', commandId, matchId: 'bankroll-match' }));
+    await session.initialize();
+    session.handleRaw('{"type":"set_bet","matchId":"bankroll-match","commandId":"bet-five","bet":5}');
+    expect(messages.filter(message => message.type === 'bet_status').at(-1)).toMatchObject({ commandId: 'bet-five', accepted: true, bet: 5 });
+    session.handleRaw('{"type":"start"}');
+    spin('drain-1');
+    expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player').at(-1)).toMatchObject({ spin: { round: 1, bet: 5 } });
+    let drained = false;
+    for (let round = 2; round <= 53; round += 1) {
+      await vi.advanceTimersByTimeAsync(1100);
+      spin(`drain-${round}`);
+      const status = messages.filter(message => message.type === 'spin_status').at(-1);
+      expect(status).toMatchObject({ commandId: `drain-${round}` });
+      if (status?.type === 'spin_status' && !status.accepted) { drained = true; break; }
+    }
+    expect(drained).toBe(true);
+    session.handleRaw('{"type":"set_bet","matchId":"bankroll-match","commandId":"insufficient","bet":5}');
+    expect(messages.filter(message => message.type === 'bet_status').at(-1)).toMatchObject({ commandId: 'insufficient', accepted: false, bet: 5 });
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.filter(message => message.type === 'snapshot').at(-1)).toMatchObject({ snapshot: { balances: { player: 3 }, bets: { player: 5 }, scores: { player: 3 } } });
+    await session.shutdown('test');
+  });
+
   it('settles an overdue manual match before answering a last-second click, without a player draw or reopening the result', async () => {
     const { session, messages } = setup('test-match', 'manual');
     await session.initialize();
@@ -296,7 +321,7 @@ describe('live match cleanup', () => {
     vi.setSystemTime(Date.now() + 60_000);
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
     expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(0);
-    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 30 }, remaining: 0, winner: 'player' } });
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 26 }, remaining: 0, winner: 'player' } });
     expect(messages.at(-1)).toMatchObject({ type: 'spin_status', commandId: 'at-deadline', accepted: false, retryAfterMs: 0 });
     session.handleRaw('{"type":"spin","commandId":"after-result","matchId":"test-match"}');
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
@@ -436,7 +461,7 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"after-limit"}');
     await vi.advanceTimersByTimeAsync(20_001);
     expect(messages.filter(m => m.type === 'match_ended')).toMatchObject([{
-      snapshot: { matchId: 'late-match', status: 'result', elapsed: 60, remaining: 0, rounds: { player: 2, rival: 30 } },
+      snapshot: { matchId: 'late-match', status: 'result', elapsed: 60, remaining: 0, rounds: { player: 2, rival: 26 } },
     }]);
     expect(provider.mic).not.toHaveBeenCalled();
     expect(provider.gptConnect).toHaveBeenCalledOnce();
@@ -539,17 +564,17 @@ describe('live match cleanup', () => {
     const reactionsBefore = provider.reaction.mock.calls.length;
     await vi.advanceTimersByTimeAsync(1000);
     const latestSpin = messages.filter(m => m.type === 'spin').at(-1);
-    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 65 }, rival: { round: 7, payout: 0, total: 23 } });
+    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], bet: 1, payout: 6, total: 65 }, rival: { round: 7, bet: 1, payout: 0, total: 23 } });
     if (latestSpin?.type !== 'spin') throw new Error('missing ordinary win');
     // The boundary tick must include the just-confirmed spin, not wait for the next tick.
     expect(provider.context).toHaveBeenCalledTimes(16);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー7回目、絵柄[bell,bell,bell]、配当$6'));
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`あなた7回目、絵柄[${latestSpin.rival.symbols.join(',')}]、配当$0`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー7回目、BET $1、配当$6'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('あなた7回目、BET $1、配当$0'));
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
     expect(provider.context).toHaveBeenCalledTimes(16);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー所持金$65、あなた所持金$23'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー$65(BET $1)、あなた$23(BET $1)'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('首位=プレイヤー'));
     expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
     // Ready + start + one changed context per elapsed second, not every 100ms tick.
@@ -557,26 +582,25 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('catches up a stalled tick and sends current scores and applied upgrades before microphone audio', async () => {
+  it('catches up a stalled tick and sends current bankroll context before microphone audio', async () => {
     const { session, messages } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(20000);
-    session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'test-match', commandId: 'context-upgrade', offerIndex: 0, upgradeId: 'jackpot' }));
-    expect(provider.context.mock.calls.at(-1)?.[0]).not.toContain('プレイヤー改造[jackpot]');
+    session.handleRaw(JSON.stringify({ type: 'set_bet', matchId: 'test-match', commandId: 'context-bet', bet: 5 }));
+    expect(messages.filter(message => message.type === 'bet_status').at(-1)).toMatchObject({ commandId: 'context-bet', accepted: true, bet: 5 });
     const previousContextCount = provider.context.mock.calls.length;
     vi.setSystemTime(Date.now() + 4100);
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     const latest = messages.filter(m => m.type === 'snapshot').at(-1);
-    expect(latest).toMatchObject({ snapshot: { elapsed: 24.1, round: 12, upgrades: { player: ['jackpot'], rival: ['steady'] } } });
+    expect(latest).toMatchObject({ snapshot: { elapsed: 24.1, round: 12, bets: { player: 5 }, upgrades: { player: [], rival: [] } } });
     if (latest?.type !== 'snapshot') throw new Error('missing caught-up snapshot');
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り36秒、プレイヤー所持金$${latest.snapshot.scores.player}、あなた所持金$${latest.snapshot.scores.rival}`));
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー改造[jackpot],あなた改造[steady]'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り36秒、プレイヤー$${latest.snapshot.balances.player}(BET $5)、あなた$${latest.snapshot.balances.rival}(BET $1)`));
     if (!latest.lastSpin) throw new Error('missing caught-up spin');
     for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
       expect(latest.lastSpin[side].round).toBe(12);
-      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}12回目、絵柄[${latest.lastSpin[side].symbols.join(',')}]、配当$${latest.lastSpin[side].payout}`));
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}12回目、BET $${latest.lastSpin[side].bet}、配当$${latest.lastSpin[side].payout}`));
     }
     expect(provider.mic).toHaveBeenCalledExactlyOnceWith('AAAA');
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
@@ -598,13 +622,12 @@ describe('live match cleanup', () => {
     const final = messages.find(m => m.type === 'match_ended');
     if (final?.type !== 'match_ended') throw new Error('missing final result');
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 1);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り0秒、プレイヤー所持金$${final.snapshot.scores.player}、あなた所持金$${final.snapshot.scores.rival}`));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`残り0秒、プレイヤー$${final.snapshot.balances.player}(BET $1)、あなた$${final.snapshot.balances.rival}(BET $1)`));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`状態=result,勝者=${final.snapshot.winner}`));
     const finalSpin = messages.filter(m => m.type === 'spin').at(-1);
     if (finalSpin?.type !== 'spin') throw new Error('missing final spin');
-    for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
-      expect(finalSpin[side].round).toBe(30);
-      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}30回目、絵柄[${finalSpin[side].symbols.join(',')}]、配当$${finalSpin[side].payout}`));
+    for (const [side, label, round] of [['player', 'プレイヤー', 30], ['rival', 'あなた', 30]] as const) {
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}${round}回目、BET $${finalSpin[side].bet}、配当$${finalSpin[side].payout}`));
     }
     expect(provider.mic).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -650,19 +673,18 @@ describe('live match cleanup', () => {
     provider.bridges[0].onTranscript('assistant', 'reaction-a');
     provider.bridges[1].onTranscript('assistant', 'reaction-b');
     await vi.advanceTimersByTimeAsync(20_000);
-    const command = { type: 'upgrade', commandId: 'same-id', offerIndex: 0, upgradeId: 'jackpot', matchId: 'match-b' };
+    const command = { type: 'set_bet' as const, commandId: 'same-id', bet: 5 as const, matchId: 'match-b' };
     a.session.handleRaw(JSON.stringify(command));
     a.session.handleRaw(JSON.stringify({ ...command, matchId: 'match-a' }));
-    a.session.handleRaw(JSON.stringify({ ...command, matchId: 'match-a', upgradeId: 'steady' }));
-    b.session.handleRaw(JSON.stringify({ ...command, upgradeId: 'steady' }));
+    a.session.handleRaw(JSON.stringify({ ...command, matchId: 'match-a', bet: 1 }));
+    b.session.handleRaw(JSON.stringify(command));
     await vi.advanceTimersByTimeAsync(40_000);
-    expect(a.messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { matchId: 'match-a', round: 30, upgrades: { player: ['jackpot', 'steady'] } } });
-    expect(b.messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { matchId: 'match-b', round: 30, upgrades: { player: ['steady', 'steady'] } } });
+    expect(a.messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { matchId: 'match-a', round: 30, bets: { player: 5 }, upgrades: { player: [] } } });
+    expect(b.messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { matchId: 'match-b', round: 30, bets: { player: 5 }, upgrades: { player: [] } } });
     expect(a.messages.some(m => m.type === 'error' && m.code === 'wrong_match')).toBe(true);
     expect(a.messages.filter(m => m.type === 'transcript')).toMatchObject([{ delta: 'reaction-a' }]);
     expect(b.messages.filter(m => m.type === 'transcript')).toMatchObject([{ delta: 'reaction-b' }]);
     for (const [session, matchId] of [[a, 'match-a'], [b, 'match-b']] as const) {
-      expect(vi.mocked(chooseRivalUpgrade).mock.calls.filter(([snapshot]) => snapshot.matchId === matchId)).toHaveLength(2);
       expect(session.messages.filter(m => m.type === 'spin')).toHaveLength(30);
       session.messages.forEach((message, i) => expect(parseServerEnvelope(JSON.stringify(message))).toMatchObject({ streamSeq: i + 1, sessionId: matchId }));
     }
@@ -680,7 +702,7 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"upgrade","matchId":"test-match","commandId":"bad","offerIndex":0,"upgradeId":"always-seven"}');
     session.handleRaw('{"type":"mic","audio":"not base64"}');
     session.handleRaw('{"type":"snapshot"}');
-    expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, scores: { player: 30, rival: 30 } } });
+    expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, balances: { player: 30, rival: 30 }, scores: { player: 30, rival: 30 }, bets: { player: 1, rival: 1 } } });
     expect(messages.filter(m => m.type === 'error')).toHaveLength(3);
     for (let i = 0; i < 130; i += 1) session.handleRaw('{"type":"snapshot"}');
     await vi.advanceTimersByTimeAsync(1);
@@ -696,30 +718,27 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(close).toHaveBeenCalledOnce(); expect(release).toHaveBeenCalledOnce();
   });
-  it('discards a rival answer returned after its deadline while the interval is stalled', async () => {
-    const late = deferred<{ upgradeId: 'jackpot'; source: 'ai' }>();
-    vi.mocked(chooseRivalUpgrade).mockReturnValueOnce(late.promise);
+  it('rejects a disabled upgrade command without mutating a stalled match', async () => {
     const { session, messages } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(20_000);
     vi.setSystemTime(Date.now() + 4_100);
-    late.resolve({ upgradeId: 'jackpot', source: 'ai' });
-    await late.promise;
-    await vi.advanceTimersByTimeAsync(100);
-    expect(messages.some(m => m.type === 'rival_line' && m.reason === 'upgrade_ai')).toBe(false);
-    expect(messages.find(m => m.type === 'upgrade_applied' && m.offerIndex === 0)).toMatchObject({ rival: 'steady' });
+    session.handleRaw('{"type":"upgrade","matchId":"test-match","commandId":"legacy-after-stall","offerIndex":0,"upgradeId":"jackpot"}');
+    expect(messages.filter(m => m.type === 'error' && m.code === 'upgrade_rejected')).toHaveLength(1);
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.filter(m => m.type === 'snapshot').at(-1)).toMatchObject({ snapshot: { elapsed: 24.1, upgrades: { player: [], rival: [] } } });
     await session.shutdown('test_finished');
   });
-  it('rejects upgrades arriving after the deadline while the interval tick is delayed', async () => {
+  it('keeps an ended match settled when a disabled upgrade command arrives after the deadline', async () => {
     const { session, messages } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
-    await vi.advanceTimersByTimeAsync(20_000);
-    vi.setSystemTime(Date.now() + 4_100);
+    vi.setSystemTime(Date.now() + 60_000);
     session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'test-match', commandId: crypto.randomUUID(), offerIndex: 0, upgradeId: 'jackpot' }));
     expect(messages.some(m => m.type === 'error' && m.code === 'upgrade_rejected')).toBe(true);
-    expect(messages.find(m => m.type === 'upgrade_applied' && m.offerIndex === 0)).toMatchObject({ player: 'steady' });
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.find(m => m.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', elapsed: 60, remaining: 0, upgrades: { player: [], rival: [] } } });
     await session.shutdown('test_finished');
   });
   it('stops an avatar returned after the browser has disconnected', async () => {
@@ -796,16 +815,15 @@ describe('live match cleanup', () => {
     expect(close).not.toHaveBeenCalled();
     expect(messages.some(m => m.type === 'error' && !m.recoverable)).toBe(false);
     await vi.advanceTimersByTimeAsync(14_000);
-    session.handleRaw(JSON.stringify({ type: 'upgrade', matchId: 'test-match', commandId: 'after-voice-failure', offerIndex: 1, upgradeId: 'jackpot' }));
+    session.handleRaw(JSON.stringify({ type: 'set_bet', matchId: 'test-match', commandId: 'after-voice-failure', bet: 5 }));
     await vi.advanceTimersByTimeAsync(20_000);
     const final = messages.find(m => m.type === 'match_ended');
-    expect(final).toMatchObject({ snapshot: { matchId: 'test-match', status: 'result', elapsed: 60, round: 30, upgrades: { player: ['steady', 'jackpot'] } } });
+    expect(final).toMatchObject({ snapshot: { matchId: 'test-match', status: 'result', elapsed: 60, round: 30, bets: { player: 5 }, upgrades: { player: [] } } });
     expect(messages.filter(m => m.type === 'spin')).toHaveLength(30);
     if (before?.type === 'snapshot' && final?.type === 'match_ended') {
-      expect(final.snapshot.scores.player).toBeGreaterThanOrEqual(0);
-      expect(final.snapshot.scores.rival).toBeGreaterThanOrEqual(0);
+      expect(final.snapshot.scores).toEqual(final.snapshot.balances);
+      expect(final.snapshot.rounds.player).toBeGreaterThan(before.snapshot.rounds.player);
     }
-    expect(chooseRivalUpgrade).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(8_000);
     expect(provider.stop).toHaveBeenCalledTimes(1);
     expect(release).toHaveBeenCalledTimes(1);
@@ -821,7 +839,6 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(60_000);
     expect(messages.filter(m => m.type === 'match_ended')).toHaveLength(1);
-    expect(chooseRivalUpgrade).not.toHaveBeenCalled();
     expect(messages.filter(m => m.type === 'voice_status' && m.status === 'ready')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
@@ -851,7 +868,7 @@ it('runs a complete voice-only duel and its final reply without creating any ava
   session.handleRaw('{"type":"spin","matchId":"audio-game","commandId":"press"}');
   await vi.advanceTimersByTimeAsync(60_000);
   expect(messages.find(m => m.type === 'match_ended')).toMatchObject({
-    snapshot: { status: 'result', rounds: { player: 1, rival: 30 } },
+    snapshot: { status: 'result', rounds: { player: 1, rival: 26 } },
   });
   const count = messages.filter(m => m.type === 'voice_audio').length;
   playBridge.onAudio('AAAA');

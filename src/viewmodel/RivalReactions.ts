@@ -18,15 +18,15 @@ const SCENES: Record<RivalReactionKind, {
 }> = {
   'both-jackpot': {
     expression: 'surprised',
-    lines: ["Both of us hit sevens?!","1,200 each! What a round!","Two big wins at once!"],
+    lines: ["Both of us hit sevens?!","Sevens on both reels! What a round!","Two big wins at once!"],
   },
   'player-jackpot': {
     expression: 'surprised',
-    lines: ["Whoa! Three sevens?!","1,200! That changes things.","Now THAT is a big win!"],
+    lines: ["Whoa! Three sevens?!","That changes things.","Now THAT is a big win!"],
   },
   'rival-jackpot': {
     expression: 'confident',
-    lines: ["Sevens! 1,200 for me.","Big win! I'll take that.","Three sevens. Nice!"],
+    lines: ["Sevens for me!","Big win! I'll take that.","Three sevens. Nice!"],
   },
   'player-lead': {
     expression: 'frustrated',
