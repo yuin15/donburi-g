@@ -21,6 +21,7 @@ export const OVERLAYS: Record<string, Rect> = {
   start: { x: 402, y: 742, w: 247, h: 76 },
   spinHint: { x: 394, y: 820, w: 265, h: 20 },
   paytable: { x: 201, y: 729, w: 130, h: 90 },
+  upgradeShop: { x: 685, y: 715, w: 242, h: 154 },
   roundStatus: { x: 1052, y: 872, w: 484, h: 22 },
   duelRules: { x: 1030, y: 797, w: 500, h: 83 },
   voicePanel: { x: 1030, y: 807, w: 500, h: 76 },

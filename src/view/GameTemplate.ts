@@ -45,6 +45,13 @@ app.innerHTML = `
     <div class="connection" id="connection"></div>
   </aside>
   <footer>
+    <section id="upgradeShop" aria-label="Upgrade your machine">
+      <h2>UPGRADE</h2><small>THIS MATCH ONLY</small>
+      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>ADD 6 CHERRIES<small id="steadyLevel">4 IN REEL · 0/3</small></span><button id="buySteady" disabled>BUY $5</button></div>
+      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>ADD 1 SEVEN<small id="jackpotLevel">2 IN REEL · 0/3</small></span><button id="buyJackpot" disabled>BUY $5</button></div>
+      <span id="purchaseNotice" role="status">BUY → BOOST YOUR NEXT SPIN</span>
+      <i id="purchaseSymbol" aria-hidden="true"></i>
+    </section>
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
       <small id="resultRounds">60 SECOND DUEL</small>
       <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>

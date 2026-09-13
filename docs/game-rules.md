@@ -10,7 +10,8 @@
 - Both sides use three reels and one center payline. The fixed base pool contains 4 cherries, 3 bells and 2 sevens.
 - Both sides start with $30. Each accepted spin immediately costs $1; three matching center-line symbols pay cherry $3, bell $6, or seven $30.
 - Highest cash balance at 60 seconds wins; equal balances draw. A player with no cash can watch the rival finish its eligible spins.
-- Upgrades are currently paused: no timed choices, previews, defaults, added symbols or AI upgrade decisions.
+- Player-only upgrades are purchased from the permanent cabinet panel: add six cherries or one seven. Each product costs $5, then $10, then $15, up to three purchases per match. Spending reduces the same cash used for spins and final victory. No timed offers, default upgrades or rival upgrade decisions occur.
+- Purchases apply to the next started spin; an in-flight outcome and payout remain unchanged. Insufficient cash, stale purchase counts and purchases after the deadline are rejected. Rematches reset both products. The panel shows symbol counts matching the actual reel composition.
 
 ## Independent stopping and result
 
@@ -26,4 +27,4 @@ The browser submits intent (`start`, `spin`, mic audio, snapshot, close). It can
 
 `advanceMatch` catches up elapsed rival spins and the final deadline without creating player spins. `requestManualSpin` advances that clock first, then accepts an eligible player draw. Snapshots include `rounds.player` and `rounds.rival`; the retained `round` field aliases the player count.
 
-Historical automatic simulations and an explicit `{ upgrades: true }` test option retain the upgrade path. Those spins use the same $30 bankroll, $1 cost, and $3/$6/$30 payouts. Playable CPU and live sessions always use manual player input, automatic rival input, and no upgrades.
+Historical automatic simulations and an explicit `{ upgrades: true }` test option retain the timed upgrade path. Playable CPU and live sessions use manual player input, automatic rival input, and paid player upgrades. Live `purchase` commands include match ID, unique command ID, product ID and the expected product purchase count. Snapshots include cumulative `upgradeSpent`; each spin preserves the spending at its start, so recovery and delayed reel stops cannot undo a later purchase.

@@ -16,6 +16,7 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 - `start` — start the authoritative 60-second match once voice/avatar is ready.
 - `spin` — `{matchId, commandId}`. Requests one player spin. Rival spins are scheduled independently every two seconds. The server advances elapsed deadlines first, rejects duplicate IDs and requests less than 1.1 seconds apart, and never accepts a player draw at or after 60 seconds.
 - `upgrade` — retained for historical fixtures; current matches reject it without applying a choice or calling the AI.
+- `purchase` — `{matchId, commandId, upgradeId, expectedCount}` buys a player upgrade. The server advances the clock, deduplicates command IDs, checks the current product count, funds and match status, then emits a snapshot. Prices are $5/$10/$15 per product, capped at three purchases. A stale expected count never buys a second level accidentally.
 - `mic` — base64 PCM16/24kHz audio. Size limited.
 - `voice_close` — release optional media while preserving the match.
 - `snapshot` — request latest safe match snapshot.
@@ -45,7 +46,7 @@ Snapshots never contain RNG state, unrevealed choices, reel pools, API credentia
 
 `snapshot.stats` is required for both sides: `wins: {cherry, bell, seven}` contains confirmed winning-spin counts; `bestSpin` is `{round, payout}` for the first highest payout, or null when there were no wins. Counts are bounded by that side's completed `snapshot.rounds[side]` count, their payout sum must equal the score, and the best spin must be consistent with those counts. Player input allows 0–55 rounds and up to 66,000 points; the rival completes 30 scheduled rounds. `snapshot.round` aliases `rounds.player`. Every confirmed round remains accounted for after recovery; results are not derived from animation history. A player with zero spins still faces the rival's independent score.
 
-Each new `SpinView` includes an empty `upgrades` array for the base composition. Historical fixtures may contain their explicitly enabled upgrade composition; no random state or future result is included.
+Each new `SpinView` preserves its starting `upgrades` and cumulative `upgradeSpent`. The snapshot includes current `upgradeSpent`; player cash equals initial cash minus spin costs and upgrade spending plus payouts. Latest spin totals are compared after subtracting any spending since that spin. Paid player upgrades allow up to six entries (three per product); the rival remains unmodified in playable sessions.
 
 After authentication, every server message includes `sessionId`, `streamSeq` and `serverTime` (Unix milliseconds). `streamSeq` is a contiguous per-connection delivery sequence and is separate from the domain's `snapshot.eventSeq`. The first message is `hello` at sequence 1. The client validates message shapes, lengths, numbers, symbols and match identity before updating UI or starting media. Initial unauthenticated rejection may have no envelope and is treated as a failed connection.
 

@@ -1,5 +1,6 @@
 import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import { PAYOUT } from '../domain/game';
+import { upgradePrice } from '../../shared/shop';
 import type { GameCommands, GamePresentation, GameSound, GameViewState } from '../viewmodel/GameViewState';
 import { GameAudio } from './GameAudio';
 import { mountGameTemplate } from './GameTemplate';
@@ -49,6 +50,13 @@ export class GameView implements GamePresentation {
     this.events = new AbortController();
     const options = { signal: this.events.signal };
     const unlock = () => { void this.audio.unlock(); };
+    for (const [selector, id] of [['#buySteady', 'steady'], ['#buyJackpot', 'jackpot']] as const) {
+      this.q(selector).addEventListener('click', event => {
+        unlock();
+        commands.purchaseUpgrade(id);
+        if (event.detail > 0) this.focus('start');
+      }, options);
+    }
     this.q('#practice').addEventListener('click', () => { unlock(); void commands.startCpu(); }, options);
     this.q('#start').addEventListener('click', () => {
       unlock();
@@ -122,6 +130,28 @@ export class GameView implements GamePresentation {
     this.q('#effects').setAttribute('aria-pressed', String(state.effectsMuted));
 
     const snapshot = state.snapshot;
+    const upgrades = snapshot.upgrades.player;
+    for (const [id, selector, base, added] of [['steady', '#buySteady', 4, 6], ['jackpot', '#buyJackpot', 2, 1]] as const) {
+      const count = upgrades.filter(value => value === id).length;
+      const price = upgradePrice(upgrades, id);
+      const button = this.q<HTMLButtonElement>(selector);
+      button.disabled = snapshot.status !== 'playing' || price === null || Math.min(state.scores.player, snapshot.scores.player) < price;
+      this.text(selector, price === null ? 'MAX' : `BUY $${price}`);
+      this.text(`#${id}Level`, `${base + added * count} IN REEL · ${count}/3`);
+    }
+    const spent = snapshot.upgradeSpent ?? 0;
+    const oldSpent = previous?.snapshot.upgradeSpent ?? 0;
+    if (spent > oldSpent && previous?.snapshot.matchId === snapshot.matchId) {
+      const id = upgrades[upgrades.length - 1];
+      this.text('#purchaseNotice', `−$${spent - oldSpent} · ${id === 'steady' ? '+6 CHERRIES' : '+1 SEVEN'} · NEXT SPIN`);
+      this.audio.play('choose');
+      this.q('#ps').animate([{ color: '#ffae75' }, { color: '#fff1be' }], { duration: 700 });
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const symbol = this.q('#purchaseSymbol');
+        symbol.className = `symbol-icon ${id === 'steady' ? 'cherry' : 'seven'}`;
+        symbol.animate([{ opacity: 1, transform: 'translate(0,0) scale(1)' }, { opacity: 1, offset: .75 }, { opacity: 0, transform: 'translate(-12cqw,-18cqw) scale(1.8)' }], { duration: 850, easing: 'ease-in' });
+      }
+    } else if (spent === 0) this.text('#purchaseNotice', 'BUY → BOOST YOUR NEXT SPIN');
     this.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
     this.scene.setExpression(state.expression);
     const seconds = Math.max(0, Math.ceil(snapshot.remaining));
@@ -269,6 +299,7 @@ export class GameView implements GamePresentation {
       row.insertCell().textContent = rival;
     };
     addRow('SPINS', String(snapshot.rounds.player), String(snapshot.rounds.rival));
+    addRow('UPGRADES', `−$${snapshot.upgradeSpent ?? 0}`, '$0');
     for (const [symbol, label] of [['cherry', 'CHERRY'], ['bell', 'BELL'], ['seven', 'SEVEN']] as const) {
       const value = (side: 'player' | 'rival') => {
         const count = snapshot.stats[side].wins[symbol];
