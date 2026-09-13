@@ -43,6 +43,9 @@ describe('voice transport teardown', () => {
       },
     });
     expect(start.session.instructions).toContain('日本語で話す');
+    expect(start.session.instructions).toContain('両者は$30で開始');
+    expect(start.session.instructions).toContain('$1は中央1ライン');
+    expect(start.session.instructions).toContain('サーバーが確定した自分のBETだけ');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));

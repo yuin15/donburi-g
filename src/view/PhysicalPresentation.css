@@ -22,7 +22,6 @@
 #line::before, #line[data-long=true]::before { display: none; }
 #rivalMood { top: 51.3% !important; text-align: center; letter-spacing: .15em; font-size: .62cqw; }
 #heard { top: 65.0% !important; height: 2.2% !important; border: 0; background: none; text-align: center; justify-content: center; }
-.duel-gap { background: none; border: 0; box-shadow: none; color: #ccb886; font: 700 1.0cqw/1 Georgia; }
 #miniLabel { border: 0; background: none; box-shadow: none; }
 #paytable>span { width: 100%; align-self: stretch; }
 .event-cue { top: 17.0% !important; height: 4% !important; font: 700 1.0cqw/1 Georgia; color: #f8dfaf; -webkit-text-stroke: 0; text-shadow: 0 2px 2px #120500; filter: none; letter-spacing: .12em; }

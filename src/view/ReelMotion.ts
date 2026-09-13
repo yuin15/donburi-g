@@ -14,6 +14,13 @@ export function planTravel(from: number, symbol: SymbolId, column: number, strip
   return { from, to, duration: STOP_TIMES[column] };
 }
 
+/** Stop on the authoritative strip index, so the visible neighbours match the scored grid. */
+export function planTravelToStop(from: number, stop: number, column: number, strip: readonly SymbolId[]): ReelTravel {
+  let to = -stop;
+  while (to < from + 7) to += strip.length;
+  return { from, to, duration: STOP_TIMES[column] };
+}
+
 /** Positive travel means screen-down; acceleration, cruise, then a soft stop. */
 export function travelAt(travel: ReelTravel, elapsed: number): number {
   const t = Math.min(1, Math.max(0, elapsed / travel.duration));

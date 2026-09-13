@@ -1,5 +1,5 @@
 import type { MicrophoneFeedback } from './MicrophoneInput';
-import type { ClientMessage, ServerMessage, VoiceMode } from '../../shared/protocol';
+import type { Bet, ClientMessage, ServerMessage, VoiceMode } from '../../shared/protocol';
 import type { AiRuntimeEvent } from './AiStatus';
 
 export interface LiveSession {
@@ -9,6 +9,7 @@ export interface LiveSession {
   setMicMuted(muted: boolean): void;
   send(message: ClientMessage): void;
   sendSpin(): string | undefined;
+  setBet?(bet: Bet): string | undefined;
 }
 
 export interface LiveSessionHandlers {
@@ -48,6 +49,7 @@ export function createLiveSessionFactory(video: HTMLVideoElement): LiveSessionFa
       setMicMuted: muted => client.setMicMuted(muted),
       send: message => client.send(message),
       sendSpin: () => client.sendSpin(),
+      setBet: bet => client.setBet(bet),
     };
   };
 }

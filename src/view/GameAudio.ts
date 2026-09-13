@@ -55,6 +55,12 @@ export class GameAudio {
     });
   }
 
+  /** A short cabinet switch click for BET controls and their keyboard shortcuts. */
+  betClick(): void {
+    this.note(180, 0, .045, .52, 'triangle');
+    this.note(620, .012, .024, .18, 'square');
+  }
+
   countdownTick(seconds: number, voiceActive: boolean): void {
     this.note(620 + (6 - seconds) * 90, 0, .06, voiceActive ? .3 : .6, 'triangle');
   }
