@@ -287,8 +287,8 @@ export class MatchSession {
         this.tick();
         this.userSpeaking = false;
         this.queueSettledRivalLoanReply(generation);
-        this.settleDirectTimeExtensionRequest(this.userSpeechTurn, generation);
-        this.settleDirectLoanRequest(this.userSpeechTurn, generation);
+        this.queueDirectTimeExtensionRequest(generation);
+        this.queueDirectLoanRequest(generation);
       },
       onDelegation: delegation => {
         if (!current() || resultOnly) return;
