@@ -186,11 +186,6 @@ export class GameView implements GamePresentation {
           { transform: 'scale(1.12)', color: '#fff' , offset: .22 },
           { transform: 'scale(1)', color: '#fff1be' },
         ], { duration: 480, easing: 'cubic-bezier(.2,.8,.3,1)' });
-        if (side === 'player') burst.animate([
-          { transform: 'translateY(12px) scale(.65) rotate(-5deg)', opacity: 0 },
-          { transform: 'translateY(-3px) scale(1.08) rotate(-2deg)', opacity: 1, offset: .45 },
-          { transform: 'translateY(0) scale(1) rotate(-2deg)', opacity: 1 },
-        ], { duration: 420, easing: 'cubic-bezier(.18,.8,.28,1)' });
       }
     }
     this.q('#eventCue').hidden = !state.cue || state.cue.kind === 'jackpot';
@@ -201,6 +196,7 @@ export class GameView implements GamePresentation {
     const start = this.q<HTMLButtonElement>('#start');
     start.disabled = state.startControl.disabled;
     this.text('#start', state.startControl.label);
+    this.scene.setButtonCaption(state.startControl.label);
     if (state.startControl.spinState) start.dataset.spin = state.startControl.spinState;
     else delete start.dataset.spin;
     this.text('#spinHint', state.startControl.hint);
@@ -217,6 +213,7 @@ export class GameView implements GamePresentation {
     this.text('#recordLabel', record.newBest ? 'NEW PERSONAL BEST' : 'SESSION BEST');
     this.q('#resultRecords').dataset.record = String(record.newBest);
     this.renderResult(state.result);
+    this.scene.setResult(state.result ? state.result.winner ?? 'draw' : null);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
       this.text('#countdownValue', String(state.countdown));

@@ -7,17 +7,27 @@ import { WinSymbols } from './WinSymbols';
 import type { WinSymbol } from './SymbolModels';
 import { CabinetModel } from './CabinetModel';
 import { CasinoStage } from './CasinoStage';
+import { SculptedType } from './SculptedType';
 
-type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null };
-const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null });
+type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; reels: boolean };
+const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, reels: false });
 const sides: Side[] = ['player', 'rival'];
 
 /** Two independent win lanes, sharing one renderer and 24 reusable 3D coins. */
 export class CabinetArt {
   readonly group = new THREE.Group();
+  readonly playerGroup = new THREE.Group();
+  private readonly machine = new THREE.Group();
   private coinGeometry = createGoldCoinGeometry();
   private coinEnvironment = createGoldCoinEnvironment();
   private winSymbols = new WinSymbols(this.coinEnvironment);
+  private readonly lettering = new SculptedType(this.coinEnvironment);
+  private buttonText = this.lettering.make('PLAY', 37, 200, 3);
+  private buttonCaption = 'PLAY';
+  private resultCaption: Side | 'draw' | null = null;
+  private resultText: THREE.Mesh | null = null;
+  private pressedAt = -Infinity;
+  private readonly sweep = new THREE.PointLight(0xffd391, 0, 820, 1);
   private body: CabinetModel;
   private stage = new CasinoStage(this.coinEnvironment);
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
@@ -41,7 +51,14 @@ export class CabinetArt {
     this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
     this.body.group.scale.setScalar(100);
     this.body.group.position.set(530, STAGE_HEIGHT - 870, 0);
-    this.group.add(this.body.group, this.stage.group);
+    this.machine.name = 'physical-cabinet-rig';
+    this.machine.position.set(530, STAGE_HEIGHT - 500, 0);
+    this.playerGroup.position.set(-530, -(STAGE_HEIGHT - 500), 0);
+    this.machine.add(this.playerGroup);
+    this.playerGroup.add(this.body.group, this.stage.playerGroup, this.winSymbols.playerGroup, this.buttonText);
+    this.buttonText.position.set(525, STAGE_HEIGHT - 780, 164);
+    this.buttonText.rotation.x = -.2;
+    this.group.add(this.machine, this.stage.group, this.winSymbols.rivalGroup, this.sweep);
     this.coinMaterials = {
       player: createGoldCoinMaterial(this.coinEnvironment),
       rival: createGoldCoinMaterial(this.coinEnvironment),
@@ -56,11 +73,37 @@ export class CabinetArt {
     this.sparkles = { player: this.makeSparkles('player'), rival: this.makeSparkles('rival') };
     this.timerLights = this.makeTimerLights();
     this.finalGlow = this.makeFinalGlow();
-    this.group.add(this.timerLights, this.finalGlow, this.glows.player, this.glows.rival, this.bulbs.player, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, this.winSymbols.group, ...this.coins);
+    this.group.add(this.timerLights, this.finalGlow, this.glows.rival, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...this.coins);
+    this.playerGroup.add(this.glows.player, this.bulbs.player);
   }
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
-  press(now: number): void { this.body.press(now); }
+  press(now: number): void { this.body.press(now); this.pressedAt = now; }
+  hideReelWin(side: Side): void { this.bursts[side].reels = false; }
+  reelInkHidden(side: Side): number { return this.winSymbols.reelInkHidden(side); }
+  setButtonCaption(caption: string): boolean {
+    const text = caption.replace(/[^A-Z !?.-]/g, '');
+    if (text === this.buttonCaption) return false;
+    this.buttonCaption = text;
+    this.playerGroup.remove(this.buttonText);
+    this.buttonText = this.lettering.make(text, text.length > 5 ? 26 : 37, 200, 3);
+    this.buttonText.position.set(525, STAGE_HEIGHT - 780, 164);
+    this.buttonText.rotation.x = -.2;
+    this.playerGroup.add(this.buttonText);
+    return true;
+  }
+  setResult(winner: Side | 'draw' | null): boolean {
+    if (winner === this.resultCaption) return false;
+    this.resultCaption = winner;
+    if (this.resultText) this.playerGroup.remove(this.resultText);
+    this.resultText = winner ? this.lettering.make(winner === 'player' ? 'YOU WIN!' : winner === 'rival' ? 'RIVAL WINS' : 'DRAW', 89, 570, 22) : null;
+    if (this.resultText) {
+      this.resultText.position.set(530, STAGE_HEIGHT - 346, 280);
+      this.resultText.rotation.set(-.14, -.1, .025);
+      this.playerGroup.add(this.resultText);
+    }
+    return true;
+  }
   createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget { return this.winSymbols.createReelAtlas(renderer); }
 
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
@@ -156,6 +199,7 @@ export class CabinetArt {
     this.bursts[side] = {
       started: now, until: payout > 0 ? now + duration : 0, jackpot: payout >= PAYOUT.seven, still: still && payout > 0,
       symbol: payout >= PAYOUT.seven ? 'seven' : payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null,
+      reels: true,
     };
   }
 
@@ -185,6 +229,11 @@ export class CabinetArt {
       if (this.timerLights.instanceColor) this.timerLights.instanceColor.needsUpdate = true;
     }
     let animating = this.body.update(now, reducedMotion) || result || finale && !reducedMotion;
+    this.sweep.intensity = 0;
+    const buttonDepth = reducedMotion ? 0 : Math.sin(Math.min(1, (now - this.pressedAt) / 180) * Math.PI) * 4.5;
+    this.buttonText.position.z = 164 - buttonDepth;
+    this.buttonText.position.y = STAGE_HEIGHT - 780 + buttonDepth * .2;
+    this.machine.rotation.set(0, .095, 0);
     for (const side of sides) {
       const burst = this.bursts[side];
       const time = burst.still ? burst.started + (burst.until - burst.started) * .36 : now;
@@ -207,7 +256,15 @@ export class CabinetArt {
       animating ||= winning && !burst.still;
       const duration = burst.until - burst.started;
       const progress = duration > 0 ? Math.max(0, (time - burst.started) / duration) : 1;
-      this.winSymbols.update(side, winning ? burst.symbol : null, progress, fade, reducedMotion);
+      this.winSymbols.update(side, winning ? burst.symbol : null, progress, reducedMotion, burst.reels);
+      if (side === 'player' && winning && !reducedMotion) {
+        const recoil = Math.sin(progress * Math.PI * 3) * Math.exp(-progress * 5) * (burst.jackpot ? 1 : .45);
+        this.machine.rotation.x = recoil * .012;
+        this.machine.rotation.y += recoil * .018;
+        this.machine.rotation.z = recoil * -.008;
+        this.sweep.position.set(170 + progress * 780, STAGE_HEIGHT - 400, 300);
+        this.sweep.intensity = Math.sin(progress * Math.PI) * (burst.jackpot ? 80 : 38);
+      }
       this.glows[side].material.uniforms.progress.value = progress;
       const sparkle = this.sparkles[side];
       sparkle.visible = winning && !reducedMotion;
@@ -259,9 +316,9 @@ export class CabinetArt {
         const u = 1 - t;
         const x = u * u * startX + 2 * u * t * controlX + t * t * endX;
         const y = u * u * startY + 2 * u * t * (player ? 20 + i % 6 * 33 : 380) + t * t * (player ? 112 + i % 6 * 24 : 112);
-        coin.position.set(x, STAGE_HEIGHT - y, 105 + i*3);
+        coin.position.set(x, STAGE_HEIGHT - y, 105 + Math.sin(t * Math.PI) * (100 + i * 9));
         coin.rotation.set(.32 + Math.sin(i + t * 4) * .18, i * .62 + t * 5.6, (right ? 1 : -1) * (.3 + t));
-        coin.scale.setScalar((player && burst.jackpot ? 1.35 : .85) + (i % 3) * .23);
+        coin.scale.setScalar(((player && burst.jackpot ? 1.35 : .85) + (i % 3) * .23) * (1 - THREE.MathUtils.smoothstep(t, .84, 1)));
       }
     }
     return animating;
@@ -271,6 +328,7 @@ export class CabinetArt {
     this.stop();
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
+    this.lettering.dispose();
     this.body.dispose();
     this.stage.dispose();
     this.coinEnvironment.dispose();

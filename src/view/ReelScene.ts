@@ -13,6 +13,7 @@ const fragmentShader = `
   uniform sampler2D atlas;
   uniform float offset;
   uniform float winning;
+  uniform float lifted;
   uniform float mini;
   uniform float cellAspect;
   uniform float stripLength;
@@ -31,7 +32,11 @@ const fragmentShader = `
     vec4 ivory = texture2D(atlas,vec2(.002,.99));
     vec4 ink = texture2D(atlas,vec2((symbol+clamp(x,.003,.997))/3.,1.-cell));
     float inside = step(0.,x)*step(x,1.);
-    gl_FragColor = mix(ivory,ink,inside);
+    float centerCell = 1.-smoothstep(.43,.5,abs(row));
+    gl_FragColor = mix(ivory,ink,inside*(1.-centerCell*lifted));
+    // A soft proximity shadow grounds the raised mesh in its recessed reel well.
+    vec2 shadowPosition = vec2((x-.54)*2.5,(row-.12)*2.3);
+    gl_FragColor.rgb *= 1.-exp(-dot(shadowPosition,shadowPosition)*2.2)*lifted*.31;
     float edge = mini>.5 ? abs(vUv.y-.5)*.34 : pow(abs(vUv.y-.5)*2.,2.2)*.88;
     float seam = pow(abs(vUv.x-.5)*2.,12.)*.2;
     gl_FragColor.rgb *= 1.-edge-seam;
@@ -61,7 +66,7 @@ interface PendingSpin {
 export class ReelScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.OrthographicCamera(0, STAGE_WIDTH, STAGE_HEIGHT, 0, 0.1, 1500);
+  private camera = new THREE.OrthographicCamera(0, STAGE_WIDTH, STAGE_HEIGHT, 0, 0.1, 3000);
   private materials: THREE.ShaderMaterial[] = [];
   private reelMeshes: THREE.Mesh[] = [];
   private textures: THREE.Texture[] = [];
@@ -94,7 +99,7 @@ export class ReelScene {
     Object.assign(this.renderer.domElement.style, { width: '100%', height: '100%', display: 'block' });
     host.append(this.renderer.domElement);
     host.dataset.artReady = 'false';
-    this.camera.position.z = 200;
+    this.camera.position.z = 1200;
     this.scene.background = new THREE.Color(0x08090d);
     const background = this.load('/art/casino-room.webp');
     this.cabinet = new CabinetArt();
@@ -128,7 +133,7 @@ export class ReelScene {
       const cells = new Float32Array(MAX_REEL_STRIP_LENGTH);
       cells.set(strip.map(symbol => SYMBOLS.indexOf(symbol)));
       const material = new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(SYMBOLS[i % 3], strip) }, winning: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h }, stripLength: { value: strip.length }, strip: { value: cells } },
+        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(SYMBOLS[i % 3], strip) }, winning: { value: 0 }, lifted: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h }, stripLength: { value: strip.length }, strip: { value: cells } },
         vertexShader, fragmentShader,
       });
       const geometry = new THREE.PlaneGeometry(rect.w, rect.h, 1, i >= 3 ? 1 : 32);
@@ -140,7 +145,8 @@ export class ReelScene {
       geometry.computeVertexNormals();
       const mesh = new THREE.Mesh(geometry, material);
       this.place(mesh, rect, 3);
-      this.scene.add(mesh);
+      mesh.name = 'reel-' + i;
+      (i < 3 ? this.cabinet.playerGroup : this.scene).add(mesh);
       this.reelMeshes.push(mesh);
       this.materials.push(material);
     });
@@ -215,6 +221,7 @@ export class ReelScene {
     const side = spin.side;
     if (this.disposed || spin.round <= this.lastRound[side]) return;
     this.lastRound[side] = spin.round;
+    this.cabinet.hideReelWin(side);
     if (side === 'player') {
       this.cabinet.press(performance.now());
       if (this.winUntil === Infinity) this.cabinet.stop('player');
@@ -235,6 +242,13 @@ export class ReelScene {
     this.host.dataset.playerSpinning = String(!!this.pending.player);
     this.host.dataset.rivalSpinning = String(!!this.pending.rival);
     this.host.dataset.spinning = String(!!this.pending.player || !!this.pending.rival);
+  }
+
+  setButtonCaption(caption: string): void {
+    if (this.cabinet.setButtonCaption(caption)) this.requestRender();
+  }
+  setResult(winner: Side | 'draw' | null): void {
+    if (this.cabinet.setResult(winner)) this.requestRender();
   }
 
   /** Preview/reset path; matches use play() and its actual stop notification. */
@@ -428,6 +442,9 @@ export class ReelScene {
     }
     const portraitMoving = this.posePortrait(now);
     const animating = this.cabinet.update(now, this.motionPreference.matches) || portraitMoving;
+    this.materials.forEach((material, i) => {
+      material.uniforms.lifted.value = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival');
+    });
     this.renderer.render(this.scene, this.camera);
     // Scores, speech and sound follow the actual settled frame.
     completions.forEach(complete => complete());

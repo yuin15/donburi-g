@@ -1,0 +1,16 @@
+{
+  "recording": false,
+  "scope": "spin-and-win",
+  "samples": 359,
+  "p95FrameMs": 18.10000000000582,
+  "medianFrameMs": 17.599999999998545,
+  "peakCalls": 114,
+  "peakTriangles": 469285,
+  "bytes": 0,
+  "calls": 51,
+  "triangles": 177405,
+  "textures": 11,
+  "geometries": 66,
+  "frames": 398,
+  "loaded": true
+}
