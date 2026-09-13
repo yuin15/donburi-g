@@ -112,7 +112,7 @@ describe('loan choice', () => {
     expect(requestsLoan(transcript)).toBe(true);
   });
 
-  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません'])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
+  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない'])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
     expect(requestsLoan(transcript)).toBe(false);
   });
 
@@ -120,7 +120,7 @@ describe('loan choice', () => {
     expect(requestsDirectLoan(transcript)).toBe(true);
   });
 
-  it.each(['お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて'])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
+  it.each(['お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて'])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
     expect(requestsDirectLoan(transcript)).toBe(false);
   });
 

@@ -12,7 +12,7 @@ export type LoanDecision = 'accept_loan' | 'reject_loan' | 'no_request';
 
 export function rejectsLoanRequest(transcript: string): boolean {
   const normalized = transcript.normalize('NFKC').trim();
-  return /(?:貸して(?:ほしく|欲しく)(?:ない|ありません)|借り(?:たくない|ない|る(?:必要)?ない)|(?:お金|金|money|cash).{0,12}(?:いらない|不要|足りて))/i.test(normalized);
+  return /(?:貸して(?:ほしく|欲しく)(?:ない|ありません)|借り(?:たく(?:は)?(?:ない|ありません)|(?:る)?(?:必要|つもり|気)(?:は|が)?(?:ない|ありません)|ない|ません)|(?:お金|金|money|cash).{0,12}(?:いらない|不要|足りて))/i.test(normalized);
 }
 
 /** Routes a likely borrower request to the bounded model decision; it never approves a transfer. */
