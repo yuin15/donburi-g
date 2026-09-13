@@ -29,15 +29,16 @@ export function createGoldCoinGeometry(): THREE.BufferGeometry {
 }
 
 export function createGoldCoinMaterial(environment: THREE.Texture): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
-    vertexColors: true, metalness: .86, roughness: .27,
-    envMap: environment, envMapIntensity: 1.6, transparent: true,
+  return new THREE.MeshPhysicalMaterial({
+    vertexColors: true, metalness: .96, roughness: .15,
+    clearcoat: .3, clearcoatRoughness: .065,
+    envMap: environment, envMapIntensity: 1.9, transparent: true,
   });
 }
 
-/** Small studio light map: soft white panels, a cool rim and a dark lower fill. */
+/** HDR strip lights: crisp white reflections, warm gold edges and dark gaps. */
 export function createGoldCoinEnvironment(): THREE.DataTexture {
-  const width = 256, height = 128;
+  const width = 512, height = 256;
   const pixels = new Float32Array(width * height * 4);
   const panel = (u: number, v: number, x: number, y: number, w: number, h: number) => {
     const dx = Math.min(Math.abs(u - x), 1 - Math.abs(u - x));
@@ -46,15 +47,18 @@ export function createGoldCoinEnvironment(): THREE.DataTexture {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const u = x / width, v = y / height;
-      const fill = .035 + Math.sin(v * Math.PI) * .07;
-      const key = panel(u, v, .12, .48, .06, .31) * 3.2;
-      const rim = panel(u, v, .62, .45, .027, .36) * 2.5;
-      const top = panel(u, v, .83, .81, .19, .045) * 1.8;
-      const window = panel(u, v, .77, .57, .075, .11) * .7;
+      const fill = .018 + Math.sin(v * Math.PI) * .035;
+      const key = panel(u, v, .12, .48, .041, .30) * 4.4;
+      const rim = panel(u, v, .62, .47, .012, .34) * 5.5;
+      const top = panel(u, v, .83, .81, .15, .023) * 3.5;
+      const window = panel(u, v, .77, .57, .023, .075) * 1.25;
+      const strip = panel(u, v, .87, .49, .007, .29) * 6.5
+        + panel(u, v, .34, .44, .010, .25) * 5.0;
+      const lower = panel(u, v, .72, .22, .12, .016) * 2.1;
       const i = (y * width + x) * 4;
-      pixels[i] = fill + key + rim * .7 + top + window;
-      pixels[i + 1] = fill + key * .94 + rim * .87 + top * .82 + window * .96;
-      pixels[i + 2] = fill + key * .84 + rim + top * .55 + window * .90;
+      pixels[i] = fill + key + rim * .76 + top + window + strip + lower;
+      pixels[i + 1] = fill + key * .95 + rim * .90 + top * .85 + window * .96 + strip * .92 + lower * .65;
+      pixels[i + 2] = fill + key * .86 + rim + top * .59 + window * .91 + strip * .77 + lower * .26;
       pixels[i + 3] = 1;
     }
   }

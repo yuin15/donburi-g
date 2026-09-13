@@ -123,4 +123,11 @@ export function mountVisualReview(port: ReviewPort): void {
 
   find('measureMotion').onclick = () => { void run(false); };
   port.preview('normal');
+  const parameters = new URLSearchParams(location.search);
+  const example = parameters.get('example');
+  // Reproducible material comparisons use the same existing review fixtures.
+  const exampleButton = [...controls.querySelectorAll<HTMLButtonElement>('[data-example]')]
+    .find(button => button.dataset.example === example);
+  if (exampleButton) exampleButton.click();
+  if (parameters.has('clean-frame')) controls.hidden = true;
 }

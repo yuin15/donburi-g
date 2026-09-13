@@ -5,6 +5,8 @@ import type { SymbolModels } from './SymbolModels';
 export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolModels): THREE.WebGLRenderTarget {
   const size = 512;
   const target = new THREE.WebGLRenderTarget(size * 3, size, {
+    // Retain HDR reflections until the reel shader tone-maps the final scene.
+    type: THREE.HalfFloatType,
     minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
     generateMipmaps: true,
   });
