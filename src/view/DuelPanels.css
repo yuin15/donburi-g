@@ -1,10 +1,10 @@
 /* Built-in brass shop at the cabinet's coin outlet. */
-#upgradeShop{z-index:3;padding:.35cqw .65cqw;border:2px solid #c4a36a;border-radius:.45cqw;background:#131514;box-shadow:inset 0 0 0 1px #715637,0 1px 3px #0008;color:#f2dfb5}
-#upgradeShop h2{margin:0 0 .2cqw;text-align:center;font:700 .85cqw/1.2 Georgia;letter-spacing:.09em}
-.shop-row{display:grid;grid-template-columns:1.6cqw 1fr auto;align-items:center;gap:.35cqw;margin-top:.15cqw}
-.shop-row>.symbol-icon{width:1.6cqw;height:1.6cqw}
-.shop-row>span:not(.sr-only){font:700 1cqw/1 Georgia;white-space:nowrap}
-.shop-row button{padding:.22cqw .48cqw;border:1px solid #b79a64;border-radius:.2cqw;background:#22231f;color:#f2dfb5;font:700 .82cqw/1.2 Georgia;white-space:nowrap}
+#upgradeShop{z-index:3;padding:.15cqw .12cqw;color:#f2dfb5}
+#upgradeShop h2{margin:0 0 .13cqw;text-align:center;font:700 .75cqw/1.2 Georgia;letter-spacing:.07em}
+.shop-row{display:grid;grid-template-columns:1.5cqw 1fr auto;align-items:center;gap:.12cqw;margin-top:.27cqw}
+.shop-row>.symbol-icon{width:1.5cqw;height:1.5cqw}
+.shop-row>span:not(.sr-only){font:700 .85cqw/1 Georgia;white-space:nowrap}
+.shop-row button{padding:.18cqw .23cqw;border:1px solid #b79a64;border-radius:.15cqw;background:#22231f;color:#f2dfb5;font:700 .72cqw/1.2 Georgia;white-space:nowrap}
 .shop-row button:hover:enabled{background:#514127}.shop-row button:disabled{opacity:.5;cursor:default}.shop-row button:focus-visible{outline:2px solid #ffe098;outline-offset:2px}
 #purchaseSymbol{position:absolute;left:15%;top:40%;pointer-events:none;opacity:0;z-index:6}
 /* PC result panel. */
