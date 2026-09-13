@@ -124,7 +124,7 @@ describe('loan choice', () => {
     expect(requestsDirectLoan(transcript)).toBe(false);
   });
 
-  it.each(['Sure!', 'はい', 'okay', "Okay, I'll lend you some.", 'うん、5ドル貸してあげるよ'])('accepts a clear rival-loan reply: %s', transcript => {
+  it.each(['Sure!', 'はい', 'いいですよ', 'okay', "Okay, I'll lend you some.", 'うん、5ドル貸してあげるよ'])('accepts a clear rival-loan reply: %s', transcript => {
     expect(acceptsLoanOffer(transcript)).toBe(true);
   });
 
@@ -132,17 +132,17 @@ describe('loan choice', () => {
     expect(acceptsLoanOffer(transcript)).toBe(false);
   });
 
-  it.each(['いいよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
+  it.each(['いいよ', 'いいですよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(true);
   });
 
-  it('waits for speech completion before accepting a Japanese affirmative ending in a comma', () => {
-    expect(acceptsImmediateLoanOffer('いいよ、')).toBe(false);
-    expect(acceptsImmediateLoanOffer('いいよ、', true)).toBe(true);
-    expect(acceptsImmediateLoanOffer('いいよ、でも無理', true)).toBe(false);
+  it.each(['いいよ', 'いいですよ'])('waits for speech completion before accepting a Japanese affirmative ending in a comma: %s', affirmative => {
+    expect(acceptsImmediateLoanOffer(`${affirmative}、`)).toBe(false);
+    expect(acceptsImmediateLoanOffer(`${affirmative}、`, true)).toBe(true);
+    expect(acceptsImmediateLoanOffer(`${affirmative}、でも無理`, true)).toBe(false);
   });
 
-  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
+  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、でも無理', 'いいですよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(false);
   });
 

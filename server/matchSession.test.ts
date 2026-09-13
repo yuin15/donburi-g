@@ -1287,7 +1287,7 @@ describe('live match cleanup', () => {
     await second.session.shutdown('test_finished');
   });
 
-  it('immediately transfers a clear reply to a spoken rival loan offer without AI judgment', async () => {
+  it.each(['いいよ', 'いいですよ'])('immediately transfers a clear reply to a spoken rival loan offer without AI judgment: %s', async affirmative => {
     const { session, messages } = setup('immediate-rival-loan', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1299,12 +1299,13 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"snapshot"}');
     startLoanOffer();
     provider.events?.onUserSpeech();
-    provider.events?.onTranscript('user', 'いいよ', { startMs: 0, endMs: 100 });
+    provider.events?.onTranscript('user', affirmative, { startMs: 0, endMs: 100 });
     const transfers = messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
     expect(transfers).toHaveLength(1);
     expect(transfers[0]).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
     expect(chooseLoanDecision).not.toHaveBeenCalled();
-    provider.events?.onTranscript('user', 'いいよ', { startMs: 101, endMs: 200 });
+    expect(provider.confirmedLine).toHaveBeenCalledWith('助かった、$5借りるよ。ここから巻き返す。');
+    provider.events?.onTranscript('user', affirmative, { startMs: 101, endMs: 200 });
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
@@ -1349,7 +1350,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('transfers a clear reply whose turn started before the loan deadline but whose transcript is delayed', async () => {
+  it.each(['いいよ', 'いいですよ'])('transfers a clear reply whose turn started before the loan deadline but whose transcript is delayed: %s', async affirmative => {
     const { session, messages } = setup('delayed-rival-loan', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1363,7 +1364,7 @@ describe('live match cleanup', () => {
     provider.events?.onUserSpeech();
     await vi.advanceTimersByTimeAsync(200);
     provider.events?.onUserSpeechEnd();
-    provider.events?.onTranscript('user', 'いいよ、', { startMs: 0, endMs: 100 });
+    provider.events?.onTranscript('user', `${affirmative}、`, { startMs: 0, endMs: 100 });
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await vi.advanceTimersByTimeAsync(150);
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
@@ -1372,7 +1373,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('does not transfer a comma-ended rival-loan reply when a later transcript delta refuses it', async () => {
+  it.each(['いいよ', 'いいですよ'])('does not transfer a comma-ended rival-loan reply when a later transcript delta refuses it: %s', async affirmative => {
     const { session, messages } = setup('refused-settled-rival-loan', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1384,7 +1385,7 @@ describe('live match cleanup', () => {
     finishLoanOffer(session, speechId);
     provider.events?.onUserSpeech();
     provider.events?.onUserSpeechEnd();
-    provider.events?.onTranscript('user', 'いいよ、', { startMs: 0, endMs: 100 });
+    provider.events?.onTranscript('user', `${affirmative}、`, { startMs: 0, endMs: 100 });
     provider.events?.onTranscript('user', 'でも無理', { startMs: 101, endMs: 200 });
     await vi.advanceTimersByTimeAsync(150);
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
