@@ -125,6 +125,8 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   await wire.waitFor(message => message.type === 'voice_status' && message.status === 'ready');
   expect(wire.messages[0]).toMatchObject({ type: 'hello', sessionId: 'ws-integration-match', streamSeq: 1 });
   expect(provider.claim).toHaveBeenCalledExactlyOnceWith('ws-integration-match', 1700000120);
+  wire.send({ type: 'set_bet', matchId: 'ws-integration-match', commandId: 'opening-bet', bet: 1 });
+  await wire.waitFor(message => message.type === 'bet_status' && message.commandId === 'opening-bet' && message.accepted);
   wire.send({ type: 'start' });
   await wire.waitFor(message => message.type === 'snapshot' && message.snapshot.status === 'playing' && message.snapshot.round === 0);
   const matchVoice = provider.bridges[0];
@@ -135,7 +137,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   for (let second = 0; second < 60; second += 2) {
     now = START_TIME + second * 1000;
     if (second === 20 || second === 40) {
-      const bet = second === 20 ? 5 : 1;
+      const bet = 1;
       const commandId = `bet-${bet}`;
       wire.send({ type: 'set_bet', matchId: 'ws-integration-match', commandId, bet });
       const status = await wire.waitFor(message => message.type === 'bet_status' && message.commandId === commandId);
@@ -158,7 +160,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   wire.send({ type: 'snapshot' });
   const ended = await wire.waitFor(message => message.type === 'match_ended');
   if (ended.type !== 'match_ended') throw new Error('missing_result');
-  expect(ended.snapshot).toMatchObject({ status: 'result', rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, bets: { player: 1 }, upgrades: { player: [], rival: [] } });
+  expect(ended.snapshot).toMatchObject({ status: 'result', rounds: { player: 30 }, elapsed: 60, remaining: 0, bets: { player: 1 }, upgrades: { player: [], rival: [] } });
   expect(wire.messages.some(message => message.type === 'upgrade_offer' || message.type === 'upgrade_applied')).toBe(false);
   expect(provider.brain).not.toHaveBeenCalled();
   expect(provider.release).not.toHaveBeenCalled();
@@ -213,8 +215,9 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   const spins = wire.messages.filter(message => message.type === 'side_spin').map(message => message.spin);
   for (const side of ['player', 'rival'] as const) {
     const history = spins.filter(spin => spin.side === side);
-    expect(history.map(spin => spin.round)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
-    let total = 100;
+    expect(history.map(spin => spin.round)).toEqual(Array.from({ length: history.length }, (_, i) => i + 1));
+    expect(history).toHaveLength(ended.snapshot.rounds[side]);
+    let total = 30;
     for (const spin of history) {
       total -= spin.bet ?? 3;
       total += spin.payout;

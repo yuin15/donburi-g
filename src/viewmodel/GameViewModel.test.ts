@@ -149,7 +149,7 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
-  it('runs the rival for a whole match without any player input and waits for its final stop', async () => {
+  it('runs the rival while funded and waits for its final stop after the $30 bankroll is exhausted', async () => {
     const h = setup();
     const observed = vi.fn();
     const unsubscribe = h.vm.subscribe(observed);
@@ -158,11 +158,11 @@ describe('game view model', () => {
     expect(h.vm.state.startControl).toMatchObject({ disabled: false, label: 'SPIN' });
     await h.clock.advance(60000);
     expect(h.rounds).toHaveLength(0);
-    expect(h.rivalRounds).toHaveLength(30);
+    expect(h.rivalRounds).toHaveLength(17);
     expect(h.vm.state.startControl.label).toBe('LAST SPIN');
     expect(h.vm.state.result).toBeNull();
     h.rivalRounds.at(-1)!.stopped();
-    expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 30 }, scores: { player: 100, rival: h.rivalRounds.at(-1)!.spin.total } });
+    expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 17 }, scores: { player: 30, rival: h.rivalRounds.at(-1)!.spin.total } });
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
     unsubscribe();
     h.vm.dispose();
@@ -177,10 +177,10 @@ describe('game view model', () => {
     expect(h.rounds).toHaveLength(1);
     expect(h.vm.state.startControl.spinState).toBe('spinning');
     const first = h.rounds[0];
-    expect(h.vm.state.scores).toEqual({ player: 97, rival: 100 });
+    expect(h.vm.state.scores).toEqual({ player: 27, rival: 30 });
     await h.clock.advance(1060);
     first.stopped();
-    expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 100 });
+    expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 30 });
     await h.clock.advance(1200);
     expect(h.rounds).toHaveLength(1);
     h.vm.requestSpin();

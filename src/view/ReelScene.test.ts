@@ -153,6 +153,21 @@ describe('stage rendering and cleanup', () => {
       }
     }
   });
+  it('marks and lifts only the actual diagonal-winning player cells', () => {
+    const { view } = setup();
+    const player: SpinView = {
+      side: 'player', round: 1, stops: [0, 2, 7],
+      symbols: ['cherry', 'seven', 'cherry'],
+      grid: [['seven', 'bell', 'bell'], ['cherry', 'seven', 'cherry'], ['bell', 'cherry', 'seven']],
+      bet: 5, winningLines: ['diagonalDown'], payout: PAYOUT.seven, total: 55,
+    };
+    const rival = { ...spin(1, ['bell', 'cherry', 'bell']), side: 'rival' as const };
+    view.showSpins(player, rival, true);
+    frame();
+    const playerReels = reels().slice(0, 3);
+    expect(playerReels.map(mesh => mesh.material.uniforms.winningRows.value.toArray())).toEqual([[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+    expect(playerReels.map(mesh => mesh.material.uniforms.liftedRows.value.toArray())).toEqual([[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+  });
   it('overlaps independent spins without a player start or stop clearing the rival win', () => {
     const { view, host } = setup();
     const playerDone = vi.fn(), rivalDone = vi.fn();

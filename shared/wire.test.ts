@@ -17,7 +17,7 @@ describe('bankroll reel wire', () => {
       const outcome = evaluateGrid(grid, bet as Bet);
       const spin: SpinView = {
         side: 'player', round: 1, symbols: grid[1], grid, stops, bet,
-        winningLines: outcome.winningLines, payout: outcome.payout, total: 100 - bet + outcome.payout,
+        winningLines: outcome.winningLines, payout: outcome.payout, total: 30 - bet + outcome.payout,
       };
       const message: ServerMessage = { type: 'side_spin', spin };
       expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
@@ -29,7 +29,7 @@ describe('bankroll reel wire', () => {
     const outcome = evaluateGrid(grid, 5);
     const spin: SpinView = {
       side: 'rival', round: 1, symbols: grid[1], grid, stops: [0, 0, 0], bet: 5,
-      winningLines: outcome.winningLines, payout: outcome.payout, total: 95 + outcome.payout,
+      winningLines: outcome.winningLines, payout: outcome.payout, total: 25 + outcome.payout,
     };
     expect(parseServerEnvelope(JSON.stringify(envelope({ type: 'side_spin', spin: { ...spin, payout: spin.payout + 3 } })))).toBeNull();
     expect(parseServerEnvelope(JSON.stringify(envelope({ type: 'side_spin', spin: { ...spin, grid: [grid[0], grid[2], grid[1]] } })))).toBeNull();
@@ -42,11 +42,11 @@ describe('bankroll reel wire', () => {
     expect(outcome.winningLines).toHaveLength(3);
     const spin: SpinView = {
       side: 'player', round: 1, symbols: grid[1], grid, stops, bet: 5,
-      winningLines: outcome.winningLines, payout: outcome.payout, total: 95 + outcome.payout,
+      winningLines: outcome.winningLines, payout: outcome.payout, total: 25 + outcome.payout,
     };
     const snapshot: MatchSnapshot = {
       matchId: 'wire-grid', status: 'result', elapsed: 60, remaining: 0, round: 1,
-      rounds: { player: 1, rival: 0 }, balances: { player: spin.total, rival: 100 }, bets: { player: 5, rival: 3 }, scores: { player: spin.total, rival: 100 },
+      rounds: { player: 1, rival: 0 }, balances: { player: spin.total, rival: 30 }, bets: { player: 5, rival: 3 }, scores: { player: spin.total, rival: 30 },
       stats: { player: { wins: { cherry: 3, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: outcome.payout } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } },
       upgrades: { player: [], rival: [] }, winner: 'player', eventSeq: 1,
     };

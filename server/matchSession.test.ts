@@ -297,15 +297,19 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"start"}');
     spin('drain-1');
     expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player').at(-1)).toMatchObject({ spin: { round: 1, bet: 5 } });
+    let drained = false;
     for (let round = 2; round <= 53; round += 1) {
       await vi.advanceTimersByTimeAsync(1100);
       spin(`drain-${round}`);
-      expect(messages.filter(message => message.type === 'spin_status').at(-1)).toMatchObject({ commandId: `drain-${round}`, accepted: true });
+      const status = messages.filter(message => message.type === 'spin_status').at(-1);
+      expect(status).toMatchObject({ commandId: `drain-${round}` });
+      if (status?.type === 'spin_status' && !status.accepted) { drained = true; break; }
     }
+    expect(drained).toBe(true);
     session.handleRaw('{"type":"set_bet","matchId":"bankroll-match","commandId":"insufficient","bet":5}');
     expect(messages.filter(message => message.type === 'bet_status').at(-1)).toMatchObject({ commandId: 'insufficient', accepted: false, bet: 5 });
     session.handleRaw('{"type":"snapshot"}');
-    expect(messages.filter(message => message.type === 'snapshot').at(-1)).toMatchObject({ snapshot: { balances: { player: 0 }, bets: { player: 5 }, scores: { player: 0 } } });
+    expect(messages.filter(message => message.type === 'snapshot').at(-1)).toMatchObject({ snapshot: { balances: { player: 3 }, bets: { player: 5 }, scores: { player: 3 } } });
     await session.shutdown('test');
   });
 
@@ -317,7 +321,7 @@ describe('live match cleanup', () => {
     vi.setSystemTime(Date.now() + 60_000);
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
     expect(messages.filter(message => message.type === 'side_spin' && message.spin.side === 'player')).toHaveLength(0);
-    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 30 }, remaining: 0, winner: 'player' } });
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { status: 'result', rounds: { player: 0, rival: 26 }, remaining: 0, winner: 'player' } });
     expect(messages.at(-1)).toMatchObject({ type: 'spin_status', commandId: 'at-deadline', accepted: false, retryAfterMs: 0 });
     session.handleRaw('{"type":"spin","commandId":"after-result","matchId":"test-match"}');
     session.handleRaw('{"type":"spin","commandId":"at-deadline","matchId":"test-match"}');
@@ -457,7 +461,7 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"after-limit"}');
     await vi.advanceTimersByTimeAsync(20_001);
     expect(messages.filter(m => m.type === 'match_ended')).toMatchObject([{
-      snapshot: { matchId: 'late-match', status: 'result', elapsed: 60, remaining: 0, rounds: { player: 2, rival: 30 } },
+      snapshot: { matchId: 'late-match', status: 'result', elapsed: 60, remaining: 0, rounds: { player: 2, rival: 26 } },
     }]);
     expect(provider.mic).not.toHaveBeenCalled();
     expect(provider.gptConnect).toHaveBeenCalledOnce();
@@ -560,7 +564,7 @@ describe('live match cleanup', () => {
     const reactionsBefore = provider.reaction.mock.calls.length;
     await vi.advanceTimersByTimeAsync(1000);
     const latestSpin = messages.filter(m => m.type === 'spin').at(-1);
-    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], bet: 3, payout: 9, total: 139 }, rival: { round: 7, bet: 3, payout: 0, total: 79 } });
+    expect(latestSpin).toMatchObject({ player: { round: 7, symbols: ['bell', 'bell', 'bell'], bet: 3, payout: 9, total: 69 }, rival: { round: 7, bet: 3, payout: 0, total: 9 } });
     if (latestSpin?.type !== 'spin') throw new Error('missing ordinary win');
     // The boundary tick must include the just-confirmed spin, not wait for the next tick.
     expect(provider.context).toHaveBeenCalledTimes(16);
@@ -570,7 +574,7 @@ describe('live match cleanup', () => {
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
     expect(provider.context).toHaveBeenCalledTimes(16);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー$139(BET $3)、あなた$79(BET $3)'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー$69(BET $3)、あなた$9(BET $3)'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('首位=プレイヤー'));
     expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
     // Ready + start + one changed context per elapsed second, not every 100ms tick.
@@ -622,9 +626,8 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`状態=result,勝者=${final.snapshot.winner}`));
     const finalSpin = messages.filter(m => m.type === 'spin').at(-1);
     if (finalSpin?.type !== 'spin') throw new Error('missing final spin');
-    for (const [side, label] of [['player', 'プレイヤー'], ['rival', 'あなた']] as const) {
-      expect(finalSpin[side].round).toBe(30);
-      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}30回目、BET $${finalSpin[side].bet}、配当$${finalSpin[side].payout}`));
+    for (const [side, label, round] of [['player', 'プレイヤー', 30], ['rival', 'あなた', 29]] as const) {
+      expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining(`${label}${round}回目、BET $${finalSpin[side].bet}、配当$${finalSpin[side].payout}`));
     }
     expect(provider.mic).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -682,7 +685,7 @@ describe('live match cleanup', () => {
     expect(a.messages.filter(m => m.type === 'transcript')).toMatchObject([{ delta: 'reaction-a' }]);
     expect(b.messages.filter(m => m.type === 'transcript')).toMatchObject([{ delta: 'reaction-b' }]);
     for (const [session, matchId] of [[a, 'match-a'], [b, 'match-b']] as const) {
-      expect(session.messages.filter(m => m.type === 'spin')).toHaveLength(30);
+      expect(session.messages.filter(m => m.type === 'spin')).toHaveLength(29);
       session.messages.forEach((message, i) => expect(parseServerEnvelope(JSON.stringify(message))).toMatchObject({ streamSeq: i + 1, sessionId: matchId }));
     }
     await a.session.shutdown('test_finished');
@@ -699,7 +702,7 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"upgrade","matchId":"test-match","commandId":"bad","offerIndex":0,"upgradeId":"always-seven"}');
     session.handleRaw('{"type":"mic","audio":"not base64"}');
     session.handleRaw('{"type":"snapshot"}');
-    expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, balances: { player: 100, rival: 100 }, scores: { player: 100, rival: 100 }, bets: { player: 3, rival: 3 } } });
+    expect(messages.find(m => m.type === 'snapshot')).toMatchObject({ snapshot: { status: 'ready', round: 0, balances: { player: 30, rival: 30 }, scores: { player: 30, rival: 30 }, bets: { player: 3, rival: 3 } } });
     expect(messages.filter(m => m.type === 'error')).toHaveLength(3);
     for (let i = 0; i < 130; i += 1) session.handleRaw('{"type":"snapshot"}');
     await vi.advanceTimersByTimeAsync(1);
@@ -816,7 +819,7 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(20_000);
     const final = messages.find(m => m.type === 'match_ended');
     expect(final).toMatchObject({ snapshot: { matchId: 'test-match', status: 'result', elapsed: 60, round: 30, bets: { player: 5 }, upgrades: { player: [] } } });
-    expect(messages.filter(m => m.type === 'spin')).toHaveLength(30);
+    expect(messages.filter(m => m.type === 'spin')).toHaveLength(29);
     if (before?.type === 'snapshot' && final?.type === 'match_ended') {
       expect(final.snapshot.scores).toEqual(final.snapshot.balances);
       expect(final.snapshot.rounds.player).toBeGreaterThan(before.snapshot.rounds.player);
@@ -865,7 +868,7 @@ it('runs a complete voice-only duel and its final reply without creating any ava
   session.handleRaw('{"type":"spin","matchId":"audio-game","commandId":"press"}');
   await vi.advanceTimersByTimeAsync(60_000);
   expect(messages.find(m => m.type === 'match_ended')).toMatchObject({
-    snapshot: { status: 'result', rounds: { player: 1, rival: 30 } },
+    snapshot: { status: 'result', rounds: { player: 1, rival: 26 } },
   });
   const count = messages.filter(m => m.type === 'voice_audio').length;
   playBridge.onAudio('AAAA');

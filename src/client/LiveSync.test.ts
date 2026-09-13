@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { ServerEnvelope, ServerMessage } from '../../shared/protocol';
 import { MANUAL_SPIN_INTERVAL, MAX_MATCH_ROUNDS } from '../../shared/protocol';
 import { parseServerEnvelope } from '../../shared/wire';
-import { advanceMatch, createMatch, getSnapshot, requestManualSpin, startMatch } from '../domain/game';
+import { advanceMatch, createMatch, getSnapshot, requestManualSpin, startMatch, type MatchState } from '../domain/game';
 import { LiveSync } from './LiveSync';
 
 const wrap = (message: ServerMessage, streamSeq: number, sessionId = 'match-a'): ServerEnvelope => ({ ...message, sessionId, streamSeq, serverTime: 1000 });
 const hello = wrap({ type: 'hello', sessionId: 'match-a', live: true }, 1);
-const fixtureState = createMatch(123, 'match-a');
+function createFundedMatch(spinMode: 'automatic' | 'manual' = 'automatic'): MatchState {
+  const state = createMatch(123, 'match-a', spinMode);
+  state.balances = { player: 1_000, rival: 1_000 };
+  state.scores = { ...state.balances };
+  return state;
+}
+const fixtureState = createFundedMatch();
 startMatch(fixtureState);
 const fixtureEvents = advanceMatch(fixtureState, 60);
 const fixtureLast = fixtureEvents.filter(event => event.type === 'spin').at(-1)!;
@@ -26,7 +32,7 @@ describe('live wire validation and recovery', () => {
     expect(sync.accept(wrap({ type: 'spin', ...spin }, 3)).message).toBeNull();
   });
   it('recovers a complete 30-round breakdown after missed domain events', () => {
-    const state = createMatch(123, 'match-a');
+    const state = createFundedMatch();
     startMatch(state);
     const events = advanceMatch(state, 60);
     const last = events.filter(event => event.type === 'spin').at(-1)!;
@@ -95,7 +101,7 @@ describe('live wire validation and recovery', () => {
   });
 
   it.each([0, MAX_MATCH_ROUNDS])('recovers %i player spins and 30 independent rival spins across a stream gap', (rounds) => {
-    const state = createMatch(123, 'match-a', 'manual');
+    const state = createFundedMatch('manual');
     startMatch(state);
     const events = Array.from({ length: rounds }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
     events.push(...advanceMatch(state, 60));
@@ -117,7 +123,7 @@ describe('live wire validation and recovery', () => {
   });
 
   it('accepts a complete maximum-manual snapshot and rejects rounds beyond the match limit', () => {
-    const state = createMatch(123, 'match-a', 'manual');
+    const state = createFundedMatch('manual');
     startMatch(state);
     const events = Array.from({ length: MAX_MATCH_ROUNDS }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
     events.push(...advanceMatch(state, 60));
