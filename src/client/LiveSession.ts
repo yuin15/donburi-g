@@ -1,5 +1,6 @@
 import type { MicrophoneFeedback } from './MicrophoneInput';
 import type { ClientMessage, ServerMessage, VoiceMode } from '../../shared/protocol';
+import type { AiRuntimeEvent } from './AiStatus';
 
 export interface LiveSession {
   connect(code: string, voiceMode?: VoiceMode): Promise<void>;
@@ -14,6 +15,7 @@ export interface LiveSessionHandlers {
   message(message: ServerMessage): void;
   disconnect(): void;
   microphone(state: MicrophoneFeedback): void;
+  aiStatus(event: AiRuntimeEvent): void;
 }
 
 export type LiveSessionFactory = (handlers: LiveSessionHandlers) => Promise<LiveSession>;
@@ -26,9 +28,11 @@ export function createLiveSessionFactory(video: HTMLVideoElement): LiveSessionFa
     const onMessage = (event: Event) => handlers.message((event as CustomEvent<ServerMessage>).detail);
     const onDisconnect = () => handlers.disconnect();
     const onMicrophone = (event: Event) => handlers.microphone((event as CustomEvent<MicrophoneFeedback>).detail);
+    const onAiStatus = (event: Event) => handlers.aiStatus((event as CustomEvent<AiRuntimeEvent>).detail);
     client.addEventListener('message', onMessage);
     client.addEventListener('disconnect', onDisconnect);
     client.addEventListener('microphone', onMicrophone);
+    client.addEventListener('ai-status', onAiStatus);
 
     // The owner establishes its generation before explicitly starting a connection.
     return {
@@ -37,6 +41,7 @@ export function createLiveSessionFactory(video: HTMLVideoElement): LiveSessionFa
         client.removeEventListener('message', onMessage);
         client.removeEventListener('disconnect', onDisconnect);
         client.removeEventListener('microphone', onMicrophone);
+        client.removeEventListener('ai-status', onAiStatus);
         return client.disconnect();
       },
       setMuted: muted => client.setMuted(muted),

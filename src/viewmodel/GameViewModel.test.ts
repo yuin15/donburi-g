@@ -114,6 +114,16 @@ async function beginLive(h: ReturnType<typeof setup>) {
 }
 
 describe('game view model', () => {
+  it('keeps debug connection state separate from the CPU duel', () => {
+    const h = setup();
+    h.vm.setAiDebugConfiguration({ gptLive: true, responses: true, liveAvatar: true, liveKit: true });
+    h.vm.setAiDebugResponses('connecting');
+    expect(h.vm.state).toMatchObject({ mode: 'idle', aiDebug: { responses: 'connecting', runtime: { gptLive: 'idle', liveAvatar: 'idle', liveKit: 'idle' } } });
+    h.vm.setAiDebugRuntime('gptLive', 'connected');
+    expect(h.vm.state.aiDebug.runtime.gptLive).toBe('connected');
+    h.vm.dispose();
+  });
+
   it('runs the rival for a whole match without any player input and waits for its final stop', async () => {
     const h = setup();
     const observed = vi.fn();
@@ -339,7 +349,7 @@ describe('game view model', () => {
     const connecting = h.vm.connectLive('old-secret');
     h.vm.leave();
     await beginCpu(h);
-    const late = new Session({ message: () => undefined, disconnect: () => undefined, microphone: () => undefined });
+    const late = new Session({ message: () => undefined, disconnect: () => undefined, microphone: () => undefined, aiStatus: () => undefined });
     pendingFactory.resolve(late);
     await connecting;
     expect(late.connect).not.toHaveBeenCalled();

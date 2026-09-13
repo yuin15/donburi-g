@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { env, assertLiveConfiguration } from './env';
+import { addDevelopmentLoopbackOrigins, env, assertLiveConfiguration } from './env';
 import { issueTicket, isAllowedOrigin, verifyTicket } from './auth';
 
 vi.mock('./env', async (original) => {
@@ -34,6 +34,24 @@ describe('live access control', () => {
     expect(() => verifyTicket(ticket, 'https://elsewhere.example')).toThrow('ticket_origin_mismatch');
     expect(isAllowedOrigin(undefined, 'game.example')).toBe(false);
     expect(isAllowedOrigin('https://elsewhere.example', 'game.example')).toBe(false);
+  });
+  it('adds only Vite loopback aliases for its actual port without changing normal origins', () => {
+    const configuredOrigins = [...env.allowedOrigins];
+    addDevelopmentLoopbackOrigins('127.0.0.1', 5176);
+    expect(isAllowedOrigin('http://127.0.0.1:5176', '127.0.0.1:5176')).toBe(true);
+    expect(isAllowedOrigin('http://localhost:5176', 'localhost:5176')).toBe(true);
+    expect(isAllowedOrigin('http://127.0.0.1:5173', '127.0.0.1:5173')).toBe(false);
+    expect(isAllowedOrigin('http://192.168.1.20:5176', '192.168.1.20:5176')).toBe(false);
+    expect(isAllowedOrigin('http://localhost:5177', 'localhost:5177')).toBe(false);
+    const ticket = issueTicket('test-invite', 'http://127.0.0.1:5176');
+    expect(verifyTicket(ticket, 'http://127.0.0.1:5176').origin).toBe('http://127.0.0.1:5176');
+    expect(env.allowedOrigins).toEqual(configuredOrigins);
+  });
+  it('does not add non-loopback listen addresses', () => {
+    addDevelopmentLoopbackOrigins('0.0.0.0', 5178);
+    addDevelopmentLoopbackOrigins('192.168.1.20', 5178);
+    expect(isAllowedOrigin('http://127.0.0.1:5178', '127.0.0.1:5178')).toBe(false);
+    expect(isAllowedOrigin('http://localhost:5178', 'localhost:5178')).toBe(false);
   });
   it('expires a ticket exactly at the 60-second boundary', () => {
     const ticket = issueTicket('test-invite', 'https://game.example');

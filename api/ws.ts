@@ -1,17 +1,17 @@
-import { createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { isAllowedOrigin, verifyTicket } from '../server/auth.js';
 import { assertLiveConfiguration } from '../server/env.js';
 import { MatchSession } from '../server/matchSession.js';
 import { claimQuota } from '../server/quota.js';
 
-const server = createServer((_req, res) => {
+export function websocketRequired(_req: unknown, res: { statusCode: number; setHeader(name: string, value: string): void; end(value: string): void }): void {
   res.statusCode = 426;
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.end('WebSocket upgrade required');
-});
+}
 
-const wss = new WebSocketServer({ server, maxPayload: 320_000 });
+const wss = new WebSocketServer({ noServer: true, maxPayload: 320_000 });
 
 function safeClose(ws: WebSocket, code: number, reason: string): void {
   if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close(code, reason.slice(0, 100));
@@ -71,5 +71,21 @@ wss.on('connection', (ws, request) => {
     }
   })();
 });
+
+const attachedServers = new WeakSet<Server>();
+
+/** Attach only the API path to an existing HTTP server (Vite in development). */
+export function attachWsUpgrade(server: Server): void {
+  if (attachedServers.has(server)) return;
+  attachedServers.add(server);
+  server.on('upgrade', (request, socket, head) => {
+    const url = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+    if (url.pathname !== '/api/ws') return;
+    wss.handleUpgrade(request, socket, head, ws => wss.emit('connection', ws, request));
+  });
+}
+
+const server = createServer(websocketRequired);
+attachWsUpgrade(server);
 
 export default server;

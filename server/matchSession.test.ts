@@ -6,6 +6,7 @@ import { parseServerEnvelope } from '../shared/wire';
 
 const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
+  mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
   context: vi.fn(), reaction: vi.fn(), mic: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
@@ -14,6 +15,7 @@ const provider = vi.hoisted(() => ({
 vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from([1, 0, 0, 0]) }));
 vi.mock('./liveavatar', () => ({ startAvatarSession: provider.start, stopAvatarSession: provider.stop }));
 vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
+  constructor(_url: string, onFailure: () => void) { provider.mediaFailures.push(onFailure); }
   start = provider.mediaStart;
   close = provider.mediaClose;
   speak = provider.speak;
@@ -51,6 +53,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   provider.bridges.length = 0;
   provider.openingContexts.length = 0;
+  provider.mediaFailures.length = 0;
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network disabled in lifecycle tests'); }));
   provider.start.mockResolvedValue(avatar);
   provider.stop.mockResolvedValue(undefined);
@@ -60,6 +63,167 @@ beforeEach(() => {
   provider.gptClose.mockResolvedValue(undefined);
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+describe('provider status lifecycle', () => {
+  const providerMessages = (messages: ServerMessage[]) => messages
+    .filter((message): message is Extract<ServerMessage, { type: 'provider_status' }> => message.type === 'provider_status')
+    .map(({ type, provider, state }) => ({ type, provider, state }));
+
+  it('reports only GPT-Live for a successful audio session and closes it normally', async () => {
+    const { session, messages } = setup('audio-status', 'manual', 'audio');
+    await session.initialize();
+    expect(providerMessages(messages)).toEqual([
+      { type: 'provider_status', provider: 'gptLive', state: 'connecting' },
+      { type: 'provider_status', provider: 'gptLive', state: 'connected' },
+    ]);
+    await session.shutdown('normal_close');
+    expect(providerMessages(messages)).toEqual([
+      { type: 'provider_status', provider: 'gptLive', state: 'connecting' },
+      { type: 'provider_status', provider: 'gptLive', state: 'connected' },
+      { type: 'provider_status', provider: 'gptLive', state: 'closed' },
+    ]);
+  });
+
+  it('reports GPT-Live failure without inventing avatar activity for audio', async () => {
+    provider.gptConnect.mockResolvedValue(false);
+    const { session, messages } = setup('audio-failure', 'manual', 'audio');
+    await session.initialize();
+    await vi.runAllTimersAsync();
+    expect(providerMessages(messages)).toEqual([
+      { type: 'provider_status', provider: 'gptLive', state: 'connecting' },
+      { type: 'provider_status', provider: 'gptLive', state: 'failed' },
+    ]);
+  });
+
+  it.each([
+    ['avatar_start', () => provider.start.mockRejectedValueOnce(new Error('avatar_start_failed'))],
+    ['media_leg', () => provider.mediaStart.mockResolvedValueOnce(false)],
+  ])('reports a failed LiveAvatar %s without starting GPT-Live', async (_stage, arrange) => {
+    arrange();
+    const { session, messages } = setup('avatar-failure', 'manual', 'avatar');
+    await session.initialize();
+    await vi.runAllTimersAsync();
+    expect(providerMessages(messages)).toEqual([
+      { type: 'provider_status', provider: 'liveAvatar', state: 'connecting' },
+      { type: 'provider_status', provider: 'liveAvatar', state: 'failed' },
+    ]);
+    expect(provider.gptConnect).not.toHaveBeenCalled();
+  });
+
+  it('reports both providers without any token, URL, or session id in status messages', async () => {
+    const { session, messages } = setup('avatar-status', 'manual', 'avatar');
+    await session.initialize();
+    const statuses = providerMessages(messages);
+    expect(statuses).toEqual([
+      { type: 'provider_status', provider: 'liveAvatar', state: 'connecting' },
+      { type: 'provider_status', provider: 'liveAvatar', state: 'connected' },
+      { type: 'provider_status', provider: 'gptLive', state: 'connecting' },
+      { type: 'provider_status', provider: 'gptLive', state: 'connected' },
+    ]);
+    expect(JSON.stringify(statuses)).not.toContain('test-token');
+    expect(JSON.stringify(statuses)).not.toContain('test-url');
+    expect(JSON.stringify(statuses)).not.toContain('test-session');
+    await session.shutdown('normal_close');
+  });
+
+  it('marks only GPT-Live failed after its post-connect runtime error', async () => {
+    const { session, messages, release, close } = setup('gpt-runtime-failure', 'automatic', 'avatar');
+    await session.initialize();
+    provider.events?.onError('transport_closed');
+    await vi.advanceTimersByTimeAsync(1);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'closed' });
+    expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'failed' });
+    expect(provider.stop).toHaveBeenCalledWith('test-session');
+    expect(release).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(true);
+  });
+
+  it('marks only LiveAvatar failed after its post-connect media runtime error', async () => {
+    const { session, messages, release, close } = setup('avatar-runtime-failure', 'automatic', 'avatar');
+    await session.initialize();
+    expect(provider.mediaFailures).toHaveLength(1);
+    provider.mediaFailures[0]!();
+    await vi.advanceTimersByTimeAsync(1);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'failed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+    expect(provider.stop).toHaveBeenCalledWith('test-session');
+    expect(release).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(true);
+  });
+
+  it('closes connected providers for a browser voice_close and lets the CPU match finish', async () => {
+    const { session, messages } = setup('voice-close-status', 'automatic', 'avatar');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    session.handleRaw('{"type":"voice_close"}');
+    await vi.advanceTimersByTimeAsync(1);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'closed' });
+    expect(statuses.some(status => status.state === 'failed')).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(true);
+  });
+
+  it('closes connected providers when the voice session reaches its deadline', async () => {
+    const { session, messages } = setup('voice-deadline-status', 'automatic', 'avatar');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    (session as unknown as { expireVoice(): void }).expireVoice();
+    await vi.advanceTimersByTimeAsync(1);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'closed' });
+    expect(statuses.some(status => status.state === 'failed')).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(true);
+  });
+
+  it('marks only GPT-Live failed when closing the old bridge for the result fails', async () => {
+    provider.gptClose.mockRejectedValueOnce(new Error('old_bridge_close_failed'));
+    const { session, messages } = setup('result-gpt-close-failure', 'automatic', 'avatar');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_001);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'closed' });
+    expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'failed' });
+  });
+
+  it('marks only LiveAvatar failed when clearing avatar media for the result fails', async () => {
+    provider.interruptWait.mockResolvedValueOnce(false);
+    const { session, messages } = setup('result-avatar-clear-failure', 'automatic', 'avatar');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_001);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'failed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+  });
+
+  it('closes the audio-only GPT session without a false failure when browser audio clear fails', async () => {
+    const { session, messages } = setup('result-browser-clear-failure', 'automatic', 'audio');
+    (session as unknown as { clearBrowserAudio(): Promise<boolean> }).clearBrowserAudio = async () => false;
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_001);
+    const statuses = providerMessages(messages);
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+  });
+});
 
 describe('live match cleanup', () => {
   it('keeps a manual match on base reels and never asks the AI to upgrade', async () => {
@@ -267,7 +431,7 @@ describe('live match cleanup', () => {
     expect(provider.stop).toHaveBeenCalledTimes(voiceMode === 'avatar' ? 1 : 0);
     expect(close).not.toHaveBeenCalled();
     expect(release).not.toHaveBeenCalled();
-    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'error')).toHaveLength(1);
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'closed')).toHaveLength(1);
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"after-limit"}');
     await vi.advanceTimersByTimeAsync(20_001);
