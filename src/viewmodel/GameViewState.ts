@@ -31,6 +31,8 @@ export interface GameViewState {
   readonly cue: { readonly text: string; readonly kind: 'lead' | 'warning' | 'jackpot' } | null;
   /** A short client-only hold; the server match clock continues underneath it. */
   readonly timeExtension: { readonly decision: 'accepted' | 'rejected'; readonly before: number; readonly after: number } | null;
+  /** A confirmed server-side transfer; it is presentation only, never a control. */
+  readonly loanTransfer: { readonly direction: 'rival_to_player' | 'player_to_rival'; readonly amount: 5 } | null;
   readonly expression: GameExpression;
   readonly rivalMood: string;
   readonly line: string;
