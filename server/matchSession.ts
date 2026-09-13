@@ -835,7 +835,7 @@ export class MatchSession {
       || (direction === 'rival_to_player' && (this.state.scores.player >= 1 || this.state.scores.rival < LOAN_AMOUNT))
       || (direction === 'player_to_rival' && (!offerActive || rejectsLoanOffer(transcript)))
     ) {
-      this.gpt?.requestDelegationThinking(id, 'No loan action was applied. Continue the ordinary conversation without promising money.');
+      this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
       return;
     }
     this.loanDelegation = { id, generation, direction };
@@ -859,7 +859,7 @@ export class MatchSession {
     if (decision === 'no_request') {
       this.loanDecisionPending = false;
       this.loanDelegation = null;
-      this.gpt?.requestDelegationThinking(delegationId, 'No loan request or clear approval was recognized. Continue without promising money.');
+      this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
       return;
     }
     const accepted = decision === 'accept_loan';
@@ -869,12 +869,12 @@ export class MatchSession {
     this.loanDelegation = null;
     this.loanDecisionPending = false;
     if (!accepted) {
-      this.gpt?.requestDelegationResult(delegationId, `The server confirmed no transfer. Say only this line: ${JSON.stringify(line)}`, randomUUID());
+      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
       return;
     }
     const transfer = transferLoan(this.state, direction);
     if (!transfer) {
-      this.gpt?.requestDelegationThinking(delegationId, 'The loan conditions changed before confirmation. Do not promise money.');
+      this.gpt?.requestDelegationThinking(delegationId, 'Do not promise money or explain a rule. Continue the ordinary conversation.');
       return;
     }
     this.loanOffer = null;
@@ -882,7 +882,7 @@ export class MatchSession {
     this.pushContext();
     this.emit({ type: 'loan_transfer', direction, amount: LOAN_AMOUNT, before: transfer.before, after: transfer.after, line });
     this.emitSnapshot();
-    this.gpt?.requestDelegationResult(delegationId, `The server transferred exactly $5. Say only this line: ${JSON.stringify(line)}`, randomUUID());
+    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
   }
 
   /** Keep recovery snapshots self-consistent after a transfer between spins. */
@@ -933,7 +933,7 @@ export class MatchSession {
       || this.state.extensionUsed
       || this.state.remaining > 15
     ) {
-      this.gpt?.requestDelegationThinking(id, 'No time-extension action was applied. Continue the ordinary conversation without claiming a rule change.');
+      this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation without changing or explaining a rule.');
       return;
     }
     this.extensionDelegation = { id, generation, offsetMs };
@@ -968,7 +968,7 @@ export class MatchSession {
     if (decision === 'no_request') {
       this.extensionDecisionPending = false;
       this.extensionDelegation = null;
-      this.gpt?.requestDelegationThinking(delegationId, 'No extension request was recognized. Continue the ordinary conversation without saying a rule changed.');
+      this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
       return;
     }
     this.extensionNegotiation = true;
@@ -984,7 +984,7 @@ export class MatchSession {
       this.pushContext();
       this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line });
       this.emitSnapshot();
-      this.gpt?.requestDelegationResult(delegationId, `The server has confirmed this result. Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
       return;
     }
     const id = randomUUID();
@@ -994,7 +994,7 @@ export class MatchSession {
     this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false };
     // Existing commentary is the supported GPT-Live speech path. It is queued
     // after the suppressed turn so stale speech cannot precede this decision.
-    this.gpt?.requestDelegationResult(delegationId, `The server has confirmed this result. Say only this Japanese line: ${JSON.stringify(line)}`, id);
+    this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, id);
   }
 
   private commitExtensionSpeech(force = false): void {
@@ -1054,28 +1054,28 @@ export class MatchSession {
       ? Date.now() < this.extensionOffer.acceptAfter
         ? 'ライバルは時間延長を提案したが、まだ音声が届く前なので同意として扱わない。'
         : Date.now() < this.extensionOffer.expiresAt
-          ? 'ライバルは時間延長を提案済み。プレイヤーの短い同意は delegation して受諾候補にし、拒否は延長しない。'
+          ? 'ライバルは時間延長を提案済み。プレイヤーの短い同意は、結果が出るまで発話せずに扱う。拒否は延長しない。'
           : ''
       : '';
     const extensionContext = snapshot.status === 'playing' && !this.state.extensionUsed && snapshot.remaining <= 15
-      ? `時間延長: 今この試合で未使用。サーバーは+10秒を一度だけ確定できる。延長が必要そうなら必ず委任し、先に返答しない。${offerContext}`
-      : '時間延長: 現在は確定不可。委任しない。';
+      ? `時間延長: 今この試合で未使用。+10秒は一度だけ確定できる。延長が必要そうなら無言で委任し、先に返答しない。${offerContext}`
+      : '時間延長: 現在は確定不可。委任しない。通常の会話を続ける。';
     const loanOfferContext = this.loanOffer
       ? Date.now() < this.loanOffer.acceptAfter
         ? 'ライバルは$5の借入をお願いしたが、まだ音声が届く前なので同意として扱わない。'
         : Date.now() < this.loanOffer.expiresAt
-          ? 'ライバルは$5の借入をお願い済み。プレイヤーの短く明確な肯定か否定だけを委任し、他の発言では資金を動かさない。'
+          ? 'ライバルは$5の借入をお願い済み。プレイヤーの短く明確な肯定か否定だけを、結果が出るまで発話せずに扱う。'
           : ''
       : '';
     const loanContext = this.loanDecisionPending
-      ? '貸借: サーバーが判定中。成立や金額を先に発話しない。'
+      ? '貸借: 結果が出るまで発話を保留する。成立や金額を先に発話しない。'
       : this.state.loanUsed.rival_to_player && this.state.loanUsed.player_to_rival
-        ? '貸借: 両方向ともこの試合では使用済み。委任しない。'
+        ? '貸借: 両方向ともこの試合では使用済み。委任しない。通常の会話を続ける。'
         : snapshot.status === 'playing' && !this.state.loanUsed.rival_to_player && snapshot.balances.player < 1 && snapshot.balances.rival >= LOAN_AMOUNT
-          ? '貸借: プレイヤーは$1未満、あなたは$5以上。自然な借入のお願いだけを委任し、金額や成立を先に約束しない。'
+          ? '貸借: プレイヤーは$1未満、あなたは$5以上。自然な借入のお願いだけを無言で委任し、金額や成立を先に約束しない。'
           : snapshot.status === 'playing' && !this.state.loanUsed.player_to_rival && snapshot.balances.rival < 1 && snapshot.balances.player >= LOAN_AMOUNT
-            ? `貸借: あなたは$1未満、プレイヤーは$5以上。サーバーが一度だけ$5をお願いできる。${loanOfferContext}`
-            : '貸借: 現在は確定不可または使用済み。委任しない。';
+            ? `貸借: あなたは$1未満、プレイヤーは$5以上。一度だけ$5をお願いできる。${loanOfferContext}`
+            : '貸借: 現在は確定不可または使用済み。委任しない。通常の会話を続ける。';
     // Static rules belong in the startup persona; repeat only the current facts.
     return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${extensionContext}${loanContext}${reelContext}${recentSpin}`;
   }

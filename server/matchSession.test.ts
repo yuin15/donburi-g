@@ -607,7 +607,7 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenCalledTimes(2);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り60秒'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=playing,勝者=未確定'));
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 現在は確定不可。委任しない。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 現在は確定不可。委任しない。通常の会話を続ける。'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
     await vi.advanceTimersByTimeAsync(900);
     for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
@@ -717,7 +717,7 @@ describe('live match cleanup', () => {
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(52_000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 今この試合で未使用。サーバーは+10秒を一度だけ確定できる。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: 今この試合で未使用。+10秒は一度だけ確定できる。'));
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', '延長', { startMs: 0, endMs: 400 });
     expect(chooseTimeExtension).not.toHaveBeenCalled();
@@ -768,7 +768,7 @@ describe('live match cleanup', () => {
     expect(chooseLoanDecision).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 10 } }), 'rival_to_player', expect.stringContaining('lend me'), expect.any(String), expect.any(AbortSignal), false);
     const transfer = messages.find((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
     expect(transfer).toMatchObject({ direction: 'rival_to_player', amount: 5, before: { scores: { player: 0, rival: 10 } }, after: { scores: { player: 5, rival: 5 }, balances: { player: 5, rival: 5 } } });
-    expect(provider.delegationResult).toHaveBeenCalledWith('player-loan-delegation', expect.stringContaining('transferred exactly $5'), expect.any(String));
+    expect(provider.delegationResult).toHaveBeenCalledWith('player-loan-delegation', expect.stringContaining('Say only this Japanese line'), expect.any(String));
     provider.events?.onDelegation({ id: 'player-loan-again', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
@@ -1002,7 +1002,7 @@ describe('live match cleanup', () => {
     expect(provider.confirmedLine).toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('ライバルは時間延長を提案済み。プレイヤーの短い同意は delegation して受諾候補にし、拒否は延長しない。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('ライバルは時間延長を提案済み。プレイヤーの短い同意は、結果が出るまで発話せずに扱う。拒否は延長しない。'));
     provider.events?.onUserSpeech();
     provider.events?.onTranscript('user', 'うん', { startMs: 0, endMs: 200 });
     provider.events?.onUserSpeechEnd();
@@ -1030,7 +1030,7 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).toHaveBeenCalledOnce();
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
-    expect(provider.delegationThinking).toHaveBeenCalledWith('item-no-request', expect.stringContaining('No extension request'));
+    expect(provider.delegationThinking).toHaveBeenCalledWith('item-no-request', expect.stringContaining('Continue the ordinary conversation'));
     provider.events?.onDelegation({ id: 'item-no-request', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).toHaveBeenCalledOnce();
@@ -1080,7 +1080,7 @@ describe('live match cleanup', () => {
     provider.events?.onDelegation({ id: 'item-early', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseTimeExtension).not.toHaveBeenCalled();
-    expect(provider.delegationThinking).toHaveBeenCalledWith('item-early', expect.stringContaining('No time-extension action'));
+    expect(provider.delegationThinking).toHaveBeenCalledWith('item-early', expect.stringContaining('Continue the ordinary conversation'));
     await session.shutdown('test_finished');
   });
 

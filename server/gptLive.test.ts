@@ -45,7 +45,7 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('日本語で話す');
     expect(start.session.instructions).toContain('両者は$30で開始');
     expect(start.session.instructions).toContain('$1は中央1ライン');
-    expect(start.session.instructions).toContain('サーバーが確定した自分のBETだけ');
+    expect(start.session.instructions).toContain('確定した自分のBETだけ');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -210,7 +210,7 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
-  it('drops a normal reply until its quiet boundary, then queues the server-confirmed line on the supported commentary path', async () => {
+  it('drops a normal reply until its quiet boundary, then queues the confirmed line on the supported commentary path', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -222,17 +222,17 @@ describe('live conversation pacing', () => {
     const quiet = Buffer.alloc(4800).toString('base64');
     bridge.suppressOutput();
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
-    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'I accept before the server decides' }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'I accept before the result is ready' }));
     expect(events.onAudio).not.toHaveBeenCalled();
     expect(events.onTranscript).not.toHaveBeenCalled();
     bridge.requestConfirmedLine('いいよ。あと10秒、見せてみな。');
-    bridge.requestDelegationResult('item_opaque', 'サーバー確定: 10秒延長した。', 'speech-opaque');
+    bridge.requestDelegationResult('item_opaque', 'いいよ。あと10秒、見せてみな。', 'speech-opaque');
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).type).not.toBe('session.commentary.append');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     const confirmed = JSON.parse(socket.send.mock.calls.at(-1)![0]);
     expect(confirmed).toMatchObject({ type: 'session.commentary.append' });
-    expect(confirmed).toMatchObject({ delegation_id: 'item_opaque', content: 'サーバー確定: 10秒延長した。' });
+    expect(confirmed).toMatchObject({ delegation_id: 'item_opaque', content: 'いいよ。あと10秒、見せてみな。' });
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
     expect(events.onAudio).toHaveBeenLastCalledWith(oldVoice, 'speech-opaque');
     expect(events.onSpeechAudioEnded).not.toHaveBeenCalled();
