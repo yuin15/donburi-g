@@ -423,4 +423,32 @@ describe('stage rendering and cleanup', () => {
     expect(graphics.dispose).toHaveBeenCalledOnce();
     expect(host.replaceChildren).toHaveBeenCalledOnce();
   });
+
+  it('freezes a rival reel only while distracted and resumes its unfinished travel', () => {
+    const { view, host } = setup();
+    const done = vi.fn();
+    view.playSide({ ...spin(), side: 'rival' }, done);
+    frame(200);
+    view.setRivalDistracted(true);
+    frame(1200);
+    expect(host.dataset).toMatchObject({ rivalDistracted: 'true', rivalSpinning: 'true' });
+    expect(done).not.toHaveBeenCalled();
+    view.setRivalDistracted(false);
+    frame(1500);
+    expect(host.dataset).toMatchObject({ rivalDistracted: 'false', rivalSpinning: 'false' });
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it('starts a newly received rival spin paused when recovery is already distracted', () => {
+    const { view, host } = setup();
+    const done = vi.fn();
+    view.setRivalDistracted(true);
+    view.playSide({ ...spin(), side: 'rival' }, done);
+    frame(1200);
+    expect(host.dataset).toMatchObject({ rivalDistracted: 'true', rivalSpinning: 'true' });
+    expect(done).not.toHaveBeenCalled();
+    view.setRivalDistracted(false);
+    frame(1100);
+    expect(done).toHaveBeenCalledOnce();
+  });
 });

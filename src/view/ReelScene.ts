@@ -64,6 +64,8 @@ interface PendingSpin {
   stoppedColumns: number;
   travel: ReelTravel[];
   complete: (celebrate: boolean) => void;
+  pausedAt?: number;
+  pausedMs: number;
 }
 
 export class ReelScene {
@@ -95,6 +97,7 @@ export class ReelScene {
   private upgradeKey = '|';
   private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
   private activeStrips = this.stagedStrips;
+  private rivalDistracted = false;
 
   constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined, private readonly effectsHost?: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -249,8 +252,10 @@ export class ReelScene {
     // Keep the last confirmed reward visible during its burst, including a queued spin.
     this.applyStagedStrips(side);
     const start = side === 'player' ? 0 : 3;
+    const started = performance.now();
     this.pending[side] = {
-      spin, complete, started: performance.now(), stoppedColumns: 0,
+      spin, complete, started, stoppedColumns: 0, pausedMs: 0,
+      ...(side === 'rival' && this.rivalDistracted ? { pausedAt: started } : {}),
       travel: spin.symbols.map((symbol, i) => spin.stops
         ? planTravelToStop(this.materials[start + i].uniforms.offset.value, spin.stops[i], i, this.activeStrips[side === 'player' ? 0 : 1])
         : planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
@@ -268,6 +273,22 @@ export class ReelScene {
   setButtonCaption(caption: string): void {
     if (this.cabinet.setButtonCaption(caption)) this.requestRender();
   }
+  /** Freezes only the rival's current visual travel while its server turns are paused. */
+  setRivalDistracted(active: boolean): void {
+    if (this.disposed || active === this.rivalDistracted) return;
+    this.rivalDistracted = active;
+    this.host.dataset.rivalDistracted = String(active);
+    const pending = this.pending.rival;
+    if (pending) {
+      const now = performance.now();
+      if (active) pending.pausedAt = now;
+      else if (pending.pausedAt !== undefined) {
+        pending.pausedMs += now - pending.pausedAt;
+        pending.pausedAt = undefined;
+      }
+    }
+    this.requestRender();
+  }
   setResult(winner: Side | 'draw' | null): void {
     if (this.cabinet.setResult(winner)) this.requestRender();
   }
@@ -277,6 +298,8 @@ export class ReelScene {
     if (this.disposed) return;
     this.clearWin();
     this.pending = {};
+    this.rivalDistracted = false;
+    this.host.dataset.rivalDistracted = 'false';
     this.portraitReactionUntil = 0;
     this.setFinalSeconds(0);
     this.lastRound = { player: 0, rival: 0 };
@@ -476,7 +499,9 @@ export class ReelScene {
     for (const side of ['player', 'rival'] as const) {
       const pending = this.pending[side];
       if (!pending) continue;
-      const elapsed = now - pending.started;
+      const pausedAt = pending.pausedAt;
+      const paused = side === 'rival' && this.rivalDistracted && pausedAt !== undefined;
+      const elapsed = now - pending.started - pending.pausedMs - (paused && pausedAt !== undefined ? now - pausedAt : 0);
       const reduced = this.motionPreference.matches;
       const finished = elapsed >= (reduced ? 120 : pending.travel[2].duration);
       this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach((m, i) => {

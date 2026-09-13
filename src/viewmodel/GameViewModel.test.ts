@@ -378,6 +378,22 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('shows an authoritative rival distraction and clears it from its recovery event or snapshot', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({ type: 'rival_distraction', state: 'started', seconds: 4, line: 'え？ 後ろに誰かいるの？' });
+    expect(h.vm.state).toMatchObject({ rivalDistraction: { active: true, seconds: 4 }, rivalMood: 'DISTRACTED...', line: 'え？ 後ろに誰かいるの？' });
+    session.emit({ type: 'rival_distraction', state: 'ended', seconds: 4, line: 'もう、何もないじゃない。次は引っかからないよ。' });
+    expect(h.vm.state).toMatchObject({ rivalDistraction: null, line: 'もう、何もないじゃない。次は引っかからないよ。' });
+    const recovered = playingSnapshot();
+    recovered.elapsed = 20; recovered.rivalDistraction = { seconds: 2, untilElapsed: 22 };
+    session.emit({ type: 'snapshot', snapshot: recovered });
+    expect(h.vm.state.rivalDistraction).toEqual({ active: true, seconds: 2 });
+    session.emit({ type: 'snapshot', snapshot: { ...recovered, elapsed: 22, rivalDistraction: undefined } });
+    expect(h.vm.state.rivalDistraction).toBeNull();
+    h.vm.dispose();
+  });
+
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {
     const h = setup();
     const session = await beginLive(h);

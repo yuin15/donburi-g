@@ -170,6 +170,7 @@ export class GameView implements GamePresentation {
     } else if (spent === 0) this.text('#purchaseNotice', 'BUY → BOOST YOUR NEXT SPIN');
     this.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
     this.scene.setExpression(state.expression);
+    this.scene.setRivalDistracted(Boolean(state.rivalDistraction?.active));
     const extension = state.timeExtension;
     const seconds = Math.max(0, Math.ceil(extension?.before ?? snapshot.remaining));
     this.text('#time', `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
@@ -212,7 +213,7 @@ export class GameView implements GamePresentation {
       indicator.dataset.active = String(activeLines.includes(line));
       indicator.dataset.winning = String(winningLines.includes(line));
     });
-    this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
+    this.text('#rivalMood', state.rivalDistraction?.active ? 'DISTRACTED...' : state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
     this.q('#line').dataset.conversation = state.conversation;
     this.q('#line').dataset.long = String(Array.from(state.line).reduce((width, letter) => width + (letter.charCodeAt(0) > 127 ? 2 : 1), 0) > 78);
@@ -354,6 +355,7 @@ export class GameView implements GamePresentation {
   }
   resetScene(): void {
     this.scene.stop();
+    this.scene.setRivalDistracted(false);
     this.scene.setUpgrades([], []);
     this.scene.setExpression('neutral');
     this.scene.show(['cherry', 'bell', 'seven']);
