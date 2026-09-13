@@ -878,10 +878,28 @@ export class MatchSession {
       return;
     }
     this.loanOffer = null;
+    this.syncLoanWithLatestSpins(direction);
     this.pushContext();
     this.emit({ type: 'loan_transfer', direction, amount: LOAN_AMOUNT, before: transfer.before, after: transfer.after, line });
     this.emitSnapshot();
     this.gpt?.requestDelegationResult(delegationId, `The server transferred exactly $5. Say only this line: ${JSON.stringify(line)}`, randomUUID());
+  }
+
+  /** Keep recovery snapshots self-consistent after a transfer between spins. */
+  private syncLoanWithLatestSpins(direction: LoanDirection): void {
+    const delta: Record<'player' | 'rival', number> = direction === 'rival_to_player'
+      ? { player: LOAN_AMOUNT, rival: -LOAN_AMOUNT }
+      : { player: -LOAN_AMOUNT, rival: LOAN_AMOUNT };
+    const update = (spin: SpinView | undefined, side: 'player' | 'rival') => spin && { ...spin, total: spin.total + delta[side] };
+    const player = update(this.lastSpins.player, 'player');
+    const rival = update(this.lastSpins.rival, 'rival');
+    this.lastSpins = { ...(player ? { player } : {}), ...(rival ? { rival } : {}) };
+    if (this.lastSpin) {
+      this.lastSpin = {
+        player: player ?? update(this.lastSpin.player, 'player')!,
+        rival: rival ?? update(this.lastSpin.rival, 'rival')!,
+      };
+    }
   }
 
   private handleExtensionDelegation(id: string, offsetMs: number, generation: number, offerActive: boolean): void {

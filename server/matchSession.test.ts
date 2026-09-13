@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type WebSocket from 'ws';
 import type { LiveEvents } from './gptLive';
-import type { ServerMessage } from '../shared/protocol';
+import type { ServerMessage, SpinView } from '../shared/protocol';
 import type { MatchState } from '../src/domain/game';
 import { parseServerEnvelope } from '../shared/wire';
 
@@ -834,6 +834,79 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(second.messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await second.session.shutdown('test_finished');
+  });
+
+  it('keeps legacy latest-spin recovery snapshots valid across a loan and the next spin', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('loan-recovery', 'automatic', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(2_000);
+    const internals = session as unknown as {
+      state: MatchState;
+      lastSpin: { player: SpinView; rival: SpinView } | undefined;
+      lastSpins: Partial<Record<'player' | 'rival', SpinView>>;
+    };
+    const pair = internals.lastSpin!;
+    // These are actual confirmed reel outcomes; set the test bankroll to the
+    // matching post-spin values needed to exercise the player-to-rival loan.
+    internals.state.scores.player = 10;
+    internals.state.scores.rival = 0;
+    // Automatic spins intentionally share this pair with lastSpins. Retain
+    // that legacy shape while making the last reel totals match the bankroll.
+    pair.player.total = 10;
+    pair.rival.total = 0;
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'loan-recovery-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    const loanSnapshot = messages.filter(message => message.type === 'snapshot').at(-1)!;
+    expect(parseServerEnvelope(JSON.stringify(loanSnapshot))).not.toBeNull();
+    expect(loanSnapshot.lastSpin).toMatchObject({ player: { total: 5 }, rival: { total: 5 } });
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1_000);
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps split latest-spin recovery snapshots valid across a loan and the next manual spin', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('loan-recovery-manual', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    session.handleRaw('{"type":"spin","matchId":"loan-recovery-manual","commandId":"loan-spin-1"}');
+    await vi.advanceTimersByTimeAsync(2_000);
+    const internals = session as unknown as {
+      state: MatchState;
+      lastSpin: { player: SpinView; rival: SpinView } | undefined;
+      lastSpins: Partial<Record<'player' | 'rival', SpinView>>;
+    };
+    expect(internals.lastSpin).toBeUndefined();
+    const playerSpin = internals.lastSpins.player!;
+    const rivalSpin = internals.lastSpins.rival!;
+    internals.state.scores.player = 10;
+    internals.state.scores.rival = 0;
+    playerSpin.total = 10;
+    rivalSpin.total = 0;
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(1_000);
+    provider.events?.onTranscript('user', 'Sure!', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'loan-recovery-manual-delegation', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    const loanSnapshot = messages.filter(message => message.type === 'snapshot').at(-1)!;
+    expect(parseServerEnvelope(JSON.stringify(loanSnapshot))).not.toBeNull();
+    expect(loanSnapshot.lastSpins).toMatchObject({ player: { total: 5 }, rival: { total: 5 } });
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1_100);
+    session.handleRaw('{"type":"spin","matchId":"loan-recovery-manual","commandId":"loan-spin-2"}');
+    session.handleRaw('{"type":"snapshot"}');
+    expect(parseServerEnvelope(JSON.stringify(messages.filter(message => message.type === 'snapshot').at(-1)))).not.toBeNull();
+    await session.shutdown('test_finished');
   });
 
   it('never transfers after a delayed decision reaches result or voice disconnect', async () => {
