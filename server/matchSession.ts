@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AiProvider, AiProviderState, ClientMessage, ServerMessage, SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
+  applyTimeExtension,
   advanceMatch,
   createMatch,
   getSnapshot,
@@ -19,7 +20,7 @@ import {
 import { GptLiveBridge } from './gptLive.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
-import { chooseRivalUpgrade } from './rivalBrain.js';
+import { chooseRivalUpgrade, chooseTimeExtension, requestsTimeExtension } from './rivalBrain.js';
 import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
@@ -85,6 +86,11 @@ export class MatchSession {
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
   private recentUserText = '';
+  private currentUserText = '';
+  private recentConversation = '';
+  /** Reservation happens at recognition so one spoken request cannot issue multiple decisions. */
+  private extensionNegotiation = false;
+  private extensionDecisionPending = false;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -160,7 +166,7 @@ export class MatchSession {
         }
       },
       onAudio: audio => {
-        if (!outputAllowed()) return;
+        if (!outputAllowed() || this.extensionDecisionPending) return;
         if (this.voiceMode === 'avatar') this.media?.speak(audio);
         else this.emit({ type: 'voice_audio', audio });
       },
@@ -168,15 +174,28 @@ export class MatchSession {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
         if (role === 'user') {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
+          this.currentUserText = `${this.currentUserText}${delta}`.slice(-500);
+          this.recentConversation = `${this.recentConversation}P:${delta}`.slice(-900);
           this.reactions.conversationActivity();
+          this.maybeNegotiateTimeExtension();
+        } else {
+          this.recentConversation = `${this.recentConversation}R:${delta}`.slice(-900);
         }
+        // While the authoritative decision is pending, do not display an untrusted
+        // normal reply that could grant time before the match actually does.
+        if (role === 'assistant' && this.extensionDecisionPending) return;
         this.emit({ type: 'transcript', role, delta });
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
+        this.currentUserText = '';
         this.reactions.conversationActivity();
         if (this.voiceMode === 'avatar') this.media?.interrupt();
         this.emit({ type: 'voice_interrupt' });
+      },
+      onUserSpeechEnd: () => {
+        if (!current() || resultOnly) return;
+        this.maybeNegotiateTimeExtension();
       },
       onError: () => { if (current()) this.failVoice('gptLive'); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -232,6 +251,8 @@ export class MatchSession {
       if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
       this.releaseQuota = null;
       this.recentUserText = '';
+      this.currentUserText = '';
+      this.recentConversation = '';
       this.emit({ type: 'voice_status', status: 'closed', message: reason });
       if (this.frontend.readyState === 1) this.frontend.close(1000, 'session_closed');
     })();
@@ -280,6 +301,8 @@ export class MatchSession {
     void this.closeBridge(this.gpt);
     this.gpt = null;
     this.recentUserText = '';
+    this.currentUserText = '';
+    this.recentConversation = '';
     this.voiceStopping = (async () => {
       await Promise.all([...this.closingBridges]);
       // Startup may still own an in-flight avatar creation request.
@@ -530,6 +553,56 @@ export class MatchSession {
       const label = choice.upgradeId === 'jackpot' ? '大勝負' : '安定型';
       this.emit({ type: 'rival_line', text: `作戦を決めた。${label}で行く。`, reason: `upgrade_${choice.source}` });
     }
+  }
+
+  private maybeNegotiateTimeExtension(): void {
+    if (
+      this.extensionNegotiation
+      || this.state.status !== 'playing'
+      || this.state.extensionUsed
+      || this.state.remaining > 15
+      || !requestsTimeExtension(this.currentUserText)
+    ) return;
+    this.extensionNegotiation = true;
+    this.extensionDecisionPending = true;
+    // The bridge already knows how to drop interrupted output. Do not invent a
+    // Live tool call; clear current playback and wait for the authoritative choice.
+    this.gpt?.suppressOutput();
+    this.media?.interrupt();
+    this.emit({ type: 'voice_interrupt' });
+    void this.decideTimeExtension(this.currentUserText);
+  }
+
+  private async decideTimeExtension(requestTranscript: string): Promise<void> {
+    const requestedAt = getSnapshot(this.state);
+    const decision = await chooseTimeExtension(
+      requestedAt,
+      requestTranscript,
+      this.recentConversation,
+      this.voiceAbort.signal,
+    );
+    if (this.closed) return;
+    // The decision never pauses the game; settle the real arrival time first.
+    this.tick();
+    if (this.state.status !== 'playing') {
+      this.extensionDecisionPending = false;
+      return;
+    }
+    const extended = decision === 'accept_extension_10s' ? applyTimeExtension(this.state) : null;
+    const accepted = extended !== null;
+    const before = extended?.before ?? getSnapshot(this.state);
+    const after = extended?.after ?? before;
+    const playerAhead = before.scores.player >= before.scores.rival;
+    const line = accepted
+      ? 'いいよ。あと10秒、見せてみな。'
+      : playerAhead ? '君が勝っているのに？ 時間は増やさないよ。' : 'だめ。時間切れまで、このまま勝負しよう。';
+    this.extensionDecisionPending = false;
+    this.pushContext();
+    this.emit({ type: 'time_extension', decision: accepted ? 'accepted' : 'rejected', before, after, line });
+    this.emitSnapshot();
+    // Existing commentary is the supported GPT-Live speech path. It is queued
+    // after the suppressed turn so stale speech cannot precede this decision.
+    this.gpt?.requestConfirmedLine(line);
   }
 
   private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {

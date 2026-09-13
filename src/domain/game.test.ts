@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceMatch,
+  applyTimeExtension,
   createMatch,
   getPoolCounts,
   getSnapshot,
@@ -147,6 +148,27 @@ describe('authoritative match domain', () => {
     expect(snapshot.matchId).toBe('safe');
     expect('rngState' in snapshot).toBe(false);
     expect('pools' in snapshot).toBe(false);
+  });
+
+  it('authoritatively grants one late +10 second extension and then finishes at 70 seconds', () => {
+    const state = createMatch(123, 'extended', 'manual');
+    startMatch(state);
+    advanceMatch(state, 54.25);
+    const event = applyTimeExtension(state);
+    expect(event).toMatchObject({ type: 'time_extended', before: { duration: 60 }, after: { duration: 70 } });
+    expect(state.remaining).toBeCloseTo(15.75);
+    expect(applyTimeExtension(state)).toBeNull();
+    const end = advanceMatch(state, 70).find(candidate => candidate.type === 'match_end');
+    expect(end).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0, status: 'result' } });
+  });
+
+  it('does not extend early, after the result, or beyond the one permitted change', () => {
+    const state = createMatch(123, 'guarded');
+    startMatch(state);
+    advanceMatch(state, 44.9);
+    expect(applyTimeExtension(state)).toBeNull();
+    advanceMatch(state, 60);
+    expect(applyTimeExtension(state)).toBeNull();
   });
 });
 

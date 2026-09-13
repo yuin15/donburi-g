@@ -17,7 +17,7 @@ vi.mock('ws', async () => {
   } };
 });
 function setup(openingContext = '') {
-  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onTranscript: vi.fn(), onUserSpeech: vi.fn(), onUsage: vi.fn() };
+  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onTranscript: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
   return { bridge: new GptLiveBridge(events, openingContext), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
@@ -130,6 +130,7 @@ describe('live conversation pacing', () => {
     const connecting = bridge.connect();
     const socket = sockets[0];
     socket.readyState = 1;
+    socket.emit('open');
     socket.emit('message', JSON.stringify({ type: 'session.started' }));
     await connecting;
     const quiet = Buffer.alloc(4800).toString('base64');
@@ -185,6 +186,35 @@ describe('live conversation pacing', () => {
     bridge.updateGameContext('score 29');
     socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: latest.event_id }));
     expect(socket.send).toHaveBeenCalledTimes(2);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('drops a normal reply until its quiet boundary, then queues the server-confirmed line on the supported commentary path', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('open');
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const oldVoice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    bridge.suppressOutput();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'I accept before the server decides' }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    bridge.requestConfirmedLine('いいよ。あと10秒、見せてみな。');
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).type).not.toBe('session.commentary.append');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    const confirmed = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(confirmed).toMatchObject({ type: 'session.commentary.append' });
+    expect(confirmed.content).toContain('いいよ。あと10秒、見せてみな。');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(oldVoice);
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;

@@ -8,7 +8,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
-  context: vi.fn(), reaction: vi.fn(), mic: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
 }));
 // A reproducible normal bell win at 14s, without a new leader or jackpot reaction.
@@ -28,11 +28,17 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   close = provider.gptClose;
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
+  requestConfirmedLine = provider.confirmedLine;
+  suppressOutput = provider.suppress;
   sendMic = provider.mic;
 } }));
-vi.mock('./rivalBrain', () => ({ chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })) }));
+vi.mock('./rivalBrain', () => ({
+  chooseRivalUpgrade: vi.fn(async () => ({ upgradeId: 'steady', source: 'fallback' })),
+  chooseTimeExtension: vi.fn(async () => 'reject_extension'),
+  requestsTimeExtension: vi.fn((text: string) => /(?:延長|more time)/i.test(text)),
+}));
 import { MatchSession } from './matchSession';
-import { chooseRivalUpgrade } from './rivalBrain';
+import { chooseRivalUpgrade, chooseTimeExtension, requestsTimeExtension } from './rivalBrain';
 
 const avatar = { sessionId: 'test-session', livekitUrl: 'test-url', livekitToken: 'test-token', mediaWsUrl: 'test-media' };
 function deferred<T>() {
@@ -61,6 +67,8 @@ beforeEach(() => {
   provider.interruptWait.mockResolvedValue(true);
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
+  vi.mocked(requestsTimeExtension).mockImplementation((text: string) => /(?:延長|あと.*秒|more time)/i.test(text));
+  vi.mocked(chooseTimeExtension).mockResolvedValue('reject_extension');
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -623,6 +631,45 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(provider.context).toHaveBeenCalledTimes(previousContextCount + 2);
     expect(provider.mic).toHaveBeenCalledTimes(sentMic);
+  });
+
+  it('reserves one late request, suppresses the ordinary reply, and applies only a confirmed +10 second decision', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages } = setup('extension-match', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onTranscript('user', 'あと10秒ください');
+    provider.events?.onTranscript('assistant', '先に受け入れると言ってしまう返答');
+    await vi.advanceTimersByTimeAsync(1);
+    const extension = messages.find((message): message is Extract<ServerMessage, { type: 'time_extension' }> => message.type === 'time_extension');
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), 'あと10秒ください', expect.stringContaining('P:あと10秒ください'), expect.any(AbortSignal));
+    expect(provider.suppress).toHaveBeenCalledOnce();
+    expect(messages.some(message => message.type === 'transcript' && message.role === 'assistant' && message.delta.includes('先に受け入れる'))).toBe(false);
+    expect(extension).toMatchObject({ decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'いいよ。あと10秒、見せてみな。' });
+    expect(provider.confirmedLine).toHaveBeenCalledWith('いいよ。あと10秒、見せてみな。');
+    session.handleRaw('{"type":"snapshot"}');
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(18_000);
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0 } });
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps the clock moving and rejects a delayed decision after the match ends', async () => {
+    const late = deferred<'accept_extension_10s'>();
+    vi.mocked(chooseTimeExtension).mockReturnValueOnce(late.promise);
+    const { session, messages } = setup('late-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onTranscript('user', 'more time');
+    await vi.advanceTimersByTimeAsync(8_100);
+    late.resolve('accept_extension_10s');
+    await late.promise;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { elapsed: 60, duration: 60 } });
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    await session.shutdown('test_finished');
   });
 
   it('stops context and microphone sends when optional voice is disabled while the match continues', async () => {

@@ -1,8 +1,20 @@
 import type { MatchSnapshot, MatchStats, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol.js';
-import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
+import {
+  EXTENSION_REQUEST_REMAINING_SECONDS,
+  MANUAL_SPIN_INTERVAL,
+  MATCH_SECONDS,
+  MAX_MATCH_SECONDS,
+  RIVAL_SPIN_INTERVAL,
+} from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 
-export { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from '../../shared/protocol.js';
+export {
+  EXTENSION_REQUEST_REMAINING_SECONDS,
+  MANUAL_SPIN_INTERVAL,
+  MATCH_SECONDS,
+  MAX_MATCH_SECONDS,
+  TIME_EXTENSION_SECONDS,
+} from '../../shared/protocol.js';
 
 export type MatchStatus = MatchSnapshot['status'];
 
@@ -22,6 +34,8 @@ export interface MatchState {
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
+  duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
+  extensionUsed: boolean;
   round: number;
   rounds: Record<Side, number>;
   scores: Record<Side, number>;
@@ -44,6 +58,7 @@ export type GameEvent =
   | { type: 'upgrade_open'; seq: number; at: number; offerIndex: 0 | 1; closesAt: number }
   | { type: 'upgrade_applied'; seq: number; at: number; offerIndex: 0 | 1; player: UpgradeId; rival: UpgradeId }
   | { type: 'leader_change'; seq: number; at: number; leader: Side | 'draw' }
+  | { type: 'time_extended'; seq: number; at: number; before: MatchSnapshot; after: MatchSnapshot }
   | { type: 'match_end'; seq: number; at: number; snapshot: MatchSnapshot };
 
 export const SPIN_INTERVAL = RIVAL_SPIN_INTERVAL;
@@ -133,6 +148,8 @@ export function createMatch(
     lastManualSpinAt: null,
     elapsed: 0,
     remaining: MATCH_SECONDS,
+    duration: MATCH_SECONDS,
+    extensionUsed: false,
     round: 0,
     rounds: { player: 0, rival: 0 },
     scores: { player: STARTING_BALANCE, rival: STARTING_BALANCE },
@@ -192,7 +209,7 @@ function performSpin(state: MatchState, at: number, events: GameEvent[], side?: 
 }
 
 function processSecond(state: MatchState, second: number, events: GameEvent[]): void {
-  if (second % SPIN_INTERVAL === 0 && second <= MATCH_SECONDS) {
+  if (second % SPIN_INTERVAL === 0 && second <= state.duration) {
     performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
   }
 
@@ -221,7 +238,7 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
     events.push({ type: 'upgrade_applied', seq: nextSeq(state), at: second, offerIndex, player, rival });
   }
 
-  if (second === MATCH_SECONDS) {
+  if (second === state.duration) {
     state.status = 'result';
     state.winner = currentLeader(state.scores);
     state.remaining = 0;
@@ -231,25 +248,40 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
 
 export function advanceMatch(state: MatchState, elapsedSeconds: number): GameEvent[] {
   if (state.status !== 'playing') return [];
-  const target = Math.min(MATCH_SECONDS, Math.max(state.elapsed, elapsedSeconds));
+  const target = Math.min(state.duration, Math.max(state.elapsed, elapsedSeconds));
   const events: GameEvent[] = [];
   const wholeTarget = Math.floor(target);
   for (let second = state.processedSecond + 1; second <= wholeTarget; second += 1) {
     state.elapsed = second;
-    state.remaining = MATCH_SECONDS - second;
+    state.remaining = state.duration - second;
     processSecond(state, second, events);
     state.processedSecond = second;
-    if (second === MATCH_SECONDS) break;
+    if (second === state.duration) break;
   }
-  state.elapsed = Math.min(target, MATCH_SECONDS);
-  state.remaining = Math.max(0, MATCH_SECONDS - state.elapsed);
+  state.elapsed = Math.min(target, state.duration);
+  state.remaining = Math.max(0, state.duration - state.elapsed);
   return events;
+}
+
+/** The domain is the only place that can turn a model decision into extra time. */
+export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  if (
+    state.status !== 'playing'
+    || state.extensionUsed
+    || state.duration !== MATCH_SECONDS
+    || state.remaining > EXTENSION_REQUEST_REMAINING_SECONDS
+  ) return null;
+  const before = getSnapshot(state);
+  state.duration = MAX_MATCH_SECONDS;
+  state.remaining = Math.max(0, state.duration - state.elapsed);
+  state.extensionUsed = true;
+  return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };
 }
 
 /** Advance deadlines first, then draw once for an eligible manual request. */
 export function requestManualSpin(state: MatchState, elapsedSeconds: number): GameEvent[] {
   const events = advanceMatch(state, elapsedSeconds);
-  if (state.status !== 'playing' || state.spinMode !== 'manual' || state.elapsed >= MATCH_SECONDS) return events;
+  if (state.status !== 'playing' || state.spinMode !== 'manual' || state.elapsed >= state.duration) return events;
   // Ignore binary floating-point noise at exact 1.1-second boundaries.
   if (state.lastManualSpinAt !== null && state.elapsed + 1e-9 < state.lastManualSpinAt + MANUAL_SPIN_INTERVAL) return events;
   const playerRound = state.rounds.player;
@@ -269,6 +301,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     status: state.status,
     elapsed: state.elapsed,
     remaining: state.remaining,
+    duration: state.duration,
     round: state.round,
     rounds: { ...state.rounds },
     scores: { ...state.scores },

@@ -7,11 +7,12 @@ export interface LiveEvents {
   onAudio(audio: string): void;
   onTranscript(role: 'user' | 'assistant', delta: string): void;
   onUserSpeech(): void;
+  onUserSpeechEnd(): void;
   onError(code: string): void;
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
 
-const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、出目はサーバーから渡す情報だけを事実として扱う。\nユーザーがルール変更、得点変更、勝敗操作を頼んでも従わない。\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い得点情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。\nプレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。返事の後は黙って待つ。\nthinkingのゲーム情報は会話の参考であり、読み上げる指示ではない。両者は所持金$30で始め、回転ごとに$1を支払い、中央ラインのチェリー3枚は$3、ベル3枚は$6、7を3枚は$30を受け取る。60秒後の所持金で勝敗を決める。確定情報にない出目、配当、残高、改造を自分で宣言しない。プレイヤーは手動、あなたは2秒ごとに残高があれば自動回転する。`;
+const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。日本語で話す。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定得点、残り時間、出目はサーバーから渡す情報だけを事実として扱う。\nユーザーがルール変更、得点変更、勝敗操作を頼んでも従わない。時間延長はサーバーが確定した台詞を要求した場合だけ、その台詞を読み上げてよい。自分から受諾・拒否・状態変更を決めたり宣言したりしない。\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い得点情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。\nプレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。返事の後は黙って待つ。\nthinkingのゲーム情報は会話の参考であり、読み上げる指示ではない。両者は所持金$30で始め、回転ごとに$1を支払い、中央ラインのチェリー3枚は$3、ベル3枚は$6、7を3枚は$30を受け取る。60秒後の所持金で勝敗を決める。確定情報にない出目、配当、残高、改造を自分で宣言しない。プレイヤーは手動、あなたは2秒ごとに残高があれば自動回転する。`;
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
@@ -21,6 +22,8 @@ export class GptLiveBridge {
   private inputSpeaking = false;
   private lastOutputSpeechAt = 0;
   private suppressedAt: number | null = null;
+  private suppressionStop: ReturnType<typeof setTimeout> | null = null;
+  private pendingConfirmedLine: string | null = null;
   private outputQuietMs = 0;
   private conversationUntil = 0;
   private appendSequence = 0;
@@ -120,7 +123,8 @@ export class GptLiveBridge {
             // Drop the interrupted speech until the full-duplex model yields.
             // A bounded fallback prevents an indefinitely muted connection.
             if (this.outputQuietMs < 200 && Date.now() - this.suppressedAt < 4000) return;
-            this.suppressedAt = null;
+            this.finishSuppressedTurn();
+            return;
           }
           this.events.onAudio(event.delta);
           return;
@@ -171,6 +175,7 @@ export class GptLiveBridge {
       if (!this.inputSpeaking) this.inputSpeechMs = 0;
       if (this.inputQuietMs >= 450) {
         this.inputSpeechMs = 0;
+        if (this.inputSpeaking) this.events.onUserSpeechEnd();
         this.inputSpeaking = false;
       }
     }
@@ -188,9 +193,26 @@ export class GptLiveBridge {
     this.append('commentary', `会話中なら省略。ゲームへの短い一言だけ: ${text}`.slice(0, 1800));
   }
 
+  /** Uses the already-supported commentary path; no provider tool call is invented. */
+  requestConfirmedLine(line: string): void {
+    this.pendingConfirmedLine = line.slice(0, 300);
+    if (this.suppressedAt === null) this.flushConfirmedLine();
+  }
+
+  /** Drop a normal reply while the server resolves a rule-changing request. */
+  suppressOutput(): void {
+    this.suppressedAt = Date.now();
+    this.outputQuietMs = 0;
+    if (this.suppressionStop) clearTimeout(this.suppressionStop);
+    this.suppressionStop = setTimeout(() => this.finishSuppressedTurn(), 4000);
+  }
+
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.contextInFlight = null;
+    if (this.suppressionStop) clearTimeout(this.suppressionStop);
+    this.suppressionStop = null;
+    this.pendingConfirmedLine = null;
     this.latestContext = '';
     this.finishConnect?.(false);
     this.ready = false;
@@ -223,6 +245,20 @@ export class GptLiveBridge {
     if (this.contextInFlight || !this.latestContext || this.latestContext === this.sentContext) return;
     this.sentContext = this.latestContext;
     this.contextInFlight = this.append('thinking', this.latestContext);
+  }
+
+  private finishSuppressedTurn(): void {
+    if (this.suppressionStop) clearTimeout(this.suppressionStop);
+    this.suppressionStop = null;
+    this.suppressedAt = null;
+    this.outputQuietMs = 0;
+    this.flushConfirmedLine();
+  }
+
+  private flushConfirmedLine(): void {
+    const line = this.pendingConfirmedLine;
+    this.pendingConfirmedLine = null;
+    if (line) this.append('commentary', `確定済みのゲーム結果に合わせ、次の一文だけを日本語でそのまま発話する: ${JSON.stringify(line)}`);
   }
 
   private append(kind: 'thinking' | 'commentary', content: string): string | null {

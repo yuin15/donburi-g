@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ServerEnvelope } from './protocol.js';
-import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_ROUNDS } from './protocol.js';
+import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, MAX_MATCH_ROUNDS } from './protocol.js';
 
 const id = z.string().min(1).max(100);
 const upgrade = z.enum(['steady', 'jackpot']);
@@ -25,14 +25,14 @@ const lastSpins = z.object({ player: spin.optional(), rival: spin.optional() });
 const rounds = z.number().int().min(0).max(MAX_MATCH_ROUNDS);
 const snapshot = z.object({
   matchId: id, status: z.enum(['ready', 'countdown', 'playing', 'result', 'aborted']),
-  elapsed: z.number().min(0).max(MATCH_SECONDS), remaining: z.number().min(0).max(MATCH_SECONDS), round: z.number().int().min(0).max(MAX_MATCH_ROUNDS),
+  elapsed: z.number().min(0).max(MAX_MATCH_SECONDS), remaining: z.number().min(0).max(MAX_MATCH_SECONDS), duration: z.union([z.literal(MATCH_SECONDS), z.literal(MAX_MATCH_SECONDS)]).optional(), round: z.number().int().min(0).max(MAX_MATCH_ROUNDS),
   rounds: z.object({ player: rounds, rival: rounds }),
   scores: z.object({ player: score, rival: score }),
   stats: z.object({ player: sideStats, rival: sideStats }),
   upgrades: z.object({ player: z.array(upgrade).max(2), rival: z.array(upgrade).max(2) }),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
 }).refine(v => v.round === v.rounds.player)
-  .refine(v => v.status !== 'result' || (v.elapsed === MATCH_SECONDS && v.remaining === 0 && v.winner !== undefined))
+  .refine(v => v.status !== 'result' || (v.elapsed === (v.duration ?? MATCH_SECONDS) && v.remaining === 0 && v.winner !== undefined))
   .refine(v => (['player', 'rival'] as const).every(side => {
     const { wins, bestSpin } = v.stats[side];
     const count = wins.cherry + wins.bell + wins.seven;
@@ -60,6 +60,7 @@ const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('upgrade_offer'), offerIndex: index, closesAtElapsed: z.union([z.literal(24), z.literal(44)]) }),
   z.object({ type: z.literal('upgrade_applied'), offerIndex: index, player: upgrade, rival: upgrade }),
   z.object({ type: z.literal('rival_line'), text: z.string().max(1000), reason: z.string().max(100) }),
+  z.object({ type: z.literal('time_extension'), decision: z.enum(['accepted', 'rejected']), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => v.before.matchId === v.after.matchId && (v.decision === 'accepted' ? v.after.duration === MAX_MATCH_SECONDS && Math.abs(v.after.remaining - (v.before.remaining + 10)) < 1e-6 : JSON.stringify(v.before) === JSON.stringify(v.after))),
   z.object({ type: z.literal('transcript'), role: z.enum(['user', 'assistant']), delta: z.string().max(16000) }),
   z.object({ type: z.literal('match_ended'), snapshot }),
   z.object({ type: z.literal('error'), code: z.string().max(100), message: z.string().max(1000), recoverable: z.boolean() }),
