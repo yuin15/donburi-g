@@ -1,6 +1,7 @@
 import type { Bet, MatchSnapshot, MatchStats, ReelGrid, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol.js';
 import { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
+import { upgradePrice } from '../../shared/shop.js';
 
 export { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, TIME_EXTENSION_SECONDS } from '../../shared/protocol.js';
 export type MatchStatus = MatchSnapshot['status'];
@@ -19,6 +20,7 @@ export interface MatchState {
   matchId: string;
   status: MatchStatus;
   spinMode: 'automatic' | 'manual';
+  upgradeSpent: number;
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
@@ -122,6 +124,7 @@ function spinSide(state: MatchState, side: Side): SpinView | null {
     winningLines,
     payout,
     total: state.scores[side],
+    upgradeSpent: side === 'player' ? state.upgradeSpent : 0,
     ...(state.upgrades[side].length ? { upgrades: [...state.upgrades[side]] } : {}),
   };
   recordSpin(state.stats, result);
@@ -141,6 +144,7 @@ export function createMatch(
     matchId,
     status: 'ready',
     spinMode,
+    upgradeSpent: 0,
     lastManualSpinAt: null,
     elapsed: 0,
     remaining: MATCH_SECONDS,
@@ -181,6 +185,25 @@ export function startMatch(state: MatchState): void {
   if (state.status !== 'ready') throw new Error('match_not_ready');
   state.status = 'playing';
 }
+
+/** Caller advances the authoritative clock before purchasing. Never alters an existing spin. */
+export function purchaseUpgrade(state: MatchState, id: UpgradeId, expectedCount: number): boolean {
+  if (state.status !== 'playing' || state.elapsed >= MATCH_SECONDS || state.upgradesEnabled) return false;
+  if (id !== 'steady' && id !== 'jackpot') return false;
+  const count = state.upgrades.player.filter(value => value === id).length;
+  const price = upgradePrice(state.upgrades.player, id);
+  if (count !== expectedCount || price === null || state.scores.player < price) return false;
+  state.scores.player -= price;
+  state.upgradeSpent += price;
+  const definition = UPGRADE_DEFINITIONS[id];
+  for (let count = 0; count < definition.addedCount; count += 1) state.pools.player.push(definition.addedSymbol);
+  state.upgrades.player.push(id);
+  state.activePools.player = [...state.pools.player];
+  state.lastLeader = currentLeader(state.scores);
+  nextSeq(state);
+  return true;
+}
+
 export function setBet(state: MatchState, side: Side, bet: Bet): boolean {
   if ((state.status !== 'playing' && state.status !== 'ready') || !BETS.includes(bet) || state.scores[side] < bet) return false;
   state.bets[side] = bet;
@@ -292,6 +315,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     bets: { ...state.bets },
     scores: { ...state.scores },
     stats: cloneMatchStats(state.stats),
+    upgradeSpent: state.upgradeSpent,
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
     winner: state.winner,
     eventSeq: state.eventSeq,

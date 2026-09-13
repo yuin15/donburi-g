@@ -8,10 +8,11 @@
 - Each accepted spin deducts its BET first. Matching active lines then add their payouts to the balance. A side at `$0` cannot spin and watches the rest of the match.
 - Player requests are accepted only after the previous reels have stopped, at least 1.1 seconds apart, and strictly before 60 seconds: at most 55 spins.
 - The rival spins independently at 2, 4, …, 60 seconds: up to 30 spins, depending on its balance. Its policy is BET3 by default, BET1 when the CPU leads by a wide margin, and BET5 when losing near the end; if funds are insufficient it falls back to the highest affordable BET.
-- Each side uses three reels and a fixed nine-symbol strip containing four cherries, three bells, and two sevens. `$1` activates the middle line; `$3` activates the top, middle, and bottom lines; `$5` activates those three plus both diagonals.
-- A matching active line pays cherry `$3`, bell `$6`, or seven `$30`. Multiple active lines add. Across all 729 stop combinations, each BET has a theoretical return rate of 81.481%; the maximum total payout per spin is `$30` for BET1 and `$39` for BET3 or BET5.
+- Each side uses three reels and an initial nine-symbol strip containing four cherries, three bells, and two sevens. `$1` activates the middle line; `$3` activates the top, middle, and bottom lines; `$5` activates those three plus both diagonals.
+- A matching active line pays cherry `$3`, bell `$6`, or seven `$30`. Multiple active lines add. Before upgrades, across all 729 stop combinations, each BET has a theoretical return rate of 81.481%; the maximum total payout per spin is `$30` for BET1 and `$39` for BET3 or BET5.
 - The higher balance at 60 seconds wins; equal balances draw. A player who never spins still faces the rival's actual spins.
-- Upgrades are retired: no timed choices, previews, defaults, added symbols, or AI upgrade decisions.
+- Player-only upgrades are purchased from the permanent cabinet panel: add six cherries or one seven. Each product costs $5, then $10, then $15, up to three purchases per match. Spending reduces the same cash used for spins and final victory. No timed offers, default upgrades or rival upgrade decisions occur.
+- Purchases apply to the next started spin; an in-flight outcome and payout remain unchanged. Insufficient cash, stale purchase counts and purchases after the deadline are rejected. Rematches reset both products. The panel shows symbol counts matching the actual reel composition.
 
 ## Reel stops and result
 
@@ -27,4 +28,4 @@ The browser submits intent (`start`, `spin`, `set_bet`, mic audio, snapshot, clo
 
 `advanceMatch` catches up elapsed rival spins and the final deadline without creating player spins. `requestManualSpin` advances that clock first, then accepts an eligible player draw. Snapshots include `balances`, `bets`, `rounds.player`, and `rounds.rival`; the retained `round` field aliases the player count.
 
-Historical automatic simulations and old upgrade fixtures remain historical records. Playable CPU and live sessions use manual player input, automatic rival input, BETs, and no upgrades.
+Historical automatic simulations and an explicit `{ upgrades: true }` test option retain the timed upgrade path. Playable CPU and live sessions use manual player input, automatic rival input, selectable BETs, and paid player upgrades. Live `purchase` commands include match ID, unique command ID, product ID and the expected product purchase count. Snapshots include cumulative `upgradeSpent`; each spin preserves the spending at its start, so recovery and delayed reel stops cannot undo a later purchase.

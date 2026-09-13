@@ -40,6 +40,7 @@ export interface SpinView {
   winningLines?: WinningLine[];
   payout: number;
   total: number;
+  upgradeSpent?: number;
   upgrades?: UpgradeId[];
 }
 
@@ -57,12 +58,14 @@ export interface MatchSnapshot {
   /** Compatibility projection for older clients; always equal to balances. */
   scores: Record<Side, number>;
   stats: MatchStats;
+  upgradeSpent?: number;
   upgrades: Record<Side, UpgradeId[]>;
   winner?: Side | 'draw';
   eventSeq: number;
 }
 
 export type ClientMessage =
+  | { type: 'purchase'; commandId: string; matchId: string; upgradeId: UpgradeId; expectedCount: number }
   | { type: 'start' }
   | { type: 'spin'; commandId: string; matchId: string }
   | { type: 'set_bet'; commandId: string; bet: Bet; matchId: string }

@@ -82,6 +82,24 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it('deduplicates purchases, preserves spin totals, and sends valid recovery snapshots', async () => {
+    const { session, messages } = setup('shop', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw(JSON.stringify({ type: 'start' }));
+    session.handleRaw(JSON.stringify({ type: 'spin', commandId: 'spin1', matchId: 'shop' }));
+    const purchase = { type: 'purchase', matchId: 'shop', commandId: 'buy1', upgradeId: 'steady', expectedCount: 0 };
+    session.handleRaw(JSON.stringify(purchase));
+    session.handleRaw(JSON.stringify(purchase));
+    session.handleRaw(JSON.stringify({ ...purchase, commandId: 'buy2' }));
+    const snapshots = messages.filter(m => m.type === 'snapshot');
+    const last = snapshots.at(-1)!;
+    expect(last.snapshot.upgrades.player).toEqual(['steady']);
+    expect(last.snapshot.upgrades.rival).toEqual([]);
+    expect(last.snapshot.upgradeSpent).toBe(5);
+    expect(last.lastSpins?.player?.upgradeSpent).toBe(0);
+    for (const message of snapshots) expect(parseServerEnvelope(JSON.stringify(message))).not.toBeNull();
+    await session.shutdown('normal_close');
+  });
   const providerMessages = (messages: ServerMessage[]) => messages
     .filter((message): message is Extract<ServerMessage, { type: 'provider_status' }> => message.type === 'provider_status')
     .map(({ type, provider, state }) => ({ type, provider, state }));
