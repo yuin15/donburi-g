@@ -137,9 +137,11 @@ export class MatchSession {
   private loanDelegation: { id: string | null; generation: number; direction: LoanDirection } | null = null;
   private directLoanRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private readonly directLoanRequestTurns = new Set<number>();
+  private directLoanDecision: { turn: number; transcriptSequence: number } | null = null;
   private loanOfferReplySettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private directExtensionRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private readonly directExtensionRequestTurns = new Set<number>();
+  private directExtensionDecision: { turn: number; transcriptSequence: number } | null = null;
   private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
@@ -263,6 +265,8 @@ export class MatchSession {
         if (role === 'assistant' && (this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript())) return;
         this.emit({ type: 'transcript', role, delta });
         if (role === 'user') {
+          this.refreshDirectLoanDecision(generation);
+          this.refreshDirectTimeExtensionDecision(generation);
           this.acceptRivalLoanFromCurrentTurn();
           this.queueSettledRivalLoanReply(generation);
           this.queueDirectTimeExtensionRequest(generation);
@@ -355,9 +359,11 @@ export class MatchSession {
       this.recentUserText = '';
       this.extensionDelegation = null;
       this.loanDelegation = null;
+      this.directLoanDecision = null;
       this.directLoanRequestSettle = null;
       this.loanOfferReplySettle = null;
       this.directExtensionRequestSettle = null;
+      this.directExtensionDecision = null;
       this.loanOffer = null;
       this.loanDecisionPending = false;
       this.extensionDecisionPending = false;
@@ -431,9 +437,11 @@ export class MatchSession {
     this.recentUserText = '';
     this.extensionDelegation = null;
     this.loanDelegation = null;
+    this.directLoanDecision = null;
     this.directLoanRequestSettle = null;
     this.loanOfferReplySettle = null;
     this.directExtensionRequestSettle = null;
+    this.directExtensionDecision = null;
     this.loanOffer = null;
     this.loanDecisionPending = false;
     this.extensionDecisionPending = false;
@@ -983,12 +991,25 @@ export class MatchSession {
     if (this.state.status !== 'playing' || this.state.loanUsed.rival_to_player || this.state.scores.player >= 1 || this.state.scores.rival < LOAN_AMOUNT) return;
     this.directLoanRequestTurns.add(turn);
     if (this.directLoanRequestTurns.size > 16) this.directLoanRequestTurns.delete(this.directLoanRequestTurns.values().next().value!);
+    const directDecision = { turn, transcriptSequence: this.transcriptSequence };
+    this.directLoanDecision = directDecision;
     this.loanDelegation = { id: null, generation, direction: 'rival_to_player' };
     this.loanDecisionPending = true;
     this.gpt?.suppressOutput();
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
-    void this.decideLoan(null, 'rival_to_player', transcript, conversation, generation, false);
+    void this.decideLoan(null, 'rival_to_player', transcript, conversation, generation, false, directDecision);
+  }
+
+  /** A trailing delta can revise only the still-pending direct borrower decision for this turn. */
+  private refreshDirectLoanDecision(generation: number): void {
+    const directDecision = this.directLoanDecision;
+    if (!directDecision || directDecision.turn !== this.userSpeechTurn || directDecision.transcriptSequence === this.transcriptSequence) return;
+    this.directLoanDecision = null;
+    this.loanDelegation = null;
+    this.loanDecisionPending = false;
+    this.directLoanRequestTurns.delete(directDecision.turn);
+    this.queueDirectLoanRequest(generation);
   }
 
   /** A clear late-game request still reaches the existing decision without a Live delegation. */
@@ -1038,13 +1059,26 @@ export class MatchSession {
     if (this.state.status !== 'playing' || this.state.extensionUsed || this.state.remaining > 15) return;
     this.directExtensionRequestTurns.add(turn);
     if (this.directExtensionRequestTurns.size > 16) this.directExtensionRequestTurns.delete(this.directExtensionRequestTurns.values().next().value!);
+    const directDecision = { turn, transcriptSequence: this.transcriptSequence };
+    this.directExtensionDecision = directDecision;
     this.loanOffer = null;
     this.extensionDelegation = { id: null, generation, offsetMs: 0 };
     this.extensionDecisionPending = true;
     this.gpt?.suppressOutput();
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
-    void this.decideTimeExtension(null, transcript, conversation, generation, false);
+    void this.decideTimeExtension(null, transcript, conversation, generation, false, directDecision);
+  }
+
+  /** A trailing delta can revise only the still-pending direct extension decision for this turn. */
+  private refreshDirectTimeExtensionDecision(generation: number): void {
+    const directDecision = this.directExtensionDecision;
+    if (!directDecision || directDecision.turn !== this.userSpeechTurn || directDecision.transcriptSequence === this.transcriptSequence) return;
+    this.directExtensionDecision = null;
+    this.extensionDelegation = null;
+    this.extensionDecisionPending = false;
+    this.directExtensionRequestTurns.delete(directDecision.turn);
+    this.queueDirectTimeExtensionRequest(generation);
   }
 
   private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {
@@ -1103,10 +1137,16 @@ export class MatchSession {
     void this.decideLoan(id, direction, transcript, conversation, generation, offerActive);
   }
 
-  private async decideLoan(delegationId: string | null, direction: LoanDirection, transcript: string, conversation: string, generation: number, offerActive: boolean): Promise<void> {
+  private async decideLoan(delegationId: string | null, direction: LoanDirection, transcript: string, conversation: string, generation: number, offerActive: boolean, directDecision: { turn: number; transcriptSequence: number } | null = null): Promise<void> {
     const requestedAt = getSnapshot(this.state);
     const decision = await chooseLoanDecision(requestedAt, direction, transcript, conversation, this.voiceAbort.signal, offerActive);
-    if (this.closed || generation !== this.voiceGeneration || this.loanDelegation?.id !== delegationId) return;
+    if (
+      this.closed
+      || generation !== this.voiceGeneration
+      || this.loanDelegation?.id !== delegationId
+      || (directDecision !== null && (this.directLoanDecision?.turn !== directDecision.turn || this.directLoanDecision.transcriptSequence !== directDecision.transcriptSequence))
+    ) return;
+    if (directDecision) this.directLoanDecision = null;
     this.tick();
     if (this.state.status !== 'playing') {
       this.loanDecisionPending = false;
@@ -1221,7 +1261,7 @@ export class MatchSession {
     return this.extensionDecisionPending;
   }
 
-  private async decideTimeExtension(delegationId: string | null, requestTranscript: string, conversation: string, generation: number, offerActive: boolean): Promise<void> {
+  private async decideTimeExtension(delegationId: string | null, requestTranscript: string, conversation: string, generation: number, offerActive: boolean, directDecision: { turn: number; transcriptSequence: number } | null = null): Promise<void> {
     const requestedAt = getSnapshot(this.state);
     const decision = await chooseTimeExtension(
       requestedAt,
@@ -1230,7 +1270,13 @@ export class MatchSession {
       this.voiceAbort.signal,
       offerActive,
     );
-    if (this.closed || generation !== this.voiceGeneration || this.extensionDelegation?.id !== delegationId) return;
+    if (
+      this.closed
+      || generation !== this.voiceGeneration
+      || this.extensionDelegation?.id !== delegationId
+      || (directDecision !== null && (this.directExtensionDecision?.turn !== directDecision.turn || this.directExtensionDecision.transcriptSequence !== directDecision.transcriptSequence))
+    ) return;
+    if (directDecision) this.directExtensionDecision = null;
     // The decision never pauses the game; settle the real arrival time first.
     this.tick();
     if (this.state.status !== 'playing') {

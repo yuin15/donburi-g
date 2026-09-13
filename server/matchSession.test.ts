@@ -822,6 +822,54 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('invalidates a pending direct extension acceptance after a same-turn withdrawal', async () => {
+    const pending = deferred<'accept_extension_10s' | 'reject_extension' | 'no_request'>();
+    vi.mocked(chooseTimeExtension).mockReturnValueOnce(pending.promise);
+    const { session, messages } = setup('pending-withdrawn-direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(151);
+    expect(chooseTimeExtension).toHaveBeenCalledOnce();
+    const confirmedBefore = provider.confirmedLine.mock.calls.length;
+    provider.events?.onTranscript('user', '、やっぱりやめる', { startMs: 101, endMs: 300 });
+    pending.resolve('accept_extension_10s');
+    await pending.promise;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.confirmedLine).toHaveBeenCalledTimes(confirmedBefore);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('re-evaluates a pending direct extension with a same-turn positive supplement only once', async () => {
+    const first = deferred<'accept_extension_10s' | 'reject_extension' | 'no_request'>();
+    const second = deferred<'accept_extension_10s' | 'reject_extension' | 'no_request'>();
+    vi.mocked(chooseTimeExtension).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { session } = setup('supplemented-direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(151);
+    const confirmedBefore = provider.confirmedLine.mock.calls.length;
+    provider.events?.onTranscript('user', '、お願い', { startMs: 101, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledTimes(2);
+    expect(chooseTimeExtension).toHaveBeenLastCalledWith(expect.anything(), '延長して、お願い', expect.any(String), expect.any(AbortSignal), false);
+    first.resolve('accept_extension_10s');
+    await first.promise;
+    expect(provider.confirmedLine).toHaveBeenCalledTimes(confirmedBefore);
+    second.resolve('accept_extension_10s');
+    await second.promise;
+    expect(provider.confirmedLine).toHaveBeenCalledTimes(confirmedBefore + 1);
+    await session.shutdown('test_finished');
+  });
+
   it('does not direct-route an extension that began before the final fifteen seconds', async () => {
     const { session } = setup('early-direct-extension', 'manual', 'audio');
     await session.initialize();
@@ -930,6 +978,55 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(chooseLoanDecision).not.toHaveBeenCalled();
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('invalidates a pending direct loan acceptance after a same-turn withdrawal', async () => {
+    const pending = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
+    vi.mocked(chooseLoanDecision).mockReturnValueOnce(pending.promise);
+    const { session, messages } = setup('pending-withdrawn-direct-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(251);
+    expect(chooseLoanDecision).toHaveBeenCalledOnce();
+    provider.events?.onTranscript('user', '、やっぱりいらない', { startMs: 101, endMs: 300 });
+    pending.resolve('accept_loan');
+    await pending.promise;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('re-evaluates a pending direct loan with a same-turn positive supplement only once', async () => {
+    const first = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
+    const second = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
+    vi.mocked(chooseLoanDecision).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { session, messages } = setup('supplemented-direct-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(251);
+    provider.events?.onTranscript('user', '、お願い', { startMs: 101, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(chooseLoanDecision).toHaveBeenCalledTimes(2);
+    expect(chooseLoanDecision).toHaveBeenLastCalledWith(expect.anything(), 'rival_to_player', 'お金を貸して、お願い', expect.any(String), expect.any(AbortSignal), false);
+    first.resolve('accept_loan');
+    await first.promise;
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    second.resolve('accept_loan');
+    await second.promise;
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
 
