@@ -63,7 +63,7 @@ app.innerHTML = `
       <p class="result-again" id="resultAgain">One more round?</p>
     </section>
     <button id="start" disabled>PLAY</button><span id="spinHint" aria-live="polite">CLICK / SPACE TO SPIN</span>
-    <div id="paytable" aria-label="Each winning line pays cherries $3, bells $6, sevens $30"><span><small>LINE</small><i class="symbol-icon cherry"></i>$${PAYOUT.cherry}</span><span><small>LINE</small><i class="symbol-icon bell"></i>$${PAYOUT.bell}</span><span><small>LINE</small><i class="symbol-icon seven"></i>$${PAYOUT.seven}</span></div>
+    <div id="paytable" aria-label="Each winning line pays cherries 3, bells 6, sevens 30"><span><small>LINE</small><i class="symbol-icon cherry"></i>${PAYOUT.cherry}</span><span><small>LINE</small><i class="symbol-icon bell"></i>${PAYOUT.bell}</span><span><small>LINE</small><i class="symbol-icon seven"></i>${PAYOUT.seven}</span></div>
     <div id="roundStatus"><kbd id="spaceKey">SPACE</kbd><div id="bestRun" hidden><small>SESSION BEST</small><strong id="bestScore"></strong></div><small id="queueStatus">CLICK TO SPIN</small></div>
   </footer>
 </section>
