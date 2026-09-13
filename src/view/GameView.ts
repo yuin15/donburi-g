@@ -206,6 +206,7 @@ export class GameView implements GamePresentation {
     this.text('#spinHint', state.startControl.hint);
     this.text('#queueStatus', state.startControl.spinState === 'queued' ? 'NEXT SPIN QUEUED ✓' : state.result ? 'START A NEW ROUND' : 'CLICK TO SPIN');
     this.q('#roundStatus').dataset.queued = String(state.startControl.spinState === 'queued');
+    this.q('#roundStatus').hidden = state.mode === 'live';
     this.q('#connection').hidden = state.mode !== 'live' || state.microphone.visible;
     const record = state.sessionRecord;
     this.q('#bestRun').hidden = !record.best;

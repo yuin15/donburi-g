@@ -40,9 +40,9 @@ export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolM
     renderer.setClearColor(0xffeed2, 1);
     (['cherry', 'bell', 'seven'] as const).forEach((kind, index) => {
       const symbol = models[kind].clone(true);
-      symbol.rotation.set(kind === 'bell' ? -.23 : -.055, kind === 'seven' ? -.19 : -.12, kind === 'seven' ? -.035 : 0);
+      symbol.rotation.set(kind === 'bell' ? -.23 : -.055, kind === 'seven' ? -.27 : -.12, kind === 'seven' ? -.035 : 0);
       symbol.position.y = kind === 'bell' ? -.035 : -.02;
-      symbol.scale.setScalar(kind === 'bell' ? 1.08 : kind === 'seven' ? .94 : .99);
+      symbol.scale.setScalar(kind === 'bell' ? 1.08 : kind === 'seven' ? 1.08 : 1.04);
       symbol.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = node.name !== 'symbol-contour'; node.receiveShadow = node.name !== 'symbol-contour'; } });
       scene.add(symbol);
       // Shadow rendering restores the render target's own viewport/scissor.

@@ -1,1 +1,1 @@
-{"recording":false,"scope":"spin-and-win","samples":409,"p95FrameMs":17,"medianFrameMs":16.699999999953434,"peakCalls":42,"peakTriangles":102328,"bytes":0,"calls":26,"triangles":58328,"textures":7,"geometries":38,"frames":479,"loaded":true}
+{"recording":false,"scope":"spin-and-win","samples":409,"p95FrameMs":16.89999999999418,"medianFrameMs":16.699999999982538,"peakCalls":56,"peakTriangles":385285,"bytes":0,"calls":38,"triangles":162725,"textures":11,"geometries":49,"frames":457,"loaded":true}

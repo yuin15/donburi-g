@@ -39,9 +39,10 @@ const fragmentShader = `
     if(mini>.5){
       float border = min(min(vUv.x,1.-vUv.x),min(vUv.y,1.-vUv.y));
       float rim = 1.-smoothstep(.025,.11,border);
-      gl_FragColor.rgb += (vec3(.025,.02,.005)*center+vec3(.12,.55,1.)*rim)*winning;
+      gl_FragColor.rgb *= 1.+.05*center*winning;
+      gl_FragColor.rgb += vec3(.12,.55,1.)*rim*winning;
     }else{
-      gl_FragColor.rgb += vec3(.08,.045,.005)*center*winning;
+      gl_FragColor.rgb *= 1.+.08*center*winning;
       float line = (1.-smoothstep(.003,.018,abs(row)))*winning;
       gl_FragColor.rgb += vec3(1.6,.85,.22)*line;
     }

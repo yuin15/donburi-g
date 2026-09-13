@@ -249,7 +249,7 @@ describe('stage rendering and cleanup', () => {
     expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]);
     expect(reelWins()).toEqual([playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0]);
     expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= 1200) });
-    expect(coins().filter(coin => coin.visible)).toHaveLength((playerPayout >= 1200 ? 12 : playerPayout > 0 ? 4 : 0) + (rivalPayout >= 1200 ? 12 : rivalPayout > 0 ? 4 : 0));
+    expect(coins().filter(coin => coin.visible)).toHaveLength((playerPayout >= 1200 ? 12 : 0) + (rivalPayout >= 1200 ? 12 : 0));
     frame(650);
     if (playerPayout === 120) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
     if (rivalPayout > 0) expect(reelWins().slice(3)).toEqual([1, 1, 1]);
@@ -288,7 +288,7 @@ describe('stage rendering and cleanup', () => {
     view.show(symbols, 0, symbols, false, 240);
     frame();
     expect(reelWins()).toEqual([0, 0, 0, 1, 1, 1]);
-    expect(coins().filter(coin => coin.visible)).toHaveLength(4);
+    expect(coins().filter(coin => coin.visible)).toHaveLength(6);
     frame(650);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(frames.size).toBe(0);

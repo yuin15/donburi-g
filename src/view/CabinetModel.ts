@@ -67,8 +67,11 @@ export class CabinetModel {
       // The distant upper shell has a shallower roof. Keep the arched front
       // silhouette visible instead of projecting a large blank wedge above it.
       const displayed = geometry.getAttribute('position');
+      const displayedNormals = geometry.getAttribute('normal');
       for (let i = 0; i < displayed.count; i++) if (displayed.getZ(i) < 0) {
         displayed.setY(i, displayed.getY(i) + displayed.getZ(i) * this.viewSlope * .70);
+        const n = new THREE.Vector3(displayedNormals.getX(i), displayedNormals.getY(i), displayedNormals.getZ(i) - displayedNormals.getY(i) * this.viewSlope * .70).normalize();
+        displayedNormals.setXYZ(i,n.x,n.y,n.z);
       }
       const color = new THREE.Color(palette[node.name] ?? 0xffffff);
       const positions = geometry.getAttribute('position');
@@ -105,7 +108,7 @@ export class CabinetModel {
       this.group.add(mesh);
     });
     const glassGeometry = new THREE.PlaneGeometry(5.72, 3.75);
-    const glass = new THREE.MeshPhysicalMaterial({ color: 0xd4e3ec, roughness: .10, metalness: .05, transparent: true, opacity: .055, depthWrite: false, envMap: environment, envMapIntensity: .45 });
+    const glass = new THREE.MeshPhysicalMaterial({ color: 0xd4e3ec, roughness: .10, metalness: .05, transparent: true, opacity: .025, depthWrite: false, envMap: environment, envMapIntensity: .3 });
     const window = new THREE.Mesh(glassGeometry, glass);
     window.name = 'cabinet-glass';
     window.position.set(-.02, 4.195 - .51 * this.viewSlope, .51);
