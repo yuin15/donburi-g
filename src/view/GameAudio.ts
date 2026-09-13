@@ -1,9 +1,9 @@
-type Cue = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'result';
+type Cue = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result';
 
 // Original synthesized cabinet sounds; no samples or recorded voices.
 const NOTES: Record<Exclude<Cue, 'spin' | 'jackpot'>, number[]> = {
   choose: [660], win: [784, 1047, 1319], rivalWin: [523, 659],
-  lead: [523, 784, 1047], warning: [880, 660, 880], result: [523, 659, 784, 1047],
+  lead: [523, 784, 1047], warning: [880, 660, 880], ruleChange: [330, 494, 740, 988], result: [523, 659, 784, 1047],
 };
 
 export class GameAudio {
@@ -51,7 +51,7 @@ export class GameAudio {
     }
     NOTES[cue].forEach((pitch, index) => {
       this.note(pitch, index * .085, cue === 'choose' ? .1 : .24, cue === 'rivalWin' ? .55 : .8, cue === 'choose' ? 'sine' : 'triangle');
-      if (cue === 'win' || cue === 'result') this.note(pitch * 2, index * .085, .18, .18);
+      if (cue === 'win' || cue === 'result' || cue === 'ruleChange') this.note(pitch * 2, index * .085, .18, cue === 'ruleChange' ? .34 : .18);
     });
   }
 

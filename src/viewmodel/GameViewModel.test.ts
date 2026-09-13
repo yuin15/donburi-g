@@ -253,6 +253,21 @@ describe('game view model', () => {
     expect(h.clock.timers.size).toBe(0);
   });
 
+  it('holds the pre-change timer briefly while applying an authoritative +10 second extension', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const before = playingSnapshot();
+    before.elapsed = 54; before.remaining = 6; before.scores = { player: 24, rival: 27 };
+    const after = { ...before, duration: 70 as const, remaining: 16 };
+    session.emit({ type: 'time_extension', decision: 'accepted', before, after, line: 'いいよ。あと10秒、見せてみな。' });
+    expect(h.vm.state).toMatchObject({ snapshot: { duration: 70, remaining: 16 }, timeExtension: { before: 6, after: 16 }, line: 'いいよ。あと10秒、見せてみな。' });
+    expect(h.presentation.playSound).toHaveBeenCalledWith('ruleChange');
+    await h.clock.advance(1350);
+    expect(h.vm.state.timeExtension).toBeNull();
+    expect(h.vm.state.snapshot.remaining).toBe(16);
+    h.vm.dispose();
+  });
+
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {
     const h = setup();
     const session = await beginLive(h);

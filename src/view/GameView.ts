@@ -124,12 +124,21 @@ export class GameView implements GamePresentation {
     const snapshot = state.snapshot;
     this.scene.setUpgrades(snapshot.upgrades.player, snapshot.upgrades.rival);
     this.scene.setExpression(state.expression);
-    const seconds = Math.max(0, Math.ceil(snapshot.remaining));
+    const extension = state.timeExtension;
+    const seconds = Math.max(0, Math.ceil(extension?.before ?? snapshot.remaining));
     this.text('#time', `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
-    const finale = snapshot.status === 'playing' && seconds > 0 && seconds <= 10 && !state.gate.visible;
-    this.q('#timer').classList.toggle('urgent', finale);
+    const timer = this.q('#timer');
+    timer.classList.toggle('rule-change', extension?.decision === 'accepted');
+    const extensionText = extension?.decision === 'accepted'
+      ? `${Math.floor(extension.before / 60)}:${String(Math.ceil(extension.before) % 60).padStart(2, '0')} → ${Math.floor(extension.after / 60)}:${String(Math.ceil(extension.after) % 60).padStart(2, '0')}`
+      : '';
+    this.q('#timeExtension').hidden = !extensionText;
+    this.text('#timeExtension', extensionText);
+    const finale = !extension && snapshot.status === 'playing' && seconds > 0 && seconds <= 10 && !state.gate.visible;
+    timer.classList.toggle('urgent', finale);
     this.q('.shell').dataset.finale = String(finale);
-    this.text('#timerCaption', finale ? 'FINAL SECONDS' : 'TIME LEFT');
+    this.text('#timerCaption', extension?.decision === 'accepted' ? 'RULE CHANGED' : finale ? 'FINAL SECONDS' : 'TIME LEFT');
+    if (extension?.decision === 'accepted') this.text('#time', '+10 SEC');
     this.scene.setFinalSeconds(finale ? seconds : 0);
     if (finale && previous && Math.ceil(previous.snapshot.remaining) !== seconds && !document.hidden) {
       if (seconds <= 5) this.audio.countdownTick(seconds, state.connection.voiceReady);

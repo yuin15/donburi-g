@@ -68,7 +68,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
       startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: 'CLICK / SPACE TO SPIN' },
       machineNotice: '3 MATCHING SYMBOLS · CENTER LINE',
-      result: null, payout: null, cue: null, expression: 'neutral',
+      result: null, payout: null, cue: null, timeExtension: null, expression: 'neutral',
       rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',
       conversation: 'idle',
     };
@@ -157,6 +157,14 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       render({ snapshot, scores: snapshot.scores, sessionRecord: { best: 3600, streak: 2, newBest: false },
         machineNotice: 'FINAL SPINS · KEEP GOING', line: 'Eight seconds. Make it count!',
         rivalMood: 'One spin could change it.' });
+    }
+    if (example === 'extension-accepted' || example === 'extension-rejected') {
+      const before = { ...snapshot, elapsed: 54, remaining: 6, duration: 60 as const, scores: { player: 24, rival: 27 }, stats: fixtureStats({ player: 24, rival: 27 }) };
+      if (example === 'extension-accepted') {
+        const after = { ...before, duration: 70 as const, remaining: 16 };
+        render({ snapshot: after, scores: after.scores, timeExtension: { decision: 'accepted', before: before.remaining, after: after.remaining }, line: 'いいよ。あと10秒、見せてみな。', rivalMood: 'RULE CHANGED · ONE MORE CHANCE' });
+        view.playSound('ruleChange');
+      } else render({ snapshot: before, scores: before.scores, timeExtension: null, line: 'だめ。時間切れまで、このまま勝負しよう。', rivalMood: 'REQUEST DENIED' });
     }
     if (example === 'session-best') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;
