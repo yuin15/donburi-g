@@ -14,8 +14,8 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 ## Client messages
 
 - `start` — start the authoritative 60-second match once voice/avatar is ready.
-- `spin` — `{matchId, commandId}`. Requests one player spin. Rival spins are scheduled independently every two seconds. The server advances elapsed deadlines first, rejects duplicate IDs and requests less than 1.1 seconds apart, and never accepts a player draw at or after 60 seconds.
-- `upgrade` — retained for historical fixtures; current matches reject it without applying a choice or calling the AI.
+- `spin` — `{matchId, commandId}`. Requests one player spin after the previous reels have stopped. Rival spins are scheduled independently every two seconds. The client does not send a request while reels are moving; the server advances elapsed deadlines first, rejects duplicate IDs and requests less than 1.1 seconds apart, and never accepts a player draw at or after 60 seconds.
+- `set_bet` — `{matchId, commandId, bet}`. Selects $1, $3, or $5. BET can change at any time; a moving spin keeps the BET captured when it started, and the new BET applies to the next eligible spin. A BET that exceeds the current balance is rejected.
 - `mic` — base64 PCM16/24kHz audio. Size limited.
 - `voice_close` — release optional media while preserving the match.
 - `snapshot` — request latest safe match snapshot.
@@ -34,7 +34,8 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 - `snapshot`
 - `side_spin` — `{spin: SpinView}` for only the side that drew. Each side owns its round number.
 - `spin` — paired messages retained for historical automatic simulations.
-- `spin_status` — `{commandId, accepted, retryAfterMs}` acknowledges a manual request, including rejected requests. The client keeps at most one queued input and drops it on result, exit, or hidden page.
+- `spin_status` — `{commandId, accepted, retryAfterMs}` acknowledges a manual request, including rejected requests. Inputs while reels are moving are ignored; no spin is queued.
+- `bet_status` — `{commandId, accepted, bet}` acknowledges a BET change. A rejected change leaves the authoritative current BET in `bet`.
 - `upgrade_offer` / `upgrade_applied` — historical simulations only; never emitted by current matches.
 - `rival_line`
 - `transcript`
@@ -43,9 +44,9 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 
 Snapshots never contain RNG state, unrevealed choices, reel pools, API credentials, or future results.
 
-`snapshot.stats` is required for both sides: `wins: {cherry, bell, seven}` contains confirmed winning-spin counts; `bestSpin` is `{round, payout}` for the first highest payout, or null when there were no wins. Counts are bounded by that side's completed `snapshot.rounds[side]` count, their payout sum must equal the score, and the best spin must be consistent with those counts. Player input allows 0–55 rounds and up to 66,000 points; the rival completes 30 scheduled rounds. `snapshot.round` aliases `rounds.player`. Every confirmed round remains accounted for after recovery; results are not derived from animation history. A player with zero spins still faces the rival's independent score.
+`snapshot` includes `balances` and `bets` for both sides. Both begin at $100; the winner has the greater balance at 60 seconds, and a side at zero simply cannot spin. `SpinView` includes the authoritative 3×3 `grid`, `stops`, applied `bet`, all `winningLines`, payout, and post-settlement balance. A line pays cherry $3, bell $6, or seven $30; multiple lines add. The 9-symbol strips have 729 stop combinations, with a theoretical 81.481% return rate for each BET and a maximum total payout of $30 for BET1 or $39 for BET3/BET5. `snapshot.round` aliases `rounds.player`.
 
-Each new `SpinView` includes an empty `upgrades` array for the base composition. Historical fixtures may contain their explicitly enabled upgrade composition; no random state or future result is included.
+The public strip and the visible neighbours of each authoritative stop determine the complete grid; there is no second outcome RNG in the renderer.
 
 After authentication, every server message includes `sessionId`, `streamSeq` and `serverTime` (Unix milliseconds). `streamSeq` is a contiguous per-connection delivery sequence and is separate from the domain's `snapshot.eventSeq`. The first message is `hello` at sequence 1. The client validates message shapes, lengths, numbers, symbols and match identity before updating UI or starting media. Initial unauthenticated rejection may have no envelope and is treated as a failed connection.
 

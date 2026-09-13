@@ -1,12 +1,12 @@
 # メンバー向け引き継ぎ
 
-2026-09-13。ゲームソン向けのデモとして実装・公開した範囲をまとめる。
+2026-09-13。ゲームソン向けのデモとして実装・公開した範囲と、Issue #115 の現行ルールをまとめる。#115変更の実画面・実機・公開版・Live動作はこの資料では未検証とする。
 
 **[公開ゲーム](https://slot-chan.vercel.app/) · [ソースコード](https://github.com/yuin15/donburi-g) · [配布物](https://github.com/yuin15/donburi-g/releases/tag/demo-2026-09-13)**
 
 ## まず遊ぶ
 
-PCで公開ゲームを開き、PLAY NOW → クリック／Spaceで連打 → 60秒後に勝敗 → REMATCH。ライバルは2秒ごとに勝手に回る。中央1ラインが揃えば120／240／1,200コイン。音声・映像なしでも最後まで遊べる。
+PCで公開ゲームを開き、PLAY NOW → BETを選択 → **SPIN** または Space → 60秒後に勝敗 → REMATCH。両者$100開始で、BET1/3/5はそれぞれ中央1本／横3本／横3本＋斜め2本を判定する。BETは毎回控除し、有効ラインの配当（チェリー$3、ベル$6、7$30）を合算する。回転中の入力は予約せず、残高0では残り時間を観戦する。ライバルは2秒ごとに回る。音声・映像なしでも遊べるが、#115仕様の実画面動作は未検証である。
 
 英語UI、大きな得点、下向きのリール、金貨・立体マーク・BIG WIN、終盤のライトと音、結果・自己ベスト・連勝を実装した。画面内にタイトルは出さず、途中の改造選択も設けていない。
 
@@ -30,7 +30,7 @@ Node.js 22以上で `npm ci`、`npm run dev`。CPU対戦は環境変数なしで
 | 変えたいもの | 開く場所 |
 | --- | --- |
 | 出目・配当・回転間隔 | `src/domain/game.ts` |
-| 試合進行・入力予約・会話状態 | `src/viewmodel/GameViewModel.ts` |
+| 試合進行・BET・入力受付・会話状態 | `src/viewmodel/GameViewModel.ts` |
 | 筐体・リール・光・金貨 | `src/view/ReelScene.ts` / `CabinetArt.ts` |
 | 立体マークの位置・動き・材質 | `src/view/WinSymbols.ts` / `SymbolModels.ts` |
 | 画面配置・文字・操作 | `src/view/StageLayout.ts` / `GameView.ts` / `src/style.css` |
