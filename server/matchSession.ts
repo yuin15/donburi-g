@@ -275,6 +275,7 @@ export class MatchSession {
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
+        this.cancelPendingDirectDecisions();
         this.userSpeechTurn += 1;
         this.userSpeechTurnStartedRemaining = this.state.remaining;
         this.markLoanOfferReplyStarted();
@@ -1079,6 +1080,22 @@ export class MatchSession {
     this.extensionDecisionPending = false;
     this.directExtensionRequestTurns.delete(directDecision.turn);
     this.queueDirectTimeExtensionRequest(generation);
+  }
+
+  /** A new spoken turn supersedes only an unfinished direct transcript decision. */
+  private cancelPendingDirectDecisions(): void {
+    if (this.directLoanDecision) {
+      this.directLoanRequestTurns.delete(this.directLoanDecision.turn);
+      this.directLoanDecision = null;
+      this.loanDelegation = null;
+      this.loanDecisionPending = false;
+    }
+    if (this.directExtensionDecision) {
+      this.directExtensionRequestTurns.delete(this.directExtensionDecision.turn);
+      this.directExtensionDecision = null;
+      this.extensionDelegation = null;
+      this.extensionDecisionPending = false;
+    }
   }
 
   private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {

@@ -870,6 +870,38 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('invalidates a pending direct extension for a new turn and accepts the new request', async () => {
+    const first = deferred<'accept_extension_10s' | 'reject_extension' | 'no_request'>();
+    const second = deferred<'accept_extension_10s' | 'reject_extension' | 'no_request'>();
+    vi.mocked(chooseTimeExtension).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { session, messages } = setup('new-turn-direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(151);
+    const confirmedBefore = provider.confirmedLine.mock.calls.length;
+    provider.events?.onUserSpeech();
+    first.resolve('accept_extension_10s');
+    await first.promise;
+    expect(provider.confirmedLine).toHaveBeenCalledTimes(confirmedBefore);
+    expect(messages.some(message => message.type === 'time_extension')).toBe(false);
+    provider.events?.onTranscript('user', '延長して', { startMs: 301, endMs: 500 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(151);
+    expect(chooseTimeExtension).toHaveBeenCalledTimes(2);
+    second.resolve('accept_extension_10s');
+    await second.promise;
+    const [line, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
+    expect(line).toBe('しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？');
+    provider.events?.onSpeechAudioEnded(speechId as string);
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
   it('does not direct-route an extension that began before the final fifteen seconds', async () => {
     const { session } = setup('early-direct-extension', 'manual', 'audio');
     await session.initialize();
@@ -1024,6 +1056,34 @@ describe('live match cleanup', () => {
     first.resolve('accept_loan');
     await first.promise;
     expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    second.resolve('accept_loan');
+    await second.promise;
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('invalidates a pending direct loan for a new turn and accepts the new request', async () => {
+    const first = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
+    const second = deferred<'accept_loan' | 'reject_loan' | 'no_request'>();
+    vi.mocked(chooseLoanDecision).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { session, messages } = setup('new-turn-direct-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(251);
+    provider.events?.onUserSpeech();
+    first.resolve('accept_loan');
+    await first.promise;
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 301, endMs: 500 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(251);
+    expect(chooseLoanDecision).toHaveBeenCalledTimes(2);
     second.resolve('accept_loan');
     await second.promise;
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
