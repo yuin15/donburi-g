@@ -51,8 +51,12 @@ describe('rival upgrade choice', () => {
 });
 
 describe('time extension choice', () => {
-  it.each(['あと10秒ください', 'Give me ten more seconds', 'Can I have more time?'])('recognizes a late extension request: %s', (transcript) => {
+  it.each(['延長して', '10秒ちょうだい', 'Give me ten more seconds. I can still beat you!', 'Scared? Give me ten more seconds and prove it.'])('recognizes a completed extension request: %s', (transcript) => {
     expect(requestsTimeExtension(transcript)).toBe(true);
+  });
+
+  it.each(['あと10秒で終わるね', '時間延長はいらない', '延長しないで', "I don't need more time."])('does not mistake a status or a negated request for an extension: %s', (transcript) => {
+    expect(requestsTimeExtension(transcript)).toBe(false);
   });
 
   it('passes only bounded current match context and accepts the exact legal token', async () => {

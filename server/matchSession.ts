@@ -43,6 +43,7 @@ const MAX_SESSION_MS = 120_000;
 // A late start must still leave a full 60-second game inside Vercel's 180s budget.
 const MAX_LOBBY_MS = 90_000;
 const RESULT_REACTION_MS = 8_000;
+const EXTENSION_TRANSCRIPT_SETTLE_MS = 300;
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
@@ -87,6 +88,9 @@ export class MatchSession {
   private stopping: Promise<void> | null = null;
   private recentUserText = '';
   private currentUserText = '';
+  private extensionUtteranceEnded = false;
+  private extensionUtteranceEligible = false;
+  private extensionTranscriptSettle: NodeJS.Timeout | null = null;
   private recentConversation = '';
   /** Reservation happens at recognition so one spoken request cannot issue multiple decisions. */
   private extensionNegotiation = false;
@@ -166,7 +170,7 @@ export class MatchSession {
         }
       },
       onAudio: audio => {
-        if (!outputAllowed() || this.extensionDecisionPending) return;
+        if (!outputAllowed() || this.extensionDecisionPending || this.awaitingExtensionTranscript()) return;
         if (this.voiceMode === 'avatar') this.media?.speak(audio);
         else this.emit({ type: 'voice_audio', audio });
       },
@@ -177,25 +181,32 @@ export class MatchSession {
           this.currentUserText = `${this.currentUserText}${delta}`.slice(-500);
           this.recentConversation = `${this.recentConversation}P:${delta}`.slice(-900);
           this.reactions.conversationActivity();
-          this.maybeNegotiateTimeExtension();
+          this.scheduleExtensionTranscriptCheck();
         } else {
           this.recentConversation = `${this.recentConversation}R:${delta}`.slice(-900);
         }
         // While the authoritative decision is pending, do not display an untrusted
         // normal reply that could grant time before the match actually does.
-        if (role === 'assistant' && this.extensionDecisionPending) return;
+        if (role === 'assistant' && (this.extensionDecisionPending || this.awaitingExtensionTranscript())) return;
         this.emit({ type: 'transcript', role, delta });
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
+        this.clearExtensionTranscriptCheck();
         this.currentUserText = '';
+        this.extensionUtteranceEnded = false;
+        this.extensionUtteranceEligible = false;
         this.reactions.conversationActivity();
         if (this.voiceMode === 'avatar') this.media?.interrupt();
         this.emit({ type: 'voice_interrupt' });
       },
       onUserSpeechEnd: () => {
         if (!current() || resultOnly) return;
-        this.maybeNegotiateTimeExtension();
+        // Eligibility belongs to the completed utterance, not a late transcript.
+        this.tick();
+        this.extensionUtteranceEnded = true;
+        this.extensionUtteranceEligible = this.state.status === 'playing' && this.state.remaining <= 15;
+        this.scheduleExtensionTranscriptCheck();
       },
       onError: () => { if (current()) this.failVoice('gptLive'); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -252,6 +263,8 @@ export class MatchSession {
       this.releaseQuota = null;
       this.recentUserText = '';
       this.currentUserText = '';
+      this.extensionUtteranceEligible = false;
+      this.clearExtensionTranscriptCheck();
       this.recentConversation = '';
       this.emit({ type: 'voice_status', status: 'closed', message: reason });
       if (this.frontend.readyState === 1) this.frontend.close(1000, 'session_closed');
@@ -302,6 +315,8 @@ export class MatchSession {
     this.gpt = null;
     this.recentUserText = '';
     this.currentUserText = '';
+    this.extensionUtteranceEligible = false;
+    this.clearExtensionTranscriptCheck();
     this.recentConversation = '';
     this.voiceStopping = (async () => {
       await Promise.all([...this.closingBridges]);
@@ -555,9 +570,26 @@ export class MatchSession {
     }
   }
 
+  /** Transcript deltas can arrive after local VAD ends, so wait for a quiet 300ms. */
+  private scheduleExtensionTranscriptCheck(): void {
+    if (!this.extensionUtteranceEnded || !this.extensionUtteranceEligible || this.extensionNegotiation) return;
+    this.clearExtensionTranscriptCheck();
+    this.extensionTranscriptSettle = setTimeout(() => {
+      this.extensionTranscriptSettle = null;
+      this.maybeNegotiateTimeExtension();
+    }, EXTENSION_TRANSCRIPT_SETTLE_MS);
+  }
+
+  private clearExtensionTranscriptCheck(): void {
+    if (this.extensionTranscriptSettle) clearTimeout(this.extensionTranscriptSettle);
+    this.extensionTranscriptSettle = null;
+  }
+
   private maybeNegotiateTimeExtension(): void {
     if (
       this.extensionNegotiation
+      || !this.extensionUtteranceEnded
+      || !this.extensionUtteranceEligible
       || this.state.status !== 'playing'
       || this.state.extensionUsed
       || this.state.remaining > 15
@@ -571,6 +603,16 @@ export class MatchSession {
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
     void this.decideTimeExtension(this.currentUserText);
+  }
+
+  private awaitingExtensionTranscript(): boolean {
+    return !this.extensionNegotiation
+      && this.extensionTranscriptSettle !== null
+      && this.extensionUtteranceEnded
+      && this.extensionUtteranceEligible
+      && this.state.status === 'playing'
+      && this.state.remaining <= 15
+      && requestsTimeExtension(this.currentUserText);
   }
 
   private async decideTimeExtension(requestTranscript: string): Promise<void> {

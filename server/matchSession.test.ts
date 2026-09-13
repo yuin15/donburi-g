@@ -67,7 +67,7 @@ beforeEach(() => {
   provider.interruptWait.mockResolvedValue(true);
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
-  vi.mocked(requestsTimeExtension).mockImplementation((text: string) => /(?:延長|あと.*秒|more time)/i.test(text));
+  vi.mocked(requestsTimeExtension).mockImplementation((text: string) => /(?:延長して|あと10秒ください|more time)/i.test(text));
   vi.mocked(chooseTimeExtension).mockResolvedValue('reject_extension');
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -639,11 +639,18 @@ describe('live match cleanup', () => {
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(52_000);
-    provider.events?.onTranscript('user', 'あと10秒ください');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長');
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(299);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    // This last delta can arrive after the local 450ms VAD boundary.
+    provider.events?.onTranscript('user', 'して');
     provider.events?.onTranscript('assistant', '先に受け入れると言ってしまう返答');
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(300);
     const extension = messages.find((message): message is Extract<ServerMessage, { type: 'time_extension' }> => message.type === 'time_extension');
-    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), 'あと10秒ください', expect.stringContaining('P:あと10秒ください'), expect.any(AbortSignal));
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ remaining: expect.any(Number), scores: { player: expect.any(Number), rival: expect.any(Number) } }), '延長して', expect.stringContaining('P:延長'), expect.any(AbortSignal));
     expect(provider.suppress).toHaveBeenCalledOnce();
     expect(messages.some(message => message.type === 'transcript' && message.role === 'assistant' && message.delta.includes('先に受け入れる'))).toBe(false);
     expect(extension).toMatchObject({ decision: 'accepted', before: { duration: 60 }, after: { duration: 70 }, line: 'いいよ。あと10秒、見せてみな。' });
@@ -652,6 +659,36 @@ describe('live match cleanup', () => {
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(18_000);
     expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0 } });
+    await session.shutdown('test_finished');
+  });
+
+  it.each(['あと10秒で終わるね', '時間延長はいらない'])('does not reserve a negotiation for a completed non-request: %s', async (transcript) => {
+    const { session } = setup('not-an-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', transcript);
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(provider.suppress).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not reserve or suppress an extension request spoken before the final 15 seconds', async () => {
+    const { session, messages } = setup('early-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(40_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '延長して');
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(provider.suppress).not.toHaveBeenCalled();
+    provider.events?.onAudio('AAAA');
+    expect(messages.some(message => message.type === 'voice_audio' && message.audio === 'AAAA')).toBe(true);
     await session.shutdown('test_finished');
   });
 

@@ -9,10 +9,11 @@ interface ChoiceResult {
 
 export type TimeExtensionDecision = 'accept_extension_10s' | 'reject_extension';
 
-const EXTENSION_INTENT = /(?:延長|時間.{0,10}(?:ください|下さい|ほしい|欲しい|くれ|ちょうだい)|あと.{0,6}秒|10秒.{0,10}(?:追加|延長)|more time|extra time|extend (?:the )?time|ten more seconds|give me (?:another )?(?:ten|10) seconds|add (?:ten|10) seconds)/i;
+const EXTENSION_NEGATION = /(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;
+const EXTENSION_REQUEST = /(?:時間(?:を|の)?|タイム)?延長(?:を)?(?:して|してください|下さい|お願い(?:します)?|頼む|してほしい|して欲しい|してくれ|してちょうだい)|(?:あと|もう|さらに|追加で)?\s*(?:10|十)\s*秒(?:を)?(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して)?|ほしい|欲しい)|\b(?:give|grant|add|extend)\s+(?:me\s+)?(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:can i have|i need|let me have)\s+(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:give|grant|allow)\s+(?:me\s+)?(?:more|extra)\s+time\b|\bextend\s+(?:the\s+)?time\b/i;
 
 export function requestsTimeExtension(transcript: string): boolean {
-  return EXTENSION_INTENT.test(transcript);
+  return !EXTENSION_NEGATION.test(transcript) && EXTENSION_REQUEST.test(transcript);
 }
 
 function extractText(payload: Record<string, unknown>): string {
