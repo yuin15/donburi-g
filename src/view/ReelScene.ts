@@ -53,8 +53,6 @@ const fragmentShader = `
       gl_FragColor.rgb += vec3(.12,.55,1.)*rim*winning;
     }else{
       gl_FragColor.rgb *= 1.+.08*cellWinning*winning;
-      float line = (1.-smoothstep(.003,.018,abs(row-reelRow)))*cellWinning*winning;
-      gl_FragColor.rgb += vec3(1.6,.85,.22)*line;
     }
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -70,6 +68,7 @@ interface PendingSpin {
 
 export class ReelScene {
   private renderer: THREE.WebGLRenderer;
+  private effectsRenderer: THREE.WebGLRenderer | null = null;
   private scene = new THREE.Scene();
   private camera = new THREE.OrthographicCamera(0, STAGE_WIDTH, STAGE_HEIGHT, 0, 0.1, 3000);
   private materials: THREE.ShaderMaterial[] = [];
@@ -89,13 +88,15 @@ export class ReelScene {
   private cabinet: CabinetArt;
   private atlas: THREE.WebGLRenderTarget;
   private cabinetLight = new THREE.DirectionalLight(0xffe9c4, 3.5);
+  private readonly ambientLight = new THREE.AmbientLight(0xe5ebff, .35);
+  private readonly fillLight = new THREE.DirectionalLight(0xb8d7ff, .8);
   private loaded = 0;
   private lastRound: Record<Side, number> = { player: 0, rival: 0 };
   private upgradeKey = '|';
   private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
   private activeStrips = this.stagedStrips;
 
-  constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined) {
+  constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined, private readonly effectsHost?: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -103,12 +104,22 @@ export class ReelScene {
     this.renderer.toneMappingExposure = 1.15;
     Object.assign(this.renderer.domElement.style, { width: '100%', height: '100%', display: 'block' });
     host.append(this.renderer.domElement);
+    if (this.effectsHost) {
+      this.effectsRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      this.effectsRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      this.effectsRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.effectsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.effectsRenderer.toneMappingExposure = 1.15;
+      Object.assign(this.effectsRenderer.domElement.style, { width: '100%', height: '100%', display: 'block', pointerEvents: 'none' });
+      this.effectsHost.append(this.effectsRenderer.domElement);
+    }
     host.dataset.artReady = 'false';
     this.camera.position.z = 1200;
     this.scene.background = new THREE.Color(0x08090d);
     const background = this.load('/art/casino-room.webp');
     this.cabinet = new CabinetArt();
-    this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xe5ebff, .35));
+    if (this.effectsRenderer) this.cabinet.setEffectsLayer(1);
+    this.scene.add(this.cabinet.group, this.ambientLight);
     const key = this.cabinetLight;
     key.position.set(-300, 1200, 1000);
     key.target.position.set(520, 430, 0);
@@ -117,10 +128,13 @@ export class ReelScene {
     Object.assign(key.shadow.camera, { left: -780, right: 780, top: 650, bottom: -650, near: 10, far: 2600 });
     key.shadow.bias = -.0002; key.shadow.normalBias = .5; key.shadow.radius = 3;
     this.scene.add(key, key.target);
-    const fill = new THREE.DirectionalLight(0xb8d7ff, .8);
-    fill.position.set(1700, 650, 600);
-    fill.target.position.set(700, 450, 0);
-    this.scene.add(fill, fill.target);
+    this.fillLight.position.set(1700, 650, 600);
+    this.fillLight.target.position.set(700, 450, 0);
+    this.scene.add(this.fillLight, this.fillLight.target);
+    if (this.effectsRenderer) {
+      [this.ambientLight, this.cabinetLight, this.cabinetLight.target, this.fillLight, this.fillLight.target]
+        .forEach(light => light.layers.enable(1));
+    }
     this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, -600);
     this.portraitTexture = this.load('/art/rival-expressions.webp');
     this.portraitTexture.repeat.set(.5, .5);
@@ -401,7 +415,15 @@ export class ReelScene {
 
   stats(): { calls: number; triangles: number; textures: number; geometries: number; frames: number; loaded: boolean } {
     const { render, memory } = this.renderer.info;
-    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 2 };
+    const effects = this.effectsRenderer?.info;
+    return {
+      calls: render.calls + (effects?.render.calls ?? 0),
+      triangles: render.triangles + (effects?.render.triangles ?? 0),
+      textures: memory.textures + (effects?.memory.textures ?? 0),
+      geometries: memory.geometries + (effects?.memory.geometries ?? 0),
+      frames: render.frame + (effects?.render.frame ?? 0),
+      loaded: this.loaded === 2,
+    };
   }
 
   dispose(): void {
@@ -422,12 +444,15 @@ export class ReelScene {
     this.cabinetLight.shadow.dispose();
     this.cabinet.dispose();
     this.renderer.dispose();
+    this.effectsRenderer?.dispose();
+    this.effectsRenderer?.domElement.remove?.();
     this.host.replaceChildren();
   }
 
   private resize = (): void => {
     if (this.disposed) return;
     this.renderer.setSize(this.host.clientWidth || 1280, this.host.clientHeight || 720, false);
+    this.effectsRenderer?.setSize(this.host.clientWidth || 1280, this.host.clientHeight || 720, false);
     this.requestRender();
   };
 
@@ -484,7 +509,16 @@ export class ReelScene {
       const rows = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival', i % 3);
       material.uniforms.liftedRows.value.set(rows[0], rows[1], rows[2]);
     });
+    this.camera.layers.set(0);
     this.renderer.render(this.scene, this.camera);
+    if (this.effectsRenderer) {
+      const background = this.scene.background;
+      this.scene.background = null;
+      this.camera.layers.set(1);
+      this.effectsRenderer.render(this.scene, this.camera);
+      this.camera.layers.set(0);
+      this.scene.background = background;
+    }
     // Scores, speech and sound follow the actual settled frame.
     completions.forEach(complete => complete());
     if (this.pending.player || this.pending.rival || animating || (Number.isFinite(this.rivalWinUntil) && now < this.rivalWinUntil)) this.requestRender();

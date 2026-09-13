@@ -434,7 +434,11 @@ export class GameViewModel implements GameCommands {
   private handleSpin(spin: SpinView, upgrades = this.snapshot.upgrades): void {
     const confirmed = { ...spin, upgrades: [...(spin.upgrades ?? upgrades[spin.side])] };
     this.displayBalances[spin.side] = spin.total - spin.payout;
-    if (this.rounds.spin(confirmed) && spin.side === 'player') {
+    if (!this.rounds.spin(confirmed)) return;
+    if (spin.side === 'player') {
+      const lastSpin = { ...this.lastSpin };
+      delete lastSpin.player;
+      this.lastSpin = lastSpin;
       this.spinAnimating = true;
       this.spinPending = false;
       this.spinRequestId = undefined;

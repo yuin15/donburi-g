@@ -1,5 +1,4 @@
 import type { Bet, MatchSnapshot, SpinView, WinningLine } from '../../shared/protocol';
-import { ACTIVE_LINES } from '../domain/game';
 import { PAYOUT } from '../domain/game';
 import type { GameCommands, GamePresentation, GameSound, GameViewState } from '../viewmodel/GameViewState';
 import { GameAudio } from './GameAudio';
@@ -27,7 +26,7 @@ export class GameView implements GamePresentation {
       });
     }
     this.video = this.q<HTMLVideoElement>('#avatar');
-    this.scene = new ReelScene(this.q('#stageArt'), (side, column) => this.audio.reelStop(side, column));
+    this.scene = new ReelScene(this.q('#stageArt'), (side, column) => this.audio.reelStop(side, column), this.q('#stageEffects'));
   }
 
   private q<T extends HTMLElement = HTMLElement>(selector: string): T {
@@ -161,8 +160,9 @@ export class GameView implements GamePresentation {
       button.dataset.active = String(bet === selectedBet);
       button.disabled = state.mode === 'idle' || state.balances.player < bet;
     });
-    this.q('#lineOverlay').querySelectorAll<SVGPathElement>('path[data-line]').forEach(path => {
-      path.dataset.active = String(ACTIVE_LINES[selectedBet].includes(path.dataset.line as WinningLine));
+    const winningLines = state.result ? [] : state.lastSpin?.player?.winningLines ?? [];
+    this.q('#lineIndicators').querySelectorAll<HTMLElement>('[data-line]').forEach(indicator => {
+      indicator.dataset.winning = String(winningLines.includes(indicator.dataset.line as WinningLine));
     });
     this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;

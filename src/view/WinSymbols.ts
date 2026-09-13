@@ -25,6 +25,7 @@ export class WinSymbols {
     rival: [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
   };
   private readonly pose = new THREE.Object3D();
+  private effectsLayer = 0;
 
   constructor(environment: THREE.Texture) {
     this.source = createSymbolModels(environment);
@@ -79,6 +80,16 @@ export class WinSymbols {
   }
 
   reelInkHidden(side: Side, column: number): [number, number, number] { return this.obscured[side][column]; }
+
+  setEffectsLayer(layer: number): void {
+    this.effectsLayer = layer;
+    for (const side of ['player', 'rival'] as const) {
+      for (const kind of ['bell', 'cherry', 'seven'] as const) {
+        this.applyEffectsLayer(this.models[side][kind].group);
+        this.applyEffectsLayer(this.rewards[side][kind]);
+      }
+    }
+  }
 
   update(side: Side, cells: readonly WinningCell[], primary: WinSymbol | null, totalPayout: number, progress: number, reducedMotion: boolean, liftReels: boolean): void {
     const player = side === 'player';
@@ -141,6 +152,11 @@ export class WinSymbols {
     const caption = this.typography.make(payout >= PAYOUT.seven ? 'BIG WIN' : kind === 'bell' ? 'BELL WIN' : 'CHERRY WIN', player ? 20 : 13, player ? 220 : 160, 5);
     caption.position.set(0, player ? -44 : -29, 4);
     reward.add(number, caption);
+    this.applyEffectsLayer(reward);
+  }
+
+  private applyEffectsLayer(root: THREE.Object3D): void {
+    root.traverse(node => node.layers.set(this.effectsLayer));
   }
 
   dispose(): void {
