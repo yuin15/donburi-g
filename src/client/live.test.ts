@@ -94,7 +94,7 @@ async function socket() {
 function resultSnapshot() {
   return {
     matchId: 'test-match', status: 'result', round: 30, rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0,
-    scores: { player: 30, rival: 0 },
+    balances: { player: 100, rival: 100 }, bets: { player: 3, rival: 3 }, scores: { player: 1200, rival: 0 },
     stats: {
       player: { wins: { cherry: 0, bell: 0, seven: 1 }, bestSpin: { round: 30, payout: 30 } },
       rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null },
@@ -174,7 +174,7 @@ describe('browser live connection lifecycle', () => {
     ws.open(); ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' }); ws.message({ type: 'voice_status', status: 'ready' });
     await connection;
     const snapshot = resultSnapshot();
-    const lastSpin = { player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 30 }, rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } };
+    const lastSpin = { player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 1200 }, rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } };
     ws.sequence += 1; // The last spin was lost before it reached the listener.
     ws.message({ type: 'match_ended', snapshot });
     expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'snapshot' }));
@@ -208,7 +208,7 @@ describe('browser live connection lifecycle', () => {
     ws.message({
       type, snapshot: resultSnapshot(),
       ...(type === 'snapshot' ? { lastSpin: {
-        player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 30 },
+        player: { side: 'player', round: 30, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 1200 },
         rival: { side: 'rival', round: 30, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 },
       } } : {}),
     });
@@ -277,7 +277,7 @@ describe('browser live connection lifecycle', () => {
     expect(Socket.instances).toHaveLength(0);
   });
 
-  it.each(['avatar', 'server'])('keeps game messages and upgrades working after %s voice failure', async (source) => {
+  it.each(['avatar', 'server'])('keeps game messages and BET changes working after %s voice failure', async (source) => {
     const instance = client();
     const disconnected = vi.fn();
     const received: unknown[] = [];
@@ -297,12 +297,13 @@ describe('browser live connection lifecycle', () => {
     expect(disconnected).not.toHaveBeenCalled();
     expect(ws.close).not.toHaveBeenCalled();
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'voice_close' }));
-    instance.send({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot' });
-    expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'upgrade', commandId: 'test-upgrade', offerIndex: 1, upgradeId: 'jackpot', matchId: 'test-match' }));
+    const betId = instance.setBet(5);
+    expect(betId).toBeDefined();
+    expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'set_bet', commandId: betId, bet: 5, matchId: 'test-match' }));
     const spinId = instance.sendSpin();
     expect(spinId).toBeDefined();
     expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'spin', commandId: spinId, matchId: 'test-match' });
-    const snapshot = { matchId: 'test-match', status: 'result', round: 30, rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, scores: { player: 0, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
+    const snapshot = { matchId: 'test-match', status: 'result', round: 30, rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, balances: { player: 100, rival: 100 }, bets: { player: 3, rival: 3 }, scores: { player: 0, rival: 0 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } }, upgrades: { player: [], rival: [] }, eventSeq: 30, winner: 'draw' };
     ws.message({ type: 'match_ended', snapshot });
     expect(received).toContainEqual({ type: 'match_ended', snapshot });
     await instance.disconnect();

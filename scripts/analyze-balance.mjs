@@ -1,53 +1,37 @@
-import { createMatch, startMatch, advanceMatch, submitUpgrade } from '../src/domain/game.ts';
+const BETS = [1, 3, 5];
+const strip = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'];
+const lines = { 1: [[1, 1, 1]], 3: [[0, 0, 0], [1, 1, 1], [2, 2, 2]], 5: [[0, 0, 0], [1, 1, 1], [2, 2, 2], [0, 1, 2], [2, 1, 0]] };
+const payout = { cherry: 3, bell: 6, seven: 30 };
+const cell = index => strip[(index + strip.length) % strip.length];
+const gridFromStops = stops => [[cell(stops[0] - 1), cell(stops[1] - 1), cell(stops[2] - 1)], [cell(stops[0]), cell(stops[1]), cell(stops[2])], [cell(stops[0] + 1), cell(stops[1] + 1), cell(stops[2] + 1)]];
+const evaluateGrid = (grid, bet) => {
+  const winningLines = lines[bet].filter(([a, b, c]) => grid[a][0] === grid[b][1] && grid[b][1] === grid[c][2]);
+  return { winningLines, payout: winningLines.reduce((sum, [row]) => sum + payout[grid[row][0]], 0) };
+};
 
-const strategies = { SS: ['steady', 'steady'], SJ: ['steady', 'jackpot'], JS: ['jackpot', 'steady'], JJ: ['jackpot', 'jackpot'] };
-const samples = 10_000;
-const seedAt = (index) => Math.imul(index, 0x9e3779b1) >>> 0;
-
-function play(seed, player, rival) {
-  // Historical upgrade balance only; current public matches have no upgrades.
-  const state = createMatch(seed, 'balance-analysis', 'automatic', { upgrades: true });
-  startMatch(state);
-  for (const [index, time] of [[0, 20], [1, 40]]) {
-    advanceMatch(state, time);
-    submitUpgrade(state, 'player', index, player[index]);
-    submitUpgrade(state, 'rival', index, rival[index]);
-  }
-  advanceMatch(state, 50);
-  const at50 = { ...state.scores };
-  advanceMatch(state, 60);
-  return { state, at50 };
-}
-
-console.log('10,000 hashed seeds per matchup, both seat assignments (20,000 matches/cell). Draws excluded from win counts, not from denominator.');
-for (const [a, strategyA] of Object.entries(strategies)) {
-  for (const [b, strategyB] of Object.entries(strategies)) {
-    let wins = 0, draws = 0, comeback = 0;
-    const scoresA = [], scoresB = [];
-    for (let i = 1; i <= samples; i++) {
-      for (const swap of [false, true]) {
-        const { state, at50 } = play(seedAt(i), swap ? strategyB : strategyA, swap ? strategyA : strategyB);
-        const sideA = swap ? 'rival' : 'player', sideB = swap ? 'player' : 'rival';
-        const scoreA = state.scores[sideA], scoreB = state.scores[sideB];
-        scoresA.push(scoreA); scoresB.push(scoreB);
-        if (scoreA > scoreB) { wins++; if (at50[sideA] < at50[sideB]) comeback++; }
-        if (scoreA === scoreB) draws++;
-      }
-    }
-    const mean = (scores) => scores.reduce((sum, score) => sum + score, 0) / scores.length;
-    scoresA.sort((x, y) => x - y);
-    console.log(JSON.stringify({ matchup: `${a}/${b}`, matches: samples * 2, win: wins / (samples * 2), draw: draws / (samples * 2), comeback: comeback / (samples * 2), mean: mean(scoresA), opponentMean: mean(scoresB), p10: scoresA[samples * .2], median: scoresA[samples], p90: scoresA[samples * 1.8] }));
+const outcomes = [];
+for (let a = 0; a < 9; a += 1) {
+  for (let b = 0; b < 9; b += 1) {
+    for (let c = 0; c < 9; c += 1) outcomes.push(gridFromStops([a, b, c]));
   }
 }
 
-const found = new Set();
-for (let i = 1; i <= samples && found.size < 4; i++) {
-  const seed = seedAt(i);
-  const { state, at50 } = play(seed, strategies.SS, strategies.JJ);
-  const types = [state.winner];
-  if (at50.player < at50.rival && state.winner === 'player') types.push('comeback');
-  for (const type of types) if (!found.has(type)) {
-    found.add(type);
-    console.log(JSON.stringify({ fixture: type, seed, at50, scores: state.scores }));
-  }
+console.log(JSON.stringify({ method: 'all 729 independent strip stops', payout: { cherry: 3, bell: 6, seven: 30 } }));
+for (const bet of BETS) {
+  const spins = outcomes.map(grid => evaluateGrid(grid, bet));
+  const payouts = spins.map(spin => spin.payout);
+  const mean = payouts.reduce((sum, payout) => sum + payout, 0) / payouts.length;
+  const variance = payouts.reduce((sum, payout) => sum + (payout - mean) ** 2, 0) / payouts.length;
+  const hits = spins.filter(spin => spin.payout > 0).length;
+  const multi = spins.filter(spin => spin.winningLines.length > 1).length;
+  console.log(JSON.stringify({
+    bet,
+    expectedPayout: mean,
+    expectedReturn: mean / bet,
+    expectedNet: mean - bet,
+    hitRate: hits / spins.length,
+    multiLineRate: multi / spins.length,
+    maxPayout: Math.max(...payouts),
+    standardDeviation: Math.sqrt(variance),
+  }));
 }

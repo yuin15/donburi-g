@@ -1,5 +1,4 @@
 /* The payout sits on the lower cabinet: all three rows remain readable. */
-.duel-gap{border:1px solid #a07c4477;border-radius:99px;background:linear-gradient(90deg,#0a0802cc,#090b12ed,#0a0802cc);box-shadow:0 2px 5px #0008;letter-spacing:.1em}
 .scores strong{transform-origin:80% 60%}
 #rivalPay{font-size:2.9cqw}
 #start[data-spin=queued]{box-shadow:inset 0 0 20px #ffcf7dcc,0 0 18px #ffa64755}

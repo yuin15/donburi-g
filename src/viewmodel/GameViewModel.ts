@@ -1,9 +1,9 @@
-import type { MatchSnapshot, ServerMessage, Side, SpinView, UpgradeId } from '../../shared/protocol';
+import type { Bet, MatchSnapshot, ServerMessage, Side, SpinView, UpgradeId } from '../../shared/protocol';
 import { upgradePrice } from '../../shared/shop';
 import type { LiveSession } from '../client/LiveSession';
 import type { AiConnectionState, AiProvider, AiRuntimeEvent } from '../client/AiStatus';
 import {
-  advanceMatch, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, SPIN_COST,
+  advanceMatch, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, setBet,
   startMatch, purchaseUpgrade, type GameEvent, type MatchState,
 } from '../domain/game';
 import { RoundPresentation } from './RoundPresentation';
@@ -46,6 +46,7 @@ export class GameViewModel implements GameCommands {
   private result: MatchSnapshot | null = null;
   private sessionRecord = { best: 0, streak: 0, newBest: false };
   private lastSpin: GameViewState['lastSpin'] = null;
+  private displayBalances: Record<Side, number> = { player: 30, rival: 30 };
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private line = INITIAL_LINE;
@@ -66,6 +67,7 @@ export class GameViewModel implements GameCommands {
   private spinAnimating = false;
   private spinNextAt = 0;
   private spinRequestId: string | undefined;
+  private betRequestId: string | undefined;
   private practiceTimer: number | undefined;
   private spinQueueTimer: number | undefined;
   private spinRequestTimer: number | undefined;
@@ -86,7 +88,6 @@ export class GameViewModel implements GameCommands {
       settled: (spin, celebrate) => this.revealSpin(spin, celebrate),
       ended: snapshot => this.finishPresentation(snapshot),
     });
-    this.rounds.reset(this.snapshot.scores);
     this.published = this.buildState();
   }
 
@@ -169,18 +170,28 @@ export class GameViewModel implements GameCommands {
 
   requestSpin(): void {
     if (this.disposed || !this.isPlaying()) return;
-    if (this.snapshot.scores.player < SPIN_COST) { this.spinQueued = false; this.emit(); return; }
-    if (this.spinPending || this.spinAnimating || this.deps.clock.now() < this.spinNextAt) {
-      this.spinQueued = true;
-      this.emit();
-      this.flushSpinQueue();
-    } else this.performManualSpin();
+    if (this.betRequestId || this.spinPending || this.spinAnimating || this.deps.clock.now() < this.spinNextAt) return;
+    this.performManualSpin();
+  }
+
+  setBet(bet: Bet): void {
+    if (this.disposed) return;
+    if (this.mode === 'practice' && this.practiceState && setBet(this.practiceState, 'player', bet)) {
+      this.consumeSnapshot(getSnapshot(this.practiceState));
+    } else if (this.mode === 'live' && this.liveSession && !this.betRequestId) {
+      const commandId = this.liveSession.setBet?.(bet);
+      if (!commandId) return;
+      this.betRequestId = commandId;
+      this.snapshot = { ...this.snapshot, bets: { ...this.snapshot.bets, player: bet } };
+      this.liveSnapshot = this.snapshot;
+    }
+    this.emit();
   }
 
   purchaseUpgrade(id: UpgradeId): void {
     if (this.disposed || !this.isPlaying()) return;
     const price = upgradePrice(this.snapshot.upgrades.player, id);
-    if (price === null || Math.min(this.snapshot.scores.player, this.rounds.scores.player) < price) return;
+    if (price === null || Math.min(this.snapshot.scores.player, this.displayBalances.player) < price) return;
     const expectedCount = this.snapshot.upgrades.player.filter(value => value === id).length;
     if (this.practiceState) {
       this.processPracticeEvents(advanceMatch(this.practiceState, this.practiceElapsed()));
@@ -304,6 +315,7 @@ export class GameViewModel implements GameCommands {
     this.deps.presentation.stopSound();
     this.practiceState = null;
     this.liveSnapshot = null;
+    this.betRequestId = undefined;
     this.voiceReady = false;
     this.micActive = false;
     this.micLevel = 0;
@@ -324,10 +336,11 @@ export class GameViewModel implements GameCommands {
   private resetBattle(): void {
     this.clearTimers();
     this.clearSpinInput();
+    this.rounds.reset();
     this.deps.presentation.stopSound();
     this.deps.presentation.resetScene();
     this.snapshot = getSnapshot(createMatch(1, 'preview'));
-    this.rounds.reset(this.snapshot.scores);
+    this.displayBalances = { ...this.snapshot.balances };
     this.liveReelUpgrades = { player: [], rival: [] };
     this.result = null;
     this.sessionRecord.newBest = false;
@@ -384,8 +397,14 @@ export class GameViewModel implements GameCommands {
     }
   }
 
-  private consumeSnapshot(snapshot: MatchSnapshot): void {
+  private syncPurchases(snapshot: MatchSnapshot): void {
+    const previous = this.rounds.scores.player;
     this.rounds.syncPurchases(snapshot.upgradeSpent ?? 0);
+    this.displayBalances.player += this.rounds.scores.player - previous;
+  }
+
+  private consumeSnapshot(snapshot: MatchSnapshot): void {
+    this.syncPurchases(snapshot);
     this.snapshot = snapshot;
     if (snapshot.status === 'playing' || snapshot.status === 'result' || snapshot.status === 'aborted') this.awaitingStart = false;
     if (snapshot.status === 'playing') {
@@ -439,7 +458,15 @@ export class GameViewModel implements GameCommands {
 
   private handleSpin(spin: SpinView, upgrades = this.snapshot.upgrades): void {
     const confirmed = { ...spin, upgrades: [...(spin.upgrades ?? upgrades[spin.side])] };
-    if (this.rounds.spin(confirmed) && spin.side === 'player') {
+    if (!this.rounds.spin(confirmed)) return;
+    // `play` may settle synchronously. Read the presentation's authoritative
+    // current value so an accepted spin shows its paid BET before stopping, but
+    // a synchronous stop remains at its confirmed total.
+    this.displayBalances[spin.side] = this.rounds.scores[spin.side];
+    if (spin.side === 'player') {
+      const lastSpin = { ...this.lastSpin };
+      delete lastSpin.player;
+      this.lastSpin = lastSpin;
       this.spinAnimating = true;
       this.spinPending = false;
       this.spinRequestId = undefined;
@@ -453,7 +480,10 @@ export class GameViewModel implements GameCommands {
     const side = spin.side;
     if (side === 'player') this.spinAnimating = false;
     this.lastSpin = { ...this.lastSpin, [side]: spin };
-    const scores = this.rounds.scores;
+    this.displayBalances[side] = this.rounds.scores[side];
+    // RoundPresentation starts at zero so it can wait for both reel stops. The
+    // bankroll already includes the untouched side's starting cash and the paid BET.
+    const scores = this.displayBalances;
     const leader = scores.player > scores.rival ? 'player' : scores.player < scores.rival ? 'rival' : null;
     const settled = this.rounds.isSettled;
     const comeback = settled && leader && this.previousLeader && leader !== this.previousLeader;
@@ -475,7 +505,6 @@ export class GameViewModel implements GameCommands {
       else if (spin.payout) this.deps.presentation.playSound(side === 'player' ? 'win' : 'rivalWin');
     }
     this.emit();
-    if (side === 'player') this.flushSpinQueue();
   }
 
   private clearPayout(side: Side): void {
@@ -595,15 +624,19 @@ export class GameViewModel implements GameCommands {
   }
 
   private onLiveMessage(message: ServerMessage): void {
-    if (message.type === 'spin_status') {
+    if (message.type === 'bet_status') {
+      if (message.commandId !== this.betRequestId) return;
+      this.betRequestId = undefined;
+      this.snapshot = { ...this.snapshot, bets: { ...this.snapshot.bets, player: message.bet } };
+      this.liveSnapshot = this.snapshot;
+    } else if (message.type === 'spin_status') {
       if (message.commandId !== this.spinRequestId) return;
       if (!message.accepted) {
         this.cancelTimer(this.spinRequestTimer);
         this.spinRequestId = undefined;
         this.spinPending = false;
-        this.spinQueued = message.retryAfterMs > 0 && this.isPlaying();
+        this.spinQueued = false;
         this.spinNextAt = this.deps.clock.now() + message.retryAfterMs + 10;
-        this.flushSpinQueue();
       }
     } else if (message.type === 'voice_status') {
       this.connectionText = message.status === 'ready' ? 'VOICE READY' : message.status === 'connecting' ? 'Connecting voice…' : message.status === 'closed' ? 'Voice closed' : message.message ?? 'Voice unavailable';
@@ -621,7 +654,7 @@ export class GameViewModel implements GameCommands {
       this.liveSnapshot = message.snapshot;
       this.liveReelUpgrades = { player: [...message.snapshot.upgrades.player], rival: [...message.snapshot.upgrades.rival] };
       const last = message.lastSpins ?? message.lastSpin;
-      this.rounds.syncPurchases(message.snapshot.upgradeSpent ?? 0);
+      this.syncPurchases(message.snapshot);
       if (last) for (const side of ['player', 'rival'] as const) {
         if (last[side]) this.handleSpin(last[side], message.snapshot.upgrades);
       }
@@ -694,18 +727,17 @@ export class GameViewModel implements GameCommands {
 
   private buildState(): GameViewState {
     const now = this.deps.clock.now();
-    const scores = { ...this.rounds.scores };
+    const scores = { ...this.displayBalances };
     const gap = scores.player - scores.rival;
     const playing = this.isPlaying();
-    const busy = this.spinPending || this.spinAnimating || now < this.spinNextAt;
-    const noFunds = this.snapshot.scores.player < SPIN_COST;
-    const spinState = playing ? noFunds ? null : this.spinQueued ? 'queued' : busy ? 'spinning' : 'ready' : null;
-    const hint = playing ? noFunds ? 'NO FUNDS · WATCH RIVAL' : this.spinQueued ? 'NEXT SPIN QUEUED' : busy ? 'PRESS AGAIN TO QUEUE' : 'CLICK / SPACE TO SPIN' : this.snapshot.status === 'result' ? `YOU ${this.snapshot.rounds.player} SPINS · RIVAL ${this.snapshot.rounds.rival} SPINS` : 'CLICK / SPACE TO SPIN';
+    const busy = !!this.betRequestId || this.spinPending || this.spinAnimating || now < this.spinNextAt;
+    const spinState = playing ? busy ? 'spinning' : 'ready' : null;
+    const hint = playing ? busy ? 'WAIT FOR REELS TO STOP' : 'CLICK / SPACE TO SPIN' : this.snapshot.status === 'result' ? `YOU ${this.snapshot.rounds.player} SPINS · RIVAL ${this.snapshot.rounds.rival} SPINS` : 'CLICK / SPACE TO SPIN';
     const finalStopping = this.snapshot.status === 'result' && !this.result;
-    const disabled = playing ? noFunds : this.mode === 'idle' || this.connecting || this.starting || this.awaitingStart || finalStopping || (this.mode === 'live' && !this.gameConnected);
-    const label = playing ? noFunds ? 'NO FUNDS' : 'SPIN' : finalStopping ? 'LAST SPIN' : this.result ? 'REMATCH' : this.connecting || this.starting || this.awaitingStart ? 'READY…' : 'PLAY';
+    const disabled = playing ? busy : this.mode === 'idle' || this.connecting || this.starting || this.awaitingStart || finalStopping || (this.mode === 'live' && !this.gameConnected);
+    const label = playing ? 'SPIN' : finalStopping ? 'LAST SPIN' : this.result ? 'REMATCH' : this.connecting || this.starting || this.awaitingStart ? 'READY…' : 'PLAY';
     return {
-      mode: this.mode, snapshot: structuredClone(this.snapshot), scores, lastSpin: this.lastSpin ? structuredClone(this.lastSpin) : null,
+      mode: this.mode, snapshot: structuredClone(this.snapshot), scores, balances: { ...this.snapshot.balances }, bets: { ...this.snapshot.bets }, lastSpin: this.lastSpin ? structuredClone(this.lastSpin) : null,
       gate: { visible: this.gateVisible, message: this.gateMessage, connecting: this.connecting },
       connection: { text: this.connectionText, voiceReady: this.voiceReady, showVideo: this.voiceReady && this.videoEnabled, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
       modeBadge: { text: this.mode === 'idle' ? 'CPU DUEL' : this.voiceReady ? 'LIVE AI' : 'CPU DUEL', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },

@@ -1,4 +1,4 @@
-import type { MatchSnapshot, Side, SpinView, UpgradeId } from '../../shared/protocol';
+import type { Bet, MatchSnapshot, Side, SpinView, UpgradeId } from '../../shared/protocol';
 import type { LiveSessionFactory } from '../client/LiveSession';
 import type { AiConnectionState } from '../client/AiStatus';
 
@@ -11,6 +11,8 @@ export interface GameViewState {
   readonly mode: GameMode;
   readonly snapshot: MatchSnapshot;
   readonly scores: Readonly<Record<Side, number>>;
+  readonly balances: Readonly<Record<Side, number>>;
+  readonly bets: Readonly<Record<Side, Bet>>;
   readonly lastSpin: Partial<Record<Side, SpinView>> | null;
   readonly gate: { readonly visible: boolean; readonly message: string; readonly connecting: boolean };
   readonly connection: { readonly text: string; readonly voiceReady: boolean; readonly showVideo: boolean; readonly showVoiceControls: boolean };
@@ -75,6 +77,7 @@ export interface GameCommands {
   connectLive(inviteCode: string, video?: boolean): Promise<void>;
   requestSpin(): void;
   purchaseUpgrade(id: UpgradeId): void;
+  setBet(bet: Bet): void;
   leave(): void;
   toggleVoiceMuted(): void;
   toggleMicMuted(): void;

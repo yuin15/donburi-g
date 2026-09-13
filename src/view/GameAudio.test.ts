@@ -42,6 +42,20 @@ it('does not allocate audio until an explicit unlock', async () => {
   audio.dispose();
 });
 
+it('plays the BET switch click through the existing effects master', async () => {
+  const audio = new GameAudio();
+  audio.betClick();
+  expect(contexts).toHaveLength(0);
+  await audio.unlock();
+  audio.betClick();
+  expect(contexts[0].oscillators).toHaveLength(2);
+  expect(contexts[0].oscillators.map(node => node.type)).toEqual(['triangle', 'square']);
+  audio.setMuted(true);
+  audio.betClick();
+  expect(contexts[0].oscillators).toHaveLength(2);
+  audio.dispose();
+});
+
 it('mutes and cancels scheduled cues, then retains mute across restart', async () => {
   const audio = new GameAudio();
   await audio.unlock();

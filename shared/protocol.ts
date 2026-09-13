@@ -2,9 +2,17 @@ export type VoiceMode = 'audio' | 'avatar';
 export type AiProvider = 'gptLive' | 'liveAvatar';
 export type AiProviderState = 'connecting' | 'connected' | 'failed' | 'closed';
 export type Side = 'player' | 'rival';
-export type UpgradeId = 'steady' | 'jackpot';
 export type SymbolId = 'cherry' | 'bell' | 'seven';
+/** Deprecated #114 API shape. New matches never offer upgrades. */
+export type UpgradeId = 'steady' | 'jackpot';
 export type UpgradeOfferIndex = 0 | 1;
+export type Bet = 1 | 3 | 5;
+export type WinningLine = 'middle' | 'top' | 'bottom' | 'diagonalDown' | 'diagonalUp';
+export type ReelGrid = [
+  [SymbolId, SymbolId, SymbolId],
+  [SymbolId, SymbolId, SymbolId],
+  [SymbolId, SymbolId, SymbolId],
+];
 
 export const MATCH_SECONDS = 60;
 export const MANUAL_SPIN_INTERVAL = 1.1;
@@ -21,7 +29,12 @@ export type MatchStats = Record<Side, SideStats>;
 export interface SpinView {
   round: number;
   side: Side;
+  /** The centre row is retained for older display adapters. */
   symbols: [SymbolId, SymbolId, SymbolId];
+  grid?: ReelGrid;
+  stops?: [number, number, number];
+  bet?: Bet;
+  winningLines?: WinningLine[];
   payout: number;
   total: number;
   upgradeSpent?: number;
@@ -35,6 +48,9 @@ export interface MatchSnapshot {
   remaining: number;
   round: number;
   rounds: Record<Side, number>;
+  balances: Record<Side, number>;
+  bets: Record<Side, Bet>;
+  /** Compatibility projection for older clients; always equal to balances. */
   scores: Record<Side, number>;
   stats: MatchStats;
   upgradeSpent?: number;
@@ -47,6 +63,7 @@ export type ClientMessage =
   | { type: 'purchase'; commandId: string; matchId: string; upgradeId: UpgradeId; expectedCount: number }
   | { type: 'start' }
   | { type: 'spin'; commandId: string; matchId: string }
+  | { type: 'set_bet'; commandId: string; bet: Bet; matchId: string }
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }
   | { type: 'mic'; audio: string }
   | { type: 'voice_close' }
@@ -64,6 +81,7 @@ export type ServerMessage =
   | { type: 'spin'; player: SpinView; rival: SpinView }
   | { type: 'side_spin'; spin: SpinView }
   | { type: 'spin_status'; commandId: string; accepted: boolean; retryAfterMs: number }
+  | { type: 'bet_status'; commandId: string; accepted: boolean; bet: Bet }
   | { type: 'upgrade_offer'; offerIndex: UpgradeOfferIndex; closesAtElapsed: number }
   | { type: 'upgrade_applied'; offerIndex: UpgradeOfferIndex; player: UpgradeId; rival: UpgradeId }
   | { type: 'rival_line'; text: string; reason: string }

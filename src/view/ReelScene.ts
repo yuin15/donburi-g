@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import type { Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
+import { PAYOUT } from '../domain/game';
 import { CabinetArt } from './CabinetArt';
-import { planTravel, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
+import { planTravel, planTravelToStop, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
 import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
 import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
-import { PAYOUT } from '../domain/game';
+import type { WinningCell } from './WinSymbols';
 
 export type RivalExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
 const EXPRESSIONS: RivalExpression[] = ['neutral', 'confident', 'surprised', 'frustrated'];
@@ -14,7 +15,8 @@ const fragmentShader = `
   uniform sampler2D atlas;
   uniform float offset;
   uniform float winning;
-  uniform float lifted;
+  uniform vec3 winningRows;
+  uniform vec3 liftedRows;
   uniform float mini;
   uniform float cellAspect;
   uniform float stripLength;
@@ -33,8 +35,10 @@ const fragmentShader = `
     vec4 ivory = texture2D(atlas,vec2(.002,.99));
     vec4 ink = texture2D(atlas,vec2((symbol+clamp(x,.003,.997))/3.,1.-cell));
     float inside = step(0.,x)*step(x,1.);
-    float centerCell = 1.-smoothstep(.43,.5,abs(row));
-    gl_FragColor = mix(ivory,ink,inside*(1.-centerCell*lifted));
+    float reelRow = floor(row + .5);
+    float lifted = reelRow < -.5 ? liftedRows.x : reelRow > .5 ? liftedRows.z : liftedRows.y;
+    float cellWinning = reelRow < -.5 ? winningRows.x : reelRow > .5 ? winningRows.z : winningRows.y;
+    gl_FragColor = mix(ivory,ink,inside*(1.-lifted));
     // A soft proximity shadow grounds the raised mesh in its recessed reel well.
     vec2 shadowPosition = vec2((x-.54)*2.5,(row-.12)*2.3);
     gl_FragColor.rgb *= 1.-exp(-dot(shadowPosition,shadowPosition)*2.2)*lifted*.31;
@@ -45,12 +49,10 @@ const fragmentShader = `
     if(mini>.5){
       float border = min(min(vUv.x,1.-vUv.x),min(vUv.y,1.-vUv.y));
       float rim = 1.-smoothstep(.025,.11,border);
-      gl_FragColor.rgb *= 1.+.05*center*winning;
+      gl_FragColor.rgb *= 1.+.05*cellWinning*winning;
       gl_FragColor.rgb += vec3(.12,.55,1.)*rim*winning;
     }else{
-      gl_FragColor.rgb *= 1.+.08*center*winning;
-      float line = (1.-smoothstep(.003,.018,abs(row)))*winning;
-      gl_FragColor.rgb += vec3(1.6,.85,.22)*line;
+      gl_FragColor.rgb *= 1.+.08*cellWinning*winning;
     }
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -66,6 +68,7 @@ interface PendingSpin {
 
 export class ReelScene {
   private renderer: THREE.WebGLRenderer;
+  private effectsRenderer: THREE.WebGLRenderer | null = null;
   private scene = new THREE.Scene();
   private camera = new THREE.OrthographicCamera(0, STAGE_WIDTH, STAGE_HEIGHT, 0, 0.1, 3000);
   private materials: THREE.ShaderMaterial[] = [];
@@ -85,13 +88,15 @@ export class ReelScene {
   private cabinet: CabinetArt;
   private atlas: THREE.WebGLRenderTarget;
   private cabinetLight = new THREE.DirectionalLight(0xffe9c4, 3.5);
+  private readonly ambientLight = new THREE.AmbientLight(0xe5ebff, .35);
+  private readonly fillLight = new THREE.DirectionalLight(0xb8d7ff, .8);
   private loaded = 0;
   private lastRound: Record<Side, number> = { player: 0, rival: 0 };
   private upgradeKey = '|';
   private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
   private activeStrips = this.stagedStrips;
 
-  constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined) {
+  constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined, private readonly effectsHost?: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -99,12 +104,22 @@ export class ReelScene {
     this.renderer.toneMappingExposure = 1.15;
     Object.assign(this.renderer.domElement.style, { width: '100%', height: '100%', display: 'block' });
     host.append(this.renderer.domElement);
+    if (this.effectsHost) {
+      this.effectsRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+      this.effectsRenderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+      this.effectsRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.effectsRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.effectsRenderer.toneMappingExposure = 1.15;
+      Object.assign(this.effectsRenderer.domElement.style, { width: '100%', height: '100%', display: 'block', pointerEvents: 'none' });
+      this.effectsHost.append(this.effectsRenderer.domElement);
+    }
     host.dataset.artReady = 'false';
     this.camera.position.z = 1200;
     this.scene.background = new THREE.Color(0x08090d);
     const background = this.load('/art/casino-room.webp');
     this.cabinet = new CabinetArt();
-    this.scene.add(this.cabinet.group, new THREE.AmbientLight(0xe5ebff, .35));
+    if (this.effectsRenderer) this.cabinet.setEffectsLayer(1);
+    this.scene.add(this.cabinet.group, this.ambientLight);
     const key = this.cabinetLight;
     key.position.set(-300, 1200, 1000);
     key.target.position.set(520, 430, 0);
@@ -113,10 +128,13 @@ export class ReelScene {
     Object.assign(key.shadow.camera, { left: -780, right: 780, top: 650, bottom: -650, near: 10, far: 2600 });
     key.shadow.bias = -.0002; key.shadow.normalBias = .5; key.shadow.radius = 3;
     this.scene.add(key, key.target);
-    const fill = new THREE.DirectionalLight(0xb8d7ff, .8);
-    fill.position.set(1700, 650, 600);
-    fill.target.position.set(700, 450, 0);
-    this.scene.add(fill, fill.target);
+    this.fillLight.position.set(1700, 650, 600);
+    this.fillLight.target.position.set(700, 450, 0);
+    this.scene.add(this.fillLight, this.fillLight.target);
+    if (this.effectsRenderer) {
+      [this.ambientLight, this.cabinetLight, this.cabinetLight.target, this.fillLight, this.fillLight.target]
+        .forEach(light => light.layers.enable(1));
+    }
     this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, -600);
     this.portraitTexture = this.load('/art/rival-expressions.webp');
     this.portraitTexture.repeat.set(.5, .5);
@@ -134,7 +152,7 @@ export class ReelScene {
       const cells = new Float32Array(MAX_REEL_STRIP_LENGTH);
       cells.set(strip.map(symbol => SYMBOLS.indexOf(symbol)));
       const material = new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(SYMBOLS[i % 3], strip) }, winning: { value: 0 }, lifted: { value: 0 }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h }, stripLength: { value: strip.length }, strip: { value: cells } },
+        uniforms: { atlas: { value: atlas }, offset: { value: settledOffset(SYMBOLS[i % 3], strip) }, winning: { value: 0 }, winningRows: { value: new THREE.Vector3() }, liftedRows: { value: new THREE.Vector3() }, mini: { value: i >= 3 ? 1 : 0 }, cellAspect: { value: rect.w / rect.h }, stripLength: { value: strip.length }, strip: { value: cells } },
         vertexShader, fragmentShader,
       });
       const geometry = new THREE.PlaneGeometry(rect.w, rect.h, 1, i >= 3 ? 1 : 32);
@@ -233,7 +251,9 @@ export class ReelScene {
     const start = side === 'player' ? 0 : 3;
     this.pending[side] = {
       spin, complete, started: performance.now(), stoppedColumns: 0,
-      travel: spin.symbols.map((symbol, i) => planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
+      travel: spin.symbols.map((symbol, i) => spin.stops
+        ? planTravelToStop(this.materials[start + i].uniforms.offset.value, spin.stops[i], i, this.activeStrips[side === 'player' ? 0 : 1])
+        : planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
     };
     this.updateSpinning();
     this.requestRender();
@@ -265,7 +285,34 @@ export class ReelScene {
     this.host.dataset.playerRound = this.host.dataset.rivalRound = '0';
     [...symbols, ...rival].forEach((symbol, i) => { this.materials[i].uniforms.offset.value = settledOffset(symbol, this.activeStrips[i < 3 ? 0 : 1]); });
     this.updateSpinning();
-    this.flash(payout, still, rivalPayout);
+    const playerSpin: SpinView = { side: 'player', round: 0, symbols, grid: [symbols, symbols, symbols], winningLines: payout > 0 ? ['middle'] : [], payout, total: payout };
+    const rivalSpin: SpinView = { side: 'rival', round: 0, symbols: rival, grid: [rival, rival, rival], winningLines: rivalPayout > 0 ? ['middle'] : [], payout: rivalPayout, total: rivalPayout };
+    this.flashSide('player', payout, still, playerSpin);
+    this.flashSide('rival', rivalPayout, still, rivalSpin);
+    this.requestRender();
+  }
+
+  /** DEV review preview using the same authoritative stops as a confirmed spin. */
+  showSpins(player: SpinView, rival: SpinView, still = false): void {
+    if (this.disposed) return;
+    this.clearWin();
+    this.pending = {};
+    this.portraitReactionUntil = 0;
+    this.setFinalSeconds(0);
+    this.lastRound = { player: player.round, rival: rival.round };
+    this.applyStagedStrips();
+    this.host.dataset.round = String(player.round);
+    this.host.dataset.playerRound = String(player.round);
+    this.host.dataset.rivalRound = String(rival.round);
+    ([player, rival] as const).forEach((spin, sideIndex) => spin.symbols.forEach((symbol, column) => {
+      const material = this.materials[sideIndex * 3 + column];
+      material.uniforms.offset.value = spin.stops
+        ? -spin.stops[column]
+        : settledOffset(symbol, this.activeStrips[sideIndex]);
+    }));
+    this.updateSpinning();
+    this.flashSide('player', player.payout, still, player);
+    this.flashSide('rival', rival.payout, still, rival);
     this.requestRender();
   }
 
@@ -306,42 +353,46 @@ export class ReelScene {
     this.requestRender();
   }
 
-  private flash(payout: number, still = false, rivalPayout = 0): void {
-    this.flashSide('player', payout, still);
-    this.flashSide('rival', rivalPayout, still);
-  }
-
-  private flashSide(side: Side, payout: number, still = false): void {
+  private flashSide(side: Side, payout: number, still = false, spin?: SpinView): void {
     const now = performance.now();
-    const duration = this.motionPreference.matches ? 180 : payout >= PAYOUT.seven ? 1200 : 650;
+    const allCells = this.winningCells(spin);
+    const cells = side === 'player' ? allCells : allCells.filter(cell => cell.row === 1);
+    const winningSymbol = allCells.reduce<SymbolId | null>((best, cell) => !best || PAYOUT[cell.symbol] > PAYOUT[best] ? cell.symbol : best, null);
+    const jackpot = winningSymbol === 'seven' || payout >= PAYOUT.seven;
+    const duration = this.motionPreference.matches ? 180 : jackpot ? 1200 : 650;
     const until = payout > 0 ? still ? Infinity : now + duration : 0;
-    if (payout > 0) this.cabinet.flash(payout, now, duration, still, side);
+    if (payout > 0) this.cabinet.flash(payout, now, duration, still, side, cells, winningSymbol);
     if (side === 'player') {
       this.winUntil = until;
       // A miss or rival stop cannot cut short an earlier player coin burst.
 
       this.host.dataset.win = String(payout > 0);
-      this.host.dataset.jackpot = String(payout >= PAYOUT.seven);
+      this.host.dataset.jackpot = String(jackpot);
     } else {
       this.rivalWinUntil = until;
       this.host.dataset.rivalWin = String(payout > 0);
-      this.host.dataset.rivalJackpot = String(payout >= PAYOUT.seven);
+      this.host.dataset.rivalJackpot = String(jackpot);
     }
     this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
+    const start = side === 'player' ? 0 : 3;
+    for (let column = 0; column < 3; column += 1) {
+      const rows = [0, 1, 2].map(row => Number(cells.some(cell => cell.column === column && cell.row === row)));
+      this.materials[start + column].uniforms.winningRows.value.set(rows[0], rows[1], rows[2]);
+    }
   }
 
   private clearPlayerWin(): void {
     this.winUntil = 0;
     this.host.dataset.win = 'false';
     this.host.dataset.jackpot = 'false';
-    this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = 0; });
+    this.materials.slice(0, 3).forEach(m => { m.uniforms.winning.value = 0; m.uniforms.winningRows.value.set(0, 0, 0); });
   }
 
   private clearRivalWin(): void {
     this.rivalWinUntil = 0;
     this.host.dataset.rivalWin = 'false';
     this.host.dataset.rivalJackpot = 'false';
-    this.materials.slice(3).forEach(m => { m.uniforms.winning.value = 0; });
+    this.materials.slice(3).forEach(m => { m.uniforms.winning.value = 0; m.uniforms.winningRows.value.set(0, 0, 0); });
   }
 
   private clearWin(stopCabinet = true): void {
@@ -364,7 +415,15 @@ export class ReelScene {
 
   stats(): { calls: number; triangles: number; textures: number; geometries: number; frames: number; loaded: boolean } {
     const { render, memory } = this.renderer.info;
-    return { calls: render.calls, triangles: render.triangles, textures: memory.textures, geometries: memory.geometries, frames: render.frame, loaded: this.loaded === 2 };
+    const effects = this.effectsRenderer?.info;
+    return {
+      calls: render.calls + (effects?.render.calls ?? 0),
+      triangles: render.triangles + (effects?.render.triangles ?? 0),
+      textures: memory.textures + (effects?.memory.textures ?? 0),
+      geometries: memory.geometries + (effects?.memory.geometries ?? 0),
+      frames: render.frame + (effects?.render.frame ?? 0),
+      loaded: this.loaded === 2,
+    };
   }
 
   dispose(): void {
@@ -385,12 +444,15 @@ export class ReelScene {
     this.cabinetLight.shadow.dispose();
     this.cabinet.dispose();
     this.renderer.dispose();
+    this.effectsRenderer?.dispose();
+    this.effectsRenderer?.domElement.remove?.();
     this.host.replaceChildren();
   }
 
   private resize = (): void => {
     if (this.disposed) return;
     this.renderer.setSize(this.host.clientWidth || 1280, this.host.clientHeight || 720, false);
+    this.effectsRenderer?.setSize(this.host.clientWidth || 1280, this.host.clientHeight || 720, false);
     this.requestRender();
   };
 
@@ -431,7 +493,7 @@ export class ReelScene {
         this.host.dataset[side === 'player' ? 'playerRound' : 'rivalRound'] = String(pending.spin.round);
         if (side === 'player') this.host.dataset.round = String(pending.spin.round);
         // A long-hidden tab catches up without replaying old celebrations.
-        this.flashSide(side, elapsed > 1800 ? 0 : pending.spin.payout);
+        this.flashSide(side, elapsed > 1800 ? 0 : pending.spin.payout, false, pending.spin);
         completions.push(() => pending.complete(elapsed <= 1800));
       }
     }
@@ -444,11 +506,34 @@ export class ReelScene {
     const portraitMoving = this.posePortrait(now);
     const animating = this.cabinet.update(now, this.motionPreference.matches) || portraitMoving;
     this.materials.forEach((material, i) => {
-      material.uniforms.lifted.value = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival');
+      const rows = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival', i % 3);
+      material.uniforms.liftedRows.value.set(rows[0], rows[1], rows[2]);
     });
+    this.camera.layers.set(0);
     this.renderer.render(this.scene, this.camera);
+    if (this.effectsRenderer) {
+      const background = this.scene.background;
+      this.scene.background = null;
+      this.camera.layers.set(1);
+      this.effectsRenderer.render(this.scene, this.camera);
+      this.camera.layers.set(0);
+      this.scene.background = background;
+    }
     // Scores, speech and sound follow the actual settled frame.
     completions.forEach(complete => complete());
     if (this.pending.player || this.pending.rival || animating || (Number.isFinite(this.rivalWinUntil) && now < this.rivalWinUntil)) this.requestRender();
   };
+
+  private winningCells(spin?: SpinView): WinningCell[] {
+    if (!spin?.grid || !spin.winningLines?.length) return [];
+    const rows = { top: [0, 0, 0], middle: [1, 1, 1], bottom: [2, 2, 2], diagonalDown: [0, 1, 2], diagonalUp: [2, 1, 0] } as const;
+    const unique = new Map<string, WinningCell>();
+    for (const line of spin.winningLines) {
+      rows[line].forEach((row, column) => {
+        const cell = { row, column: column as 0 | 1 | 2, symbol: spin.grid![row][column] } as WinningCell;
+        unique.set(`${row}:${column}`, cell);
+      });
+    }
+    return [...unique.values()];
+  }
 }
