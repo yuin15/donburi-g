@@ -23,9 +23,10 @@ describe('confirmed match statistics', () => {
     for (const side of ['player', 'rival'] as const) {
       const summary = stats[side];
       const history = spins.map(event => event[side]);
-      const total = summary.wins.cherry * PAYOUT.cherry + summary.wins.bell * PAYOUT.bell + summary.wins.seven * PAYOUT.seven;
-      expect(total).toBe(state.scores[side]);
-      expect(Object.values(summary.wins).reduce((sum, count) => sum + count, 0)).toBe(history.filter(spin => spin.payout > 0).length);
+      const total = history.reduce((sum, spin) => sum + spin.payout, 0);
+      const betCost = history.reduce((sum, spin) => sum + (spin.bet ?? 0), 0);
+      expect(state.balances[side]).toBe(100 - betCost + total);
+      expect(Object.values(summary.wins).reduce((sum, count) => sum + count, 0)).toBe(history.reduce((sum, spin) => sum + (spin.winningLines?.length ?? Number(spin.payout > 0)), 0));
 
       const highestPayout = Math.max(...history.map(spin => spin.payout));
       const firstBest = history.find(spin => spin.payout === highestPayout);

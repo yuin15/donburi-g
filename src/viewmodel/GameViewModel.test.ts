@@ -127,34 +127,29 @@ describe('game view model', () => {
     expect(h.vm.state.startControl.label).toBe('LAST SPIN');
     expect(h.vm.state.result).toBeNull();
     h.rivalRounds.at(-1)!.stopped();
-    expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 30 }, scores: { player: 0, rival: h.rivalRounds.at(-1)!.spin.total } });
+    expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 30 }, scores: { player: 100, rival: h.rivalRounds.at(-1)!.spin.total } });
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
     unsubscribe();
     h.vm.dispose();
     expect(h.clock.timers.size).toBe(0);
   });
 
-  it('stores only one extra spin and ignores an old stop callback after leaving and starting again', async () => {
+  it('ignores repeated inputs while spinning and ignores an old stop callback after leaving and starting again', async () => {
     const h = setup();
     await beginCpu(h);
     h.vm.requestSpin();
     for (let i = 0; i < 20; i++) h.vm.requestSpin();
     expect(h.rounds).toHaveLength(1);
-    expect(h.vm.state.startControl.spinState).toBe('queued');
+    expect(h.vm.state.startControl.spinState).toBe('spinning');
     const first = h.rounds[0];
-    expect(h.vm.state.scores).toEqual({ player: 0, rival: 0 });
+    expect(h.vm.state.scores).toEqual({ player: 97, rival: 100 });
     await h.clock.advance(1060);
     first.stopped();
-    expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 0 });
-    await h.clock.advance(52);
-    expect(h.rounds).toHaveLength(2);
-    const obsolete = h.rounds[1];
-    await h.clock.advance(1060);
-    obsolete.stopped();
-    await h.clock.advance(3000);
-    expect(h.rounds).toHaveLength(2);
+    expect(h.vm.state.scores).toEqual({ player: first.spin.total, rival: 100 });
+    await h.clock.advance(1200);
+    expect(h.rounds).toHaveLength(1);
     h.vm.requestSpin();
-    const interrupted = h.rounds[2];
+    const interrupted = h.rounds[1];
     h.vm.requestSpin();
     h.vm.leave();
     expect(h.clock.timers.size).toBe(0);
@@ -281,7 +276,7 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
-  it('a rival stop cannot release a queued player input or clear its winning payout', async () => {
+  it('a rival stop cannot release ignored player input or clear its winning payout', async () => {
     const h = setup();
     const session = await beginLive(h);
     const last = pair();
@@ -292,9 +287,9 @@ describe('game view model', () => {
     await h.clock.advance(1150);
     h.rivalRounds[0].stopped();
     expect(session.spins).toBe(1);
-    expect(h.vm.state.startControl.spinState).toBe('queued');
+    expect(h.vm.state.startControl.spinState).toBe('spinning');
     h.rounds[0].stopped();
-    expect(session.spins).toBe(2);
+    expect(session.spins).toBe(1);
     expect(h.vm.state.payout?.player).toBe(1200);
     await h.clock.advance(500);
     session.emit({ type: 'side_spin', spin: { ...pair(2).rival, payout: 0, total: 120, symbols: ['cherry', 'bell', 'seven'] } });
@@ -322,9 +317,8 @@ describe('game view model', () => {
     expect(h.presentation.playSound).not.toHaveBeenCalledWith('lead');
     session.emit({ type: 'side_spin', spin: { ...player, round: 2, total: 480 } });
     h.rounds[1].stopped();
-    expect(h.presentation.playSound).toHaveBeenCalledWith('lead');
-    expect(h.vm.state.cue).toBeNull();
-    expect(h.vm.state.line).toContain('lead');
+    expect(h.presentation.playSound).not.toHaveBeenCalledWith('lead');
+    expect(h.vm.state.cue).toMatchObject({ kind: 'jackpot' });
     h.vm.dispose();
   });
 

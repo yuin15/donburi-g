@@ -5,7 +5,6 @@ import WebSocket from 'ws';
 import type { ClientMessage, ServerEnvelope } from '../shared/protocol';
 import type { LiveEvents } from '../server/gptLive';
 import { parseServerEnvelope } from '../shared/wire';
-import { PAYOUT } from '../src/domain/game';
 
 interface VoiceMock {
   events: LiveEvents;
@@ -136,10 +135,11 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   for (let second = 0; second < 60; second += 2) {
     now = START_TIME + second * 1000;
     if (second === 20 || second === 40) {
-      const index = second === 20 ? 0 : 1;
-      wire.send({ type: 'snapshot' });
-      wire.send({ type: 'upgrade', matchId: 'ws-integration-match', commandId: `choice-${index}`, offerIndex: index, upgradeId: index === 0 ? 'jackpot' : 'steady' });
-      await wire.barrier();
+      const bet = second === 20 ? 5 : 1;
+      const commandId = `bet-${bet}`;
+      wire.send({ type: 'set_bet', matchId: 'ws-integration-match', commandId, bet });
+      const status = await wire.waitFor(message => message.type === 'bet_status' && message.commandId === commandId);
+      expect(status).toMatchObject({ accepted: true, bet });
     }
     const commandId = `manual-${second}`;
     wire.send({ type: 'spin', matchId: 'ws-integration-match', commandId });
@@ -158,7 +158,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   wire.send({ type: 'snapshot' });
   const ended = await wire.waitFor(message => message.type === 'match_ended');
   if (ended.type !== 'match_ended') throw new Error('missing_result');
-  expect(ended.snapshot).toMatchObject({ status: 'result', rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, upgrades: { player: [], rival: [] } });
+  expect(ended.snapshot).toMatchObject({ status: 'result', rounds: { player: 30, rival: 30 }, elapsed: 60, remaining: 0, bets: { player: 1 }, upgrades: { player: [], rival: [] } });
   expect(wire.messages.some(message => message.type === 'upgrade_offer' || message.type === 'upgrade_applied')).toBe(false);
   expect(provider.brain).not.toHaveBeenCalled();
   expect(provider.release).not.toHaveBeenCalled();
@@ -171,7 +171,7 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
     const resultVoice = provider.bridges[1];
     expect(matchVoice.close).toHaveBeenCalledOnce();
     expect(resultVoice.close).not.toHaveBeenCalled();
-    expect(resultVoice.openingContext).toContain(`プレイヤー${ended.snapshot.scores.player}点、あなた${ended.snapshot.scores.rival}点`);
+    expect(resultVoice.openingContext).toContain(`プレイヤー$${ended.snapshot.balances.player}(BET $${ended.snapshot.bets.player})、あなた$${ended.snapshot.balances.rival}(BET $${ended.snapshot.bets.rival})`);
     expect(resultVoice.openingContext).toContain(`状態=result,勝者=${ended.snapshot.winner}`);
     expect(resultVoice.openingContext).toContain('プレイヤー30回目');
     expect(resultVoice.updateGameContext).toHaveBeenCalledOnce();
@@ -214,14 +214,18 @@ it.each(['connected', 'closed'] as const)('completes a real socket match with op
   for (const side of ['player', 'rival'] as const) {
     const history = spins.filter(spin => spin.side === side);
     expect(history.map(spin => spin.round)).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
-    let total = 0;
+    let total = 100;
     for (const spin of history) {
+      total -= spin.bet ?? 3;
       total += spin.payout;
       expect(spin.total).toBe(total);
     }
+    expect(ended.snapshot.balances[side]).toBe(total);
     expect(ended.snapshot.scores[side]).toBe(total);
     for (const symbol of ['cherry', 'bell', 'seven'] as const) {
-      expect(ended.snapshot.stats[side].wins[symbol]).toBe(history.filter(spin => spin.payout === PAYOUT[symbol]).length);
+      const rows = { top: 0, middle: 1, bottom: 2, diagonalDown: 0, diagonalUp: 2 } as const;
+      const wins = history.reduce((count, spin) => count + (spin.winningLines ?? []).filter(line => spin.grid?.[rows[line]][0] === symbol).length, 0);
+      expect(ended.snapshot.stats[side].wins[symbol]).toBe(wins);
     }
     const highest = Math.max(...history.map(spin => spin.payout));
     const firstBest = history.find(spin => spin.payout === highest)!;

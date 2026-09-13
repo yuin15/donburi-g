@@ -7,8 +7,12 @@ import { LiveSync } from './LiveSync';
 
 const wrap = (message: ServerMessage, streamSeq: number, sessionId = 'match-a'): ServerEnvelope => ({ ...message, sessionId, streamSeq, serverTime: 1000 });
 const hello = wrap({ type: 'hello', sessionId: 'match-a', live: true }, 1);
-const spin = { player: { side: 'player' as const, round: 30, symbols: ['seven', 'seven', 'seven'] as ['seven', 'seven', 'seven'], payout: 1200 as const, total: 3600 }, rival: { side: 'rival' as const, round: 30, symbols: ['cherry', 'bell', 'seven'] as ['cherry', 'bell', 'seven'], payout: 0 as const, total: 3240 } };
-const result: ServerMessage = { type: 'snapshot', snapshot: { matchId: 'match-a', status: 'result', elapsed: 60, remaining: 0, round: 30, rounds: { player: 30, rival: 30 }, scores: { player: 3600, rival: 3240 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1200 } }, rival: { wins: { cherry: 1, bell: 3, seven: 2 }, bestSpin: { round: 12, payout: 1200 } } }, upgrades: { player: [], rival: [] }, eventSeq: 38, winner: 'player' }, lastSpin: spin };
+const fixtureState = createMatch(123, 'match-a');
+startMatch(fixtureState);
+const fixtureEvents = advanceMatch(fixtureState, 60);
+const fixtureLast = fixtureEvents.filter(event => event.type === 'spin').at(-1)!;
+const spin = { player: fixtureLast.player, rival: fixtureLast.rival };
+const result: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(fixtureState), lastSpin: spin };
 
 describe('live wire validation and recovery', () => {
   it('requests one snapshot for a gap and recovers the exact final reels and result', () => {
@@ -104,7 +108,7 @@ describe('live wire validation and recovery', () => {
     expect(sync.accept(parsed!).message).toEqual(message);
     expect(state.rounds).toEqual({ player: rounds, rival: 30 });
     expect(state.status).toBe('result');
-    expect(latest.rival!.upgrades).toEqual([]);
+    expect(latest.rival!.upgrades).toBeUndefined();
     expect(parseServerEnvelope(JSON.stringify(wrap({ type: 'match_ended', snapshot: getSnapshot(state) }, 5)))).not.toBeNull();
     const missing = { ...message, lastSpins: { player: latest.player } };
     expect(parseServerEnvelope(JSON.stringify(wrap(missing, 5)))).toBeNull();
@@ -112,26 +116,21 @@ describe('live wire validation and recovery', () => {
     expect(parseServerEnvelope(JSON.stringify(wrap(wrong, 5)))).toBeNull();
   });
 
-  it('accepts the maximum manual score and rejects a consistent breakdown beyond the match limit', () => {
-    const maximum: ServerMessage = {
-      ...result,
-      snapshot: {
-        ...result.snapshot, round: MAX_MATCH_ROUNDS, rounds: { player: MAX_MATCH_ROUNDS, rival: MAX_MATCH_ROUNDS },
-        scores: { player: MAX_MATCH_ROUNDS * 1200, rival: 0 },
-        stats: { player: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS }, bestSpin: { round: 1, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } },
-      },
-      lastSpin: { player: { ...spin.player, round: MAX_MATCH_ROUNDS, total: MAX_MATCH_ROUNDS * 1200 }, rival: { ...spin.rival, round: MAX_MATCH_ROUNDS, total: 0 } },
-    };
+  it('accepts a complete maximum-manual snapshot and rejects rounds beyond the match limit', () => {
+    const state = createMatch(123, 'match-a', 'manual');
+    startMatch(state);
+    const events = Array.from({ length: MAX_MATCH_ROUNDS }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
+    events.push(...advanceMatch(state, 60));
+    const latest: Partial<Record<'player' | 'rival', import('../../shared/protocol').SpinView>> = {};
+    for (const event of events) if (event.type === 'side_spin') latest[event.spin.side] = event.spin;
+    const maximum: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(state), lastSpins: latest };
     expect(parseServerEnvelope(JSON.stringify(wrap(maximum, 2)))).not.toBeNull();
     const excessive = structuredClone(maximum);
     excessive.snapshot.round += 1;
     excessive.snapshot.rounds.player += 1;
     excessive.snapshot.rounds.rival += 1;
-    excessive.snapshot.scores.player += 1200;
-    excessive.snapshot.stats.player.wins.seven += 1;
-    excessive.lastSpin!.player.round += 1;
-    excessive.lastSpin!.player.total += 1200;
-    excessive.lastSpin!.rival.round += 1;
+    excessive.lastSpins!.player!.round += 1;
+    excessive.lastSpins!.rival!.round += 1;
     expect(parseServerEnvelope(JSON.stringify(wrap(excessive, 2)))).toBeNull();
   });
 
