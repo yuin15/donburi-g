@@ -1,4 +1,5 @@
-import type { MatchSnapshot, SpinView } from '../../shared/protocol';
+import type { Bet, MatchSnapshot, SpinView, WinningLine } from '../../shared/protocol';
+import { ACTIVE_LINES } from '../domain/game';
 import { PAYOUT } from '../domain/game';
 import type { GameCommands, GamePresentation, GameSound, GameViewState } from '../viewmodel/GameViewState';
 import { GameAudio } from './GameAudio';
@@ -68,6 +69,9 @@ export class GameView implements GamePresentation {
     }, options);
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
     this.q('#effects').addEventListener('click', () => { unlock(); commands.toggleEffectsMuted(); }, options);
+    this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
+      button.addEventListener('click', () => commands.setBet(Number(button.dataset.bet) as Bet), options);
+    });
     addEventListener('keydown', event => {
       const state = this.current;
       if (!state || state.gate.visible) return;
@@ -138,14 +142,33 @@ export class GameView implements GamePresentation {
         { transform: 'scale(1)', color: '#ffac8c' },
       ], { duration: 260, easing: 'ease-out' });
     }
-    this.text('#ps', state.scores.player.toLocaleString());
-    this.text('#rs', state.scores.rival.toLocaleString());
+    this.text('#ps', '$' + state.scores.player.toLocaleString());
+    this.text('#rs', '$' + state.scores.rival.toLocaleString());
     const total = state.scores.player + state.scores.rival;
     const gap = state.scores.player - state.scores.rival;
     this.q('#playerMeter').style.width = `${total ? state.scores.player / total * 100 : 50}%`;
     this.q('#rivalMeter').style.width = `${total ? state.scores.rival / total * 100 : 50}%`;
     this.text('#scoreGap', gap === 0 ? 'EVEN' : `${Math.abs(gap).toLocaleString()} ${gap > 0 ? 'AHEAD' : 'BEHIND'}`);
     this.q('#scoreGap').dataset.leader = gap > 0 ? 'player' : gap < 0 ? 'rival' : 'draw';
+    const selectedBet = state.bets.player;
+    this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
+      const bet = Number(button.dataset.bet) as Bet;
+      button.dataset.active = String(bet === selectedBet);
+      button.disabled = state.mode === 'idle' || state.balances.player < bet;
+    });
+    this.q('#lineOverlay').querySelectorAll<SVGPathElement>('path[data-line]').forEach(path => {
+      path.dataset.active = String(ACTIVE_LINES[selectedBet].includes(path.dataset.line as WinningLine));
+    });
+    const rivalGrid = state.lastSpin?.rival?.grid ?? [
+      ['cherry', 'bell', 'seven'], ['cherry', 'bell', 'seven'], ['cherry', 'bell', 'seven'],
+    ];
+    const symbolLabel = { cherry: '🍒', bell: '🔔', seven: '7' };
+    this.q('#rivalGrid').querySelectorAll<HTMLSpanElement>('span').forEach((cell, index) => {
+      this.textCell(cell, symbolLabel[rivalGrid[Math.floor(index / 3)][index % 3]]);
+    });
+    this.q('#rivalLineOverlay').querySelectorAll<SVGPathElement>('path[data-line]').forEach(path => {
+      path.dataset.active = String(ACTIVE_LINES[state.bets.rival].includes(path.dataset.line as WinningLine));
+    });
     this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
     this.q('#line').dataset.conversation = state.conversation;
@@ -164,7 +187,7 @@ export class GameView implements GamePresentation {
     this.text('#rivalPay', state.payout?.rival ? `+${state.payout.rival.toLocaleString()}` : '');
     this.q('#rivalPay').dataset.jackpot = String((state.payout?.rival ?? 0) >= PAYOUT.seven);
     this.q('#rivalPay').hidden = !state.payout?.rival;
-    this.text('#rivalWinLabel', (state.payout?.rival ?? 0) >= PAYOUT.seven ? 'BIG WIN' : state.payout?.rival ? 'WIN' : 'RIVAL REELS');
+    this.text('#rivalWinLabel', (state.payout?.rival ?? 0) >= PAYOUT.seven ? 'BIG WIN' : state.payout?.rival ? 'WIN' : `RIVAL REELS · BET $${state.bets.rival}`);
     this.q('#miniLabel').dataset.win = String(!!state.payout?.rival);
     this.q('#miniLabel').dataset.jackpot = String((state.payout?.rival ?? 0) >= PAYOUT.seven);
     this.q('#machineTitle').dataset.win = String(!!state.payout?.player);
@@ -225,6 +248,10 @@ export class GameView implements GamePresentation {
   private glyphs(spin: SpinView): string {
     const glyph = { cherry: 'Cherry', bell: 'Bell', seven: 'Seven' };
     return spin.symbols.map(symbol => glyph[symbol]).join(', ');
+  }
+
+  private textCell(element: HTMLElement, value: string): void {
+    if (element.textContent !== value) element.textContent = value;
   }
 
   private renderResult(snapshot: MatchSnapshot | null): void {

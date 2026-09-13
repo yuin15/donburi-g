@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Side } from '../../shared/protocol';
+import type { Side, SymbolId } from '../../shared/protocol';
 import { STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
 import { createGoldCoinEnvironment, createGoldCoinGeometry, createGoldCoinMaterial } from './GoldCoin';
 import { PAYOUT } from '../domain/game';
@@ -194,11 +194,11 @@ export class CabinetArt {
     return mesh;
   }
 
-  flash(payout: number, now: number, duration: number, still = false, side: Side = 'player'): void {
+  flash(payout: number, now: number, duration: number, still = false, side: Side = 'player', winningSymbol: SymbolId | null = null): void {
     this.resultUntil = 0;
     this.bursts[side] = {
-      started: now, until: payout > 0 ? now + duration : 0, jackpot: payout >= PAYOUT.seven, still: still && payout > 0,
-      symbol: payout >= PAYOUT.seven ? 'seven' : payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null,
+      started: now, until: payout > 0 ? now + duration : 0, jackpot: winningSymbol === 'seven' || payout >= PAYOUT.seven, still: still && payout > 0,
+      symbol: winningSymbol ?? (payout >= PAYOUT.seven ? 'seven' : payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null),
       reels: true,
     };
   }

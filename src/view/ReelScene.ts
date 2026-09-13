@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
+import { PAYOUT } from '../domain/game';
 import { CabinetArt } from './CabinetArt';
-import { planTravel, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
+import { planTravel, planTravelToStop, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
 import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
 import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
 
@@ -146,6 +147,7 @@ export class ReelScene {
       const mesh = new THREE.Mesh(geometry, material);
       this.place(mesh, rect, 3);
       mesh.name = 'reel-' + i;
+      if (i >= 3) mesh.visible = false;
       (i < 3 ? this.cabinet.playerGroup : this.scene).add(mesh);
       this.reelMeshes.push(mesh);
       this.materials.push(material);
@@ -232,7 +234,9 @@ export class ReelScene {
     const start = side === 'player' ? 0 : 3;
     this.pending[side] = {
       spin, complete, started: performance.now(), stoppedColumns: 0,
-      travel: spin.symbols.map((symbol, i) => planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
+      travel: spin.symbols.map((symbol, i) => spin.stops
+        ? planTravelToStop(this.materials[start + i].uniforms.offset.value, spin.stops[i], i, this.activeStrips[side === 'player' ? 0 : 1])
+        : planTravel(this.materials[start + i].uniforms.offset.value, symbol, i, this.activeStrips[side === 'player' ? 0 : 1])),
     };
     this.updateSpinning();
     this.requestRender();
@@ -310,21 +314,25 @@ export class ReelScene {
     this.flashSide('rival', rivalPayout, still);
   }
 
-  private flashSide(side: Side, payout: number, still = false): void {
+  private flashSide(side: Side, payout: number, still = false, spin?: SpinView): void {
     const now = performance.now();
-    const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
+    const winningSymbol = spin && spin.grid && spin.winningLines?.length
+      ? spin.grid[spin.winningLines[0] === 'top' || spin.winningLines[0] === 'diagonalDown' ? 0 : spin.winningLines[0] === 'middle' ? 1 : 2][0]
+      : null;
+    const jackpot = winningSymbol === 'seven' || payout >= PAYOUT.seven;
+    const duration = this.motionPreference.matches ? 180 : jackpot ? 1200 : 650;
     const until = payout > 0 ? still ? Infinity : now + duration : 0;
-    if (payout > 0) this.cabinet.flash(payout, now, duration, still, side);
+    if (payout > 0) this.cabinet.flash(payout, now, duration, still, side, winningSymbol);
     if (side === 'player') {
       this.winUntil = until;
       // A miss or rival stop cannot cut short an earlier player coin burst.
 
       this.host.dataset.win = String(payout > 0);
-      this.host.dataset.jackpot = String(payout >= 1200);
+      this.host.dataset.jackpot = String(jackpot);
     } else {
       this.rivalWinUntil = until;
       this.host.dataset.rivalWin = String(payout > 0);
-      this.host.dataset.rivalJackpot = String(payout >= 1200);
+      this.host.dataset.rivalJackpot = String(jackpot);
     }
     this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
   }
@@ -430,7 +438,7 @@ export class ReelScene {
         this.host.dataset[side === 'player' ? 'playerRound' : 'rivalRound'] = String(pending.spin.round);
         if (side === 'player') this.host.dataset.round = String(pending.spin.round);
         // A long-hidden tab catches up without replaying old celebrations.
-        this.flashSide(side, elapsed > 1800 ? 0 : pending.spin.payout);
+        this.flashSide(side, elapsed > 1800 ? 0 : pending.spin.payout, false, pending.spin);
         completions.push(() => pending.complete(elapsed <= 1800));
       }
     }

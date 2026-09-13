@@ -93,7 +93,7 @@ export function mountVisualReview(port: ReviewPort): void {
       const rival: SpinView = { side: 'rival', round, symbols: i === 1 ? ['cherry', 'cherry', 'cherry'] : i === 2 ? ['bell', 'bell', 'bell'] : ['bell', 'seven', 'cherry'], payout: rivalPayout, total: rivalTotal };
       recordSpin(matchStats, player);
       recordSpin(matchStats, rival);
-      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
+      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, balances: { player: total, rival: rivalTotal }, bets: { player: 3, rival: 3 }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
       port.spin(player, rival);
       await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 2400 : 2000));
     }

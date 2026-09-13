@@ -152,8 +152,7 @@ export class LiveClient extends EventTarget {
   send(message: ClientMessage): void {
     if (this.closed || this.ws?.readyState !== WebSocket.OPEN) return;
     if (message.type === 'mic' && this.microphoneStopped) return;
-    const payload = message.type === 'upgrade' ? { ...message, matchId: this.sync.sessionId } : message;
-    this.ws.send(JSON.stringify(payload));
+    this.ws.send(JSON.stringify(message));
   }
 
   sendSpin(): string | undefined {
@@ -163,6 +162,13 @@ export class LiveClient extends EventTarget {
       this.send({ type: 'spin', commandId, matchId: this.sync.sessionId });
       return commandId;
     } catch { return undefined; }
+  }
+
+  setBet(bet: 1 | 3 | 5): string | undefined {
+    if (!this.connected || this.closed || this.ws?.readyState !== WebSocket.OPEN || !this.sync.sessionId) return;
+    const commandId = crypto.randomUUID();
+    this.send({ type: 'set_bet', commandId, bet, matchId: this.sync.sessionId });
+    return commandId;
   }
 
   setMicMuted(muted: boolean): void { this.mic.setMuted(muted); }
