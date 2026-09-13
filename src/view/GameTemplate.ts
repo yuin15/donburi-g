@@ -52,9 +52,9 @@ app.innerHTML = `
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
       <small id="resultRounds">60 SECOND DUEL</small>
       <div class="result-heading" role="status" aria-atomic="true"><div><span id="resultEnglish" aria-hidden="true"></span><h2 id="resultTitle"></h2></div><span class="result-emblem" aria-hidden="true"></span></div>
-      <div class="result-score" id="resultScore"><div><small>YOUR COINS</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>RIVAL COINS</small><strong id="resultRival"></strong></div></div>
+      <div class="result-score" id="resultScore"><div><small>YOUR CASH</small><strong id="resultPlayer"></strong></div><span>VS</span><div><small>RIVAL CASH</small><strong id="resultRival"></strong></div></div>
       <p id="resultGap"></p>
-      <div class="result-records" id="resultRecords"><div><small id="recordLabel">SESSION BEST</small><strong id="recordCoins">0</strong></div><div><small>WIN STREAK</small><strong id="recordStreak">0</strong></div></div>
+      <div class="result-records" id="resultRecords"><div><small id="recordLabel">SESSION BEST</small><strong id="recordCoins">$0</strong></div><div><small>WIN STREAK</small><strong id="recordStreak">0</strong></div></div>
       <details id="resultDetails"><summary>ROUND STATS <span aria-hidden="true">＋</span></summary><table aria-label="Match coin breakdown"><thead><tr><th scope="col">COIN BREAKDOWN</th><th scope="col">YOU</th><th scope="col">RIVAL</th></tr></thead><tbody id="resultStats"></tbody></table></details>
       <p class="result-again" id="resultAgain">One more round?</p>
     </section>

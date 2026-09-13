@@ -230,8 +230,8 @@ export class GameView implements GamePresentation {
     const record = state.sessionRecord;
     this.q('#bestRun').hidden = !record.best;
     this.q('#spaceKey').hidden = !!record.best;
-    this.text('#bestScore', record.best.toLocaleString());
-    this.text('#recordCoins', record.best.toLocaleString());
+    this.text('#bestScore', `$${record.best.toLocaleString()}`);
+    this.text('#recordCoins', `$${record.best.toLocaleString()}`);
     this.text('#recordStreak', record.streak ? '× ' + record.streak : '—');
     this.text('#recordLabel', record.newBest ? 'NEW PERSONAL BEST' : 'SESSION BEST');
     this.q('#resultRecords').dataset.record = String(record.newBest);
@@ -273,10 +273,10 @@ export class GameView implements GamePresentation {
     this.q<HTMLDetailsElement>('#resultDetails').open = false;
     this.text('#resultEnglish', 'ROUND COMPLETE');
     this.text('#resultTitle', snapshot.winner === 'player' ? 'YOU WIN!' : snapshot.winner === 'rival' ? 'RIVAL WINS' : 'DRAW');
-    this.text('#resultPlayer', snapshot.scores.player.toLocaleString());
-    this.text('#resultRival', snapshot.scores.rival.toLocaleString());
+    this.text('#resultPlayer', `$${snapshot.scores.player.toLocaleString()}`);
+    this.text('#resultRival', `$${snapshot.scores.rival.toLocaleString()}`);
     const margin = Math.abs(snapshot.scores.player - snapshot.scores.rival).toLocaleString();
-    this.text('#resultGap', snapshot.winner === 'player' ? `You won by ${margin} coins.` : snapshot.winner === 'rival' ? `${margin} coins behind. Go again?` : 'Same coins. One more round to settle it.');
+    this.text('#resultGap', snapshot.winner === 'player' ? `You won by $${margin}.` : snapshot.winner === 'rival' ? `$${margin} behind. Go again?` : 'Same cash. One more round to settle it.');
     this.text('#resultAgain', snapshot.winner === 'player' ? 'Keep the streak going. One more round?' : 'Beat your best. Your next spin could change everything.');
     const rows = this.q<HTMLTableSectionElement>('#resultStats');
     rows.replaceChildren();
