@@ -137,6 +137,40 @@ async function beginLive(h: ReturnType<typeof setup>) {
 }
 
 describe('game view model', () => {
+  it('keeps the AI voice gate open with a retryable microphone error when setup disconnects first', async () => {
+    let session!: Session;
+    const h = setup(async handlers => {
+      session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.disconnect();
+        throw new Error('permission_denied');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value');
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, connecting: false, message: expect.stringContaining('Microphone permission was denied') },
+    });
+    expect(h.presentation.focus).toHaveBeenLastCalledWith('gate');
+    expect(session.disconnect).toHaveBeenCalledOnce();
+    h.vm.dispose();
+  });
+
+  it('suggests audio-only retry when video setup cannot become ready', async () => {
+    const h = setup(async handlers => {
+      const session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.disconnect();
+        throw new Error('voice_connect_failed');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value', true);
+    expect(h.vm.state.gate).toMatchObject({ visible: true, message: expect.stringContaining('Turn off live video') });
+    h.vm.dispose();
+  });
+
   it('waits for the current BET acknowledgement before spinning and rolls back a rejected BET', async () => {
     const h = setup();
     const session = await beginLive(h);

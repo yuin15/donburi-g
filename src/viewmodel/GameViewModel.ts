@@ -16,6 +16,18 @@ const INITIAL_LINE = 'Think you can beat me?';
 const CPU_MESSAGE = 'CLICK / SPACE · PRESS AGAIN TO QUEUE';
 const DEFAULT_NOTICE = '3 MATCHING SYMBOLS · CENTER LINE';
 
+function voiceSetupFailureMessage(error: unknown, videoEnabled = false): string {
+  const detail = error instanceof Error ? `${error.name}:${error.message}` : '';
+  if (/NotAllowedError|SecurityError|permission_denied/.test(detail)) return 'Microphone permission was denied. Allow it in your browser, then retry AI voice.';
+  if (/NotFoundError|microphone_unavailable/.test(detail)) return 'No microphone was found. Connect or select one, then retry AI voice.';
+  if (/NotReadableError|microphone_start_failed/.test(detail)) return 'Your microphone is unavailable or busy. Close other audio apps, then retry AI voice.';
+  if (/access_denied|missing_ticket/.test(detail)) return 'Your invite code was not accepted. Check it, then retry AI voice.';
+  if (/avatar_connect_failed/.test(detail)) return 'Live video could not connect. Retry AI voice, or turn off live video.';
+  if (videoEnabled && /voice_connect_failed|session_failed/.test(detail)) return 'AI voice or live video could not connect. Turn off live video and retry AI voice.';
+  if (/connection_timeout|voice_connect_failed|socket_closed|socket_error/.test(detail)) return 'AI voice did not become ready. Retry AI voice, or play a CPU duel.';
+  return 'AI voice setup failed. Allow your microphone, then retry AI voice.';
+}
+
 /** Application state and commands, independent of the browser and renderer. */
 export class GameViewModel implements GameCommands {
   private mode: GameMode = 'idle';
@@ -150,8 +162,8 @@ export class GameViewModel implements GameCommands {
         this.awaitingStart = true;
         this.liveSession.send({ type: 'start' });
       }
-    } catch {
-      if (this.isCurrent(current)) this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
+    } catch (error) {
+      if (this.isCurrent(current)) this.returnToGate(voiceSetupFailureMessage(error, this.videoEnabled));
     } finally {
       if (this.isCurrent(current)) { this.starting = false; this.emit(); }
     }
@@ -594,8 +606,8 @@ export class GameViewModel implements GameCommands {
       this.connecting = false;
       this.emit();
       return current;
-    } catch {
-      if (this.isCurrent(current)) this.prepareCpu('Voice is unavailable. Press PLAY for a CPU duel.');
+    } catch (error) {
+      if (this.isCurrent(current)) this.returnToGate(voiceSetupFailureMessage(error, this.videoEnabled));
       return null;
     }
   }
@@ -604,6 +616,9 @@ export class GameViewModel implements GameCommands {
     this.voiceReady = false;
     this.micActive = false;
     this.micLevel = 0;
+    // LiveClient dispatches disconnect before rejecting a setup failure. Keep
+    // this generation valid so establishLive can show its classified retry UI.
+    if (this.connecting && !this.gameConnected && !this.liveSnapshot) return;
     if (this.liveSnapshot?.status === 'result') {
       this.connectionText = 'Voice closed · Ready for a rematch';
       this.liveSession = null;
