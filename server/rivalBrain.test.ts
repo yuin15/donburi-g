@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acceptsTimeExtensionOffer, chooseRivalUpgrade, chooseTimeExtension, rejectsTimeExtensionOffer, requestsTimeExtension } from './rivalBrain';
+import { acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsLoan, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -104,5 +104,43 @@ describe('time extension choice', () => {
     const choice = chooseTimeExtension(snapshot(), 'more time', '');
     await vi.advanceTimersByTimeAsync(2500);
     expect(await choice).toBe('no_request');
+  });
+});
+
+describe('loan choice', () => {
+  it.each(['少し貸して', 'もう一回だけ勝負させて', 'If you are confident, lend me money.', 'Can I borrow some cash?', 'Come on, just give me enough for one more shot.'])('routes a natural borrower request without approving it: %s', transcript => {
+    expect(requestsLoan(transcript)).toBe(true);
+  });
+
+  it.each(['うん', '延長して', '今どっちが上？'])('does not route an unrelated response as a borrower request: %s', transcript => {
+    expect(requestsLoan(transcript)).toBe(false);
+  });
+
+  it.each(['Sure!', 'はい', 'okay', "Okay, I'll lend you some.", 'うん、5ドル貸してあげるよ'])('accepts a clear rival-loan reply: %s', transcript => {
+    expect(acceptsLoanOffer(transcript)).toBe(true);
+  });
+
+  it.each(['no', 'いや', 'I guess so', 'yes, the timer is short', ''])('does not mistake negative, vague, or unrelated speech for approval: %s', transcript => {
+    expect(acceptsLoanOffer(transcript)).toBe(false);
+  });
+
+  it.each(['no', 'いいえ'])('recognizes a short direct refusal: %s', transcript => {
+    expect(rejectsLoanOffer(transcript)).toBe(true);
+  });
+
+  it('sends only bounded current context and accepts an exact legal result', async () => {
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: 'accept_loan' }));
+    const state = snapshot();
+    state.scores = state.balances = { player: 0, rival: 10 };
+    expect(await chooseLoanDecision(state, 'rival_to_player', 'Please lend me enough for one more spin.', 'P:Please lend me enough for one more spin.')).toBe('accept_loan');
+    const body = JSON.parse(request.mock.calls[0][1].body);
+    expect(body.store).toBe(false);
+    expect(JSON.parse(body.input)).toMatchObject({ legalChoices: ['accept_loan', 'reject_loan', 'no_request'], direction: 'rival_to_player', fixedAmount: 5, playerScore: 0, rivalScore: 10, rivalLoanOfferActive: false });
+    expect(body.input).not.toMatch(/rngState|seed|pending|activePools/);
+  });
+
+  it.each(['accept it', 'accept_loan please', ''])('fails closed for non-exact model output: %s', async output_text => {
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text }));
+    expect(await chooseLoanDecision(snapshot(), 'player_to_rival', 'Sure!', '', undefined, true)).toBe('no_request');
   });
 });
