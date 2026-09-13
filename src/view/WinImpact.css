@@ -1,14 +1,5 @@
 /* The payout sits on the lower cabinet: all three rows remain readable. */
-.win-burst{display:flex;align-items:center;justify-content:center;gap:1cqw;padding:.15cqw 1.4cqw;pointer-events:none;z-index:4;transform:rotate(-2deg);border-block:2px solid #d0a251;background:linear-gradient(90deg,#1c0b0600,#371008f5 12%,#200905fa 84%,#1c0b0600);filter:drop-shadow(0 5px 4px #130704);color:#ffe29a;text-shadow:0 2px 0 #884710,0 4px 0 #401404}
-.win-burst small{max-width:6.4cqw;font:900 1.45cqw/1.02 Georgia;letter-spacing:.02em;text-align:center;color:#ffecc5}
-.win-burst strong{font:italic 900 4.45cqw/.95 Georgia;font-variant-numeric:tabular-nums;letter-spacing:-.055em;-webkit-text-stroke:.5px #9d580b;white-space:nowrap}
-.win-burst>span{align-self:flex-end;margin-bottom:.65cqw;font:800 .67cqw/1 system-ui;letter-spacing:.16em;color:#d2b57e;text-shadow:0 1px #000}
-.win-burst[data-jackpot=true]{border-color:#ffe6a4;background:linear-gradient(90deg,#48100900,#7b1b09f2 15%,#491004fc 80%,#48100900);filter:drop-shadow(0 5px 5px #130704) drop-shadow(0 0 15px #ffbb4966)}
-.win-burst[data-jackpot=true] strong{font-size:4.9cqw;color:#fff0b5;text-shadow:0 2px 0 #ffde87,0 5px 0 #af5508,0 8px 1px #591b05,0 0 25px #ffbd58}
-.win-burst[data-jackpot=true] small{font-size:1.9cqw;color:#fff1c4}
 .duel-gap{border:1px solid #a07c4477;border-radius:99px;background:linear-gradient(90deg,#0a0802cc,#090b12ed,#0a0802cc);box-shadow:0 2px 5px #0008;letter-spacing:.1em}
 .scores strong{transform-origin:80% 60%}
-#miniLabel[data-win=true]{border-color:#94d4ff;background:linear-gradient(90deg,#153f63f2,transparent 35%,transparent 68%,#070f1cfa);box-shadow:0 0 24px #70c4ff77,inset 0 1px #e0f5ff99;color:#e2f5ff}
-#miniLabel[data-jackpot=true]{color:#fff4ca;border-color:#ffe9a7;box-shadow:0 0 26px #ffb94066,inset 0 1px #fff2c299}
 #rivalPay{font-size:2.9cqw}
 #start[data-spin=queued]{box-shadow:inset 0 0 20px #ffcf7dcc,0 0 18px #ffa64755}

@@ -53,8 +53,15 @@ function frame(ms = 16) {
   pending.forEach(callback => callback(performance.now()));
 }
 function scene(): Scene { return graphics.render.mock.calls.at(-1)![0] as Scene; }
+function reels(): Mesh<BufferGeometry, ShaderMaterial>[] {
+  const meshes: Mesh<BufferGeometry, ShaderMaterial>[] = [];
+  scene().traverse(node => {
+    if (node instanceof Mesh && node.material instanceof ShaderMaterial && node.name.startsWith('reel-')) meshes.push(node);
+  });
+  return meshes.sort((a, b) => a.name.localeCompare(b.name));
+}
 function reelWins() {
-  return scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial)
+  return reels()
     .map(mesh => mesh.material.uniforms.winning.value as number);
 }
 function coins() {
@@ -63,7 +70,7 @@ function coins() {
   return result;
 }
 function reelCenters() {
-  return scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial)
+  return reels()
     .map(m => {
       const { offset, strip, stripLength } = m.material.uniforms;
       if (!Number.isInteger(offset.value)) return null;
@@ -134,7 +141,7 @@ describe('stage rendering and cleanup', () => {
       viewport.dispatchEvent(new Event('resize'));
       frame();
       expect(graphics.size).toHaveBeenLastCalledWith(width, height, false);
-      const minis = scene().children.filter((n): n is Mesh<BufferGeometry, ShaderMaterial> => n instanceof Mesh && n.material instanceof ShaderMaterial && n.material.uniforms.mini.value === 1);
+      const minis = reels().filter(mesh => mesh.material.uniforms.mini.value === 1);
       expect(minis).toHaveLength(3);
       for (const mesh of minis) {
         mesh.geometry.computeBoundingBox();
@@ -336,11 +343,13 @@ describe('stage rendering and cleanup', () => {
     scene().traverse(n => {
       if (!(n instanceof Mesh)) return;
       resources.add(n.geometry);
-      const material = n.material as Material;
-      resources.add(material);
-      if ('map' in material && material.map instanceof Texture) resources.add(material.map);
-      // RenderTarget owns its GPU texture and framebuffer; dispose that owner.
-      if (material instanceof ShaderMaterial && material.uniforms.atlas) resources.add(vi.mocked(createSymbolAtlas).mock.results[0].value);
+      const materials: Material[] = Array.isArray(n.material) ? n.material : [n.material];
+      for (const material of materials) {
+        resources.add(material);
+        if ('map' in material && material.map instanceof Texture) resources.add(material.map);
+        // RenderTarget owns its GPU texture and framebuffer; dispose that owner.
+        if (material instanceof ShaderMaterial && material.uniforms.atlas) resources.add(vi.mocked(createSymbolAtlas).mock.results[0].value);
+      }
     });
     const disposals = [...resources].map(r => vi.spyOn(r, 'dispose'));
     const done = vi.fn();

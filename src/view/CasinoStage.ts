@@ -15,6 +15,7 @@ function rounded(path: THREE.Path, w: number, h: number, r: number): void {
 /** Physical frames and reel wells replace the frames painted in the old backdrop. */
 export class CasinoStage {
   readonly group = new THREE.Group();
+  readonly playerGroup = new THREE.Group();
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.Material[];
 
@@ -25,12 +26,14 @@ export class CasinoStage {
     const silver = new THREE.MeshStandardMaterial({ color: 0x7792a8, metalness: .85, roughness: .27, envMap: environment, envMapIntensity: .8 });
     const lamp = new THREE.MeshStandardMaterial({ color: 0xffd68c, emissive: 0xffb745, emissiveIntensity: 2, metalness: .1, roughness: .3 });
     this.materials = [gold, edge, dark, silver, lamp];
-    const pieces = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const pieces = new Map<string, { material: THREE.Material; root: THREE.Group; geometries: THREE.BufferGeometry[] }>();
     const add = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
       if (geometry.index) { const source = geometry; geometry = source.toNonIndexed(); source.dispose(); }
       geometry.translate(x, STAGE_HEIGHT - y, z);
-      const bucket = pieces.get(material) ?? [];
-      bucket.push(geometry); pieces.set(material, bucket);
+      const root = x < 900 && y > 150 ? this.playerGroup : this.group;
+      const key = material.uuid + root.uuid;
+      const bucket = pieces.get(key) ?? { material, root, geometries: [] };
+      bucket.geometries.push(geometry); pieces.set(key, bucket);
     };
     const ring = (rect: Rect, border: number, depth: number, radius: number, material: THREE.Material, z: number) => {
       const shape = new THREE.Shape(), hole = new THREE.Path();
@@ -49,6 +52,21 @@ export class CasinoStage {
       }
     };
     surround(PORTRAIT);
+    const ruby = new THREE.MeshStandardMaterial({ color: 0x280812, metalness: .55, roughness: .28, envMap: environment, envMapIntensity: .4 });
+    const blue = new THREE.MeshStandardMaterial({ color: 0x061528, metalness: .55, roughness: .28, envMap: environment, envMapIntensity: .4 });
+    this.materials.push(ruby, blue);
+    for (const [rect, material] of [
+      [{ x: 56, y: 22, w: 649, h: 108 }, ruby],
+      [{ x: 966, y: 22, w: 649, h: 108 }, blue],
+      [{ x: 725, y: 22, w: 222, h: 108 }, dark],
+    ] as const) {
+      add(new RoundedBoxGeometry(rect.w, rect.h, 17, 3, 17), material, rect.x + rect.w / 2, 76, 18);
+      ring(rect, 4, 10, 17, gold, 26);
+      ring({ x: rect.x + 7, y: rect.y + 7, w: rect.w - 14, h: rect.h - 14 }, 1, 2, 11, edge, 30);
+      for (const x of [rect.x + 16, rect.x + rect.w - 16]) for (const y of [38, 114]) {
+        add(new THREE.SphereGeometry(2.2, 8, 6), edge, x, y, 34);
+      }
+    }
     const first = MINI_RECTS[0], last = MINI_RECTS[2];
     surround({ x: first.x - 5, y: first.y - 5, w: last.x + last.w - first.x + 10, h: first.h + 10 });
     // The recessed well and separators are part of the game geometry.
@@ -74,14 +92,14 @@ export class CasinoStage {
       for (const y of [337, 345, 577, 585]) add(new THREE.CylinderGeometry(24,24,8,40), gold, x, y, 64);
       for (const dx of [-13,13]) add(new THREE.CylinderGeometry(1.4,1.4,235,8), edge, x+dx,461,82);
     }
-    pieces.forEach((geometries, material) => {
+    pieces.forEach(({ geometries, material, root }) => {
       const geometry = mergeGeometries(geometries, false);
       geometries.forEach(piece => piece.dispose());
       if (!geometry) throw new Error('Stage frame geometry could not be combined.');
       this.geometries.push(geometry);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = material !== lamp; mesh.receiveShadow = material !== lamp;
-      this.group.add(mesh);
+      root.add(mesh);
     });
     const glowMaterial = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -91,7 +109,7 @@ export class CasinoStage {
     const glowGeometry = new THREE.PlaneGeometry(103, 298);
     for (const x of [205, 852]) {
       const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      glow.position.set(x, STAGE_HEIGHT - 461, 92); this.group.add(glow);
+      glow.position.set(x, STAGE_HEIGHT - 461, 92); this.playerGroup.add(glow);
     }
     this.materials.push(glowMaterial); this.geometries.push(glowGeometry);
     const shadowMaterial = new THREE.ShaderMaterial({
@@ -111,5 +129,6 @@ export class CasinoStage {
     this.geometries.forEach(geometry => geometry.dispose());
     this.materials.forEach(material => material.dispose());
     this.group.clear();
+    this.playerGroup.clear();
   }
 }
