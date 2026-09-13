@@ -272,6 +272,29 @@ export class ReelScene {
     this.requestRender();
   }
 
+  /** DEV review preview using the same authoritative stops as a confirmed spin. */
+  showSpins(player: SpinView, rival: SpinView, still = false): void {
+    if (this.disposed) return;
+    this.clearWin();
+    this.pending = {};
+    this.portraitReactionUntil = 0;
+    this.setFinalSeconds(0);
+    this.lastRound = { player: player.round, rival: rival.round };
+    this.applyStagedStrips();
+    this.host.dataset.round = String(player.round);
+    this.host.dataset.playerRound = String(player.round);
+    this.host.dataset.rivalRound = String(rival.round);
+    ([player, rival] as const).forEach((spin, sideIndex) => spin.symbols.forEach((symbol, column) => {
+      const material = this.materials[sideIndex * 3 + column];
+      material.uniforms.offset.value = spin.stops
+        ? -spin.stops[column]
+        : settledOffset(symbol, this.activeStrips[sideIndex]);
+    }));
+    this.updateSpinning();
+    this.flash(player.payout, still, rival.payout);
+    this.requestRender();
+  }
+
   setExpression(expression: RivalExpression): void {
     const index = EXPRESSIONS.indexOf(expression);
     if (this.portraitExpression === index) return;

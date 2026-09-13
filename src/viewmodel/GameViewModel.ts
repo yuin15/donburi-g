@@ -66,6 +66,7 @@ export class GameViewModel implements GameCommands {
   private spinAnimating = false;
   private spinNextAt = 0;
   private spinRequestId: string | undefined;
+  private betRequestId: string | undefined;
   private practiceTimer: number | undefined;
   private spinQueueTimer: number | undefined;
   private spinRequestTimer: number | undefined;
@@ -167,7 +168,7 @@ export class GameViewModel implements GameCommands {
 
   requestSpin(): void {
     if (this.disposed || !this.isPlaying()) return;
-    if (this.spinPending || this.spinAnimating || this.deps.clock.now() < this.spinNextAt) return;
+    if (this.betRequestId || this.spinPending || this.spinAnimating || this.deps.clock.now() < this.spinNextAt) return;
     this.performManualSpin();
   }
 
@@ -175,8 +176,10 @@ export class GameViewModel implements GameCommands {
     if (this.disposed) return;
     if (this.mode === 'practice' && this.practiceState && setBet(this.practiceState, 'player', bet)) {
       this.consumeSnapshot(getSnapshot(this.practiceState));
-    } else if (this.mode === 'live' && this.liveSession) {
-      this.liveSession.setBet?.(bet);
+    } else if (this.mode === 'live' && this.liveSession && !this.betRequestId) {
+      const commandId = this.liveSession.setBet?.(bet);
+      if (!commandId) return;
+      this.betRequestId = commandId;
       this.snapshot = { ...this.snapshot, bets: { ...this.snapshot.bets, player: bet } };
       this.liveSnapshot = this.snapshot;
     }
@@ -294,6 +297,7 @@ export class GameViewModel implements GameCommands {
     this.deps.presentation.stopSound();
     this.practiceState = null;
     this.liveSnapshot = null;
+    this.betRequestId = undefined;
     this.voiceReady = false;
     this.micActive = false;
     this.micLevel = 0;
@@ -588,7 +592,12 @@ export class GameViewModel implements GameCommands {
   }
 
   private onLiveMessage(message: ServerMessage): void {
-    if (message.type === 'spin_status') {
+    if (message.type === 'bet_status') {
+      if (message.commandId !== this.betRequestId) return;
+      this.betRequestId = undefined;
+      this.snapshot = { ...this.snapshot, bets: { ...this.snapshot.bets, player: message.bet } };
+      this.liveSnapshot = this.snapshot;
+    } else if (message.type === 'spin_status') {
       if (message.commandId !== this.spinRequestId) return;
       if (!message.accepted) {
         this.cancelTimer(this.spinRequestTimer);
@@ -688,7 +697,7 @@ export class GameViewModel implements GameCommands {
     const scores = { ...this.displayBalances };
     const gap = scores.player - scores.rival;
     const playing = this.isPlaying();
-    const busy = this.spinPending || this.spinAnimating || now < this.spinNextAt;
+    const busy = !!this.betRequestId || this.spinPending || this.spinAnimating || now < this.spinNextAt;
     const spinState = playing ? busy ? 'spinning' : 'ready' : null;
     const hint = playing ? busy ? 'WAIT FOR REELS TO STOP' : 'CLICK / SPACE TO SPIN' : this.snapshot.status === 'result' ? `YOU ${this.snapshot.rounds.player} SPINS · RIVAL ${this.snapshot.rounds.rival} SPINS` : 'CLICK / SPACE TO SPIN';
     const finalStopping = this.snapshot.status === 'result' && !this.result;

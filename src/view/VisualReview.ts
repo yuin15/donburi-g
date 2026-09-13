@@ -1,6 +1,7 @@
 import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import type { ReelScene } from './ReelScene';
 import { cloneMatchStats, createMatchStats, recordSpin } from '../domain/matchStats';
+import { evaluateGrid, gridFromStops } from '../domain/game';
 
 export type ReviewExample = 'final-seconds' | 'session-best' | 'mic-live' | 'mic-reply' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'bell-cherry' | 'cherry-bell' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
 interface ReviewPort {
@@ -80,17 +81,23 @@ export function mountVisualReview(port: ReviewPort): void {
       requestAnimationFrame(measure);
     };
     requestAnimationFrame(measure);
-    const examples: SpinView['symbols'][] = [['cherry', 'bell', 'seven'], ['bell', 'bell', 'bell'], ['cherry', 'cherry', 'cherry'], ['seven', 'seven', 'seven']];
-    let total = 0, rivalTotal = 0;
+    const examples: Array<{ stops: [number, number, number]; bet: 1 | 3 | 5 }> = [
+      { stops: [1, 2, 4], bet: 3 }, { stops: [3, 3, 3], bet: 3 }, { stops: [4, 4, 4], bet: 1 }, { stops: [0, 0, 0], bet: 5 },
+    ];
+    let total = 100, rivalTotal = 100;
     const matchStats = createMatchStats();
     for (let i = 0; i < examples.length; i += 1) {
-      const payout = [0, 240, 120, 1200][i];
-      total += payout;
       const round = i + 1;
-      const player: SpinView = { side: 'player', round, symbols: examples[i], payout, total };
-      const rivalPayout = i === 1 ? 120 : i === 2 ? 240 : 0;
-      rivalTotal += rivalPayout;
-      const rival: SpinView = { side: 'rival', round, symbols: i === 1 ? ['cherry', 'cherry', 'cherry'] : i === 2 ? ['bell', 'bell', 'bell'] : ['bell', 'seven', 'cherry'], payout: rivalPayout, total: rivalTotal };
+      const playerGrid = gridFromStops(examples[i].stops);
+      const playerOutcome = evaluateGrid(playerGrid, examples[i].bet);
+      total += playerOutcome.payout - examples[i].bet;
+      const player: SpinView = { side: 'player', round, symbols: playerGrid[1], grid: playerGrid, stops: examples[i].stops, bet: examples[i].bet, winningLines: playerOutcome.winningLines, payout: playerOutcome.payout, total };
+      const rivalStops: [number, number, number] = i === 1 ? [3, 3, 3] : i === 2 ? [4, 4, 4] : [1, 2, 4];
+      const rivalBet = i === 2 ? 1 : 3;
+      const rivalGrid = gridFromStops(rivalStops);
+      const rivalOutcome = evaluateGrid(rivalGrid, rivalBet);
+      rivalTotal += rivalOutcome.payout - rivalBet;
+      const rival: SpinView = { side: 'rival', round, symbols: rivalGrid[1], grid: rivalGrid, stops: rivalStops, bet: rivalBet, winningLines: rivalOutcome.winningLines, payout: rivalOutcome.payout, total: rivalTotal };
       recordSpin(matchStats, player);
       recordSpin(matchStats, rival);
       port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, balances: { player: total, rival: rivalTotal }, bets: { player: 3, rival: 3 }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });

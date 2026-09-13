@@ -41,6 +41,7 @@ function deferred<T>() {
 class Session implements LiveSession {
   messages: ClientMessage[] = [];
   spins = 0;
+  bets = 0;
   disconnect = vi.fn(async () => undefined);
   setMuted = vi.fn();
   setMicMuted = vi.fn();
@@ -51,6 +52,7 @@ class Session implements LiveSession {
   });
   send(message: ClientMessage): void { this.messages.push(message); }
   sendSpin(): string { return `spin-${++this.spins}`; }
+  setBet(): string { return `bet-${++this.bets}`; }
   emit(message: ServerMessage): void { this.handlers.message(message); }
 }
 
@@ -114,6 +116,29 @@ async function beginLive(h: ReturnType<typeof setup>) {
 }
 
 describe('game view model', () => {
+  it('waits for the current BET acknowledgement before spinning and rolls back a rejected BET', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    h.vm.setBet(5);
+    expect(h.vm.state.snapshot.bets.player).toBe(5);
+    h.vm.requestSpin();
+    expect(session.spins).toBe(0);
+    h.vm.setBet(1);
+    expect(session.bets).toBe(1);
+    session.emit({ type: 'bet_status', commandId: 'old-bet', accepted: true, bet: 1 });
+    expect(h.vm.state.snapshot.bets.player).toBe(5);
+    session.emit({ type: 'bet_status', commandId: 'bet-1', accepted: false, bet: 3 });
+    expect(h.vm.state.snapshot.bets.player).toBe(3);
+    h.vm.requestSpin();
+    expect(session.spins).toBe(1);
+    h.vm.setBet(1);
+    session.emit({ type: 'bet_status', commandId: 'bet-2', accepted: true, bet: 1 });
+    expect(h.vm.state.snapshot.bets.player).toBe(1);
+    h.vm.leave();
+    session.emit({ type: 'bet_status', commandId: 'bet-2', accepted: false, bet: 3 });
+    expect(h.vm.state.snapshot.bets.player).toBe(1);
+  });
+
   it('keeps debug connection state separate from the CPU duel', () => {
     const h = setup();
     h.vm.setAiDebugConfiguration({ gptLive: true, responses: true, liveAvatar: true, liveKit: true });
