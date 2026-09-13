@@ -242,8 +242,8 @@ export class ReelScene {
     this.lastRound[side] = spin.round;
     this.cabinet.hideReelWin(side);
     if (side === 'player') {
-      this.cabinet.press(performance.now());
       if (this.winUntil === Infinity) this.cabinet.stop('player');
+      this.cabinet.press(performance.now());
       this.clearPlayerWin();
     } else this.clearRivalWin();
     // Keep the last confirmed reward visible during its burst, including a queued spin.

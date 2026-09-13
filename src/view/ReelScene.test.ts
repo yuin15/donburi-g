@@ -4,6 +4,7 @@ import type { SpinView, SymbolId } from '../../shared/protocol';
 import { SYMBOLS } from './ReelMotion';
 import { PAYOUT } from '../domain/game';
 import { createSymbolAtlas } from './SymbolAtlas';
+import { OVERLAYS, STAGE_HEIGHT } from './StageLayout';
 
 const graphics = vi.hoisted(() => ({ render: vi.fn(), dispose: vi.fn(), size: vi.fn(), remove: vi.fn(), backgrounds: [] as unknown[] }));
 // These tests exercise scene scheduling; the GPU bake is checked in Chrome.
@@ -162,6 +163,7 @@ describe('stage rendering and cleanup', () => {
     view.play(player, rival, completed);
     frame(819);
     expect(completed).not.toHaveBeenCalled();
+    expect(scene().getObjectByName('cabinet-lever')!.rotation.x).toBe(0);
     frame(1);
     expect(reelCenters()[0]).toBe('seven');
     expect(reelCenters()[1]).not.toBe('cherry');
@@ -264,10 +266,14 @@ describe('stage rendering and cleanup', () => {
     const done = vi.fn();
     view.playSide(spin(), done);
     frame(140);
+    const lever = scene().getObjectByName('cabinet-lever')!;
+    expect(lever.children).toHaveLength(3);
+    expect(lever.rotation.x).toBeGreaterThan(.8);
     motion.matches = true;
     motion.dispatchEvent(new Event('change'));
     frame();
     expect(done).toHaveBeenCalledOnce();
+    expect(lever.rotation.x).toBe(0);
     expect(frames.size).toBe(0);
   });
   it('cancels a pending completion and repaints resize without restarting', () => {
@@ -320,7 +326,7 @@ describe('stage rendering and cleanup', () => {
     expect(coins().every(coin => !coin.visible)).toBe(true);
     expect(frames.size).toBe(0);
   });
-  it('clears both reel highlights on the next play while a previous player burst keeps its original lifetime', () => {
+  it('clears reel highlights on the next play while the previous collection finishes on schedule', () => {
     const { view, host } = setup();
     view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), side: 'rival' }, vi.fn());
     frame(1060);
@@ -334,7 +340,17 @@ describe('stage rendering and cleanup', () => {
     expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
     expect(coins().some(coin => coin.visible)).toBe(true);
     frame(89);
-    expect(coins().some(coin => coin.visible)).toBe(true);
+    // Coins now disappear INTO each balance before the original burst expires;
+    // the small arrival glint completes that same burst, not a new celebration.
+    expect(coins().every(coin => !coin.visible)).toBe(true);
+    for (const [side, offset] of [['player', 0], ['rival', 12]] as const) {
+      const rect = OVERLAYS[side === 'player' ? 'playerScore' : 'rivalScore'];
+      coins().slice(offset, offset + 12).forEach(coin => {
+        expect(coin.position.x).toBeCloseTo(rect.x + rect.w - 38);
+        expect(coin.position.y).toBeCloseTo(STAGE_HEIGHT - rect.y - rect.h * .58);
+      });
+      expect(scene().getObjectByName(side + '-score-collect-glint')!.visible).toBe(true);
+    }
     frame(1);
     expect(coins().every(coin => !coin.visible)).toBe(true);
     expect(frames.size).toBe(0);

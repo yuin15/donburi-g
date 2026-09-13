@@ -10,6 +10,9 @@ export class CabinetModel {
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.MeshStandardMaterial[];
   private button: THREE.Mesh | null = null;
+  private lever = new THREE.Group();
+  private sweepPosition = { value: -10 };
+  private sweepStrength = { value: 0 };
   private pressedAt = -Infinity;
   private metalDetail = createFinishDetails('metal');
   private paintDetail = createFinishDetails('enamel');
@@ -24,6 +27,17 @@ export class CabinetModel {
     const gold = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .96, roughness: .20,
       roughnessMap: this.metalDetail.roughness, normalMap: this.metalDetail.normal, normalScale: new THREE.Vector2(.16, .16),
       clearcoat: .25, clearcoatRoughness: .06, envMap: environment, envMapIntensity: 1.3 });
+    // A thin travelling glint is confined to gold, not painted across the reels.
+    gold.onBeforeCompile = shader => {
+      shader.uniforms.frameSweepPosition = this.sweepPosition;
+      shader.uniforms.frameSweepStrength = this.sweepStrength;
+      shader.vertexShader = 'varying vec3 vFinishPosition;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvFinishPosition = position;');
+      shader.fragmentShader = 'varying vec3 vFinishPosition;\nuniform float frameSweepPosition;\nuniform float frameSweepStrength;\n' + shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float band = exp(-pow((vFinishPosition.x + vFinishPosition.y * .65 - frameSweepPosition) / .10, 2.));
+        float edge = .18 + .82 * pow(1. - abs(normal.z), .7);
+        totalEmissiveRadiance += vec3(1., .83, .48) * band * edge * frameSweepStrength;`);
+    };
+    gold.customProgramCacheKey = () => 'cabinet-gold-sweep-v1';
     const lacquer = new THREE.MeshPhysicalMaterial({ vertexColors: true, map: this.enamel, metalness: .22, roughness: .22,
       roughnessMap: this.paintDetail.roughness, normalMap: this.paintDetail.normal, normalScale: new THREE.Vector2(.16, .16),
       clearcoat: 1, clearcoatRoughness: .055, envMap: environment, envMapIntensity: .95 });
@@ -45,9 +59,14 @@ export class CabinetModel {
       cabinet_button: 0xffdddd, cabinet_spin_button: 0xffd6db, cabinet_ruby: 0xc80935,
     };
     const buckets = new Map<string, { material: THREE.MeshStandardMaterial; pieces: THREE.BufferGeometry[] }>();
+    this.lever.name = 'cabinet-lever';
+    this.lever.position.set(3.55, 3.15 + .20 * this.viewSlope, -.20);
+    this.group.add(this.lever);
     new OBJLoader().parse(source).traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
       const geometry = node.geometry as THREE.BufferGeometry;
+      const isLever = node.name.startsWith('cabinet_lever_');
+      const finishName = node.name.replace('cabinet_lever_', 'cabinet_');
       const isReel = node.name.startsWith('cabinet_reel');
       (Array.isArray(node.material) ? node.material : [node.material]).forEach(value => value.dispose());
       if (isReel && options.reels === false) { geometry.dispose(); return; }
@@ -62,7 +81,7 @@ export class CabinetModel {
         const n = new THREE.Vector3(displayedNormals.getX(i), displayedNormals.getY(i), displayedNormals.getZ(i) - displayedNormals.getY(i) * this.viewSlope * .70).normalize();
         displayedNormals.setXYZ(i,n.x,n.y,n.z);
       }
-      const color = new THREE.Color(palette[node.name] ?? 0xffffff);
+      const color = new THREE.Color(palette[finishName] ?? 0xffffff);
       const positions = geometry.getAttribute('position');
       const normals = geometry.getAttribute('normal');
       const colors = new Float32Array(positions.count * 3);
@@ -76,10 +95,11 @@ export class CabinetModel {
       }
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-      const material = isReel ? ivory : node.name === 'cabinet_lamp' ? lamp : node.name === 'cabinet_chrome' ? chrome
-        : node.name === 'cabinet_marble' ? marble : node.name.includes('button') ? buttonPaint : node.name === 'cabinet_ruby' ? ruby : ['cabinet_body', 'cabinet_lacquer'].includes(node.name) ? lacquer
+      const material = isReel ? ivory : node.name === 'cabinet_lamp' ? lamp : finishName === 'cabinet_chrome' ? chrome
+        : node.name === 'cabinet_marble' ? marble : node.name.includes('button') ? buttonPaint : finishName === 'cabinet_ruby' ? ruby : ['cabinet_body', 'cabinet_lacquer'].includes(node.name) ? lacquer
             : ['cabinet_black', 'cabinet_back', 'cabinet_vent'].includes(node.name) ? black : gold;
-      const key = node.name === 'cabinet_spin_button' ? 'spin-button' : String(this.materials.indexOf(material));
+      if (isLever) geometry.translate(-this.lever.position.x, -this.lever.position.y, -this.lever.position.z);
+      const key = node.name === 'cabinet_spin_button' ? 'spin-button' : (isLever ? 'lever-' : '') + this.materials.indexOf(material);
       const bucket = buckets.get(key) ?? { material, pieces: [] };
       bucket.pieces.push(geometry);
       buckets.set(key, bucket);
@@ -91,10 +111,10 @@ export class CabinetModel {
       geometry.computeBoundingSphere();
       this.geometries.push(geometry);
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.castShadow = true; mesh.receiveShadow = true;
+      mesh.castShadow = !key.startsWith('lever-'); mesh.receiveShadow = true;
       mesh.name = key === 'spin-button' ? 'cabinet-spin-button' : 'cabinet-finish-' + key;
       if (key === 'spin-button') this.button = mesh;
-      this.group.add(mesh);
+      (key.startsWith('lever-') ? this.lever : this.group).add(mesh);
     });
     const glassGeometry = new THREE.PlaneGeometry(5.72, 3.75);
     const glass = new THREE.MeshPhysicalMaterial({ color: 0xd4e3ec, roughness: .10, metalness: .05, transparent: true, opacity: .025, depthWrite: false, envMap: environment, envMapIntensity: .3 });
@@ -108,15 +128,25 @@ export class CabinetModel {
   }
 
   press(now: number): void { this.pressedAt = now; }
+  stop(): void { this.pressedAt = -Infinity; this.update(0, true); this.setSweep(0, 0); }
+  setSweep(progress: number, strength: number): void {
+    this.sweepPosition.value = -2.8 + Math.min(1, progress / .85) * 11;
+    this.sweepStrength.value = strength;
+  }
 
   update(now: number, reducedMotion: boolean): boolean {
     const elapsed = now - this.pressedAt;
     const pressing = !reducedMotion && elapsed >= 0 && elapsed < 180;
+    const pulling = !reducedMotion && elapsed >= 0 && elapsed < 720;
+    const t = Math.max(0, elapsed / 720);
+    const spring = Math.max(0, (t - .42) / .58);
+    const pull = t < .32 ? 1 - (1 - t / .32) ** 3 : t < .42 ? 1 : Math.exp(-6 * spring) * (Math.cos(7 * spring) + .3 * Math.sin(7 * spring));
+    this.lever.rotation.x = pulling ? pull * 1.05 : 0;
     if (this.button) {
       this.button.position.z = pressing ? -Math.sin(elapsed / 180 * Math.PI) * .045 : 0;
       this.button.position.y = -this.button.position.z * this.viewSlope;
     }
-    return pressing;
+    return pressing || pulling;
   }
 
   dispose(): void {
