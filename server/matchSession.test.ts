@@ -464,61 +464,84 @@ describe('live match cleanup', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('uses the original session deadline without adding eight seconds after a late start', async () => {
-    const { session, release, messages } = setup();
+  it('reserves an audio play window after a late start through extension fallback and final reaction', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages, release } = setup('late-audio-extension', 'manual', 'audio');
     await session.initialize();
-    await vi.advanceTimersByTimeAsync(56_000);
+    await vi.advanceTimersByTimeAsync(74_000);
     session.handleRaw('{"type":"start"}');
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(provider.gptConnect).toHaveBeenLastCalledWith(2000);
-    expect(messages.filter(m => m.type === 'match_ended')).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(3999);
-    expect(release).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
+
+    // This crosses the old initialization-based 120s deadline. The existing
+    // bridge must observe the re-armed play deadline rather than a captured one.
+    await vi.advanceTimersByTimeAsync(46_000);
+    expect(provider.gptClose).not.toHaveBeenCalled();
+    provider.events?.onAudio('after-old-deadline');
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_audio', audio: 'after-old-deadline' }));
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'late-audio-extension', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(false);
+
+    // The bounded 15s spoken-line fallback holds the clock, then all ten
+    // granted seconds and the result reaction still fit before the 170s cap.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ decision: 'accepted', after: { duration: 70 } });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(messages.find(message => message.type === 'match_ended')).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0 } });
+    await vi.advanceTimersByTimeAsync(8_000);
     expect(release).toHaveBeenCalledOnce();
     expect(provider.gptClose).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each(['audio', 'avatar'] as const)('keeps the full manual duel after the %s voice deadline', async voiceMode => {
-    const { session, messages, release, close } = setup('late-match', 'manual', voiceMode);
+  it('ends an avatar-ready lobby before its provider-issued 120-second token could shorten a full extended duel', async () => {
+    const { session, messages, release, close } = setup('avatar-lobby', 'manual', 'avatar');
     await session.initialize();
-    await vi.advanceTimersByTimeAsync(80_000);
-    session.handleRaw('{"type":"start"}');
-    session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"before-limit"}');
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(messages.some(message => message.type === 'snapshot' && message.snapshot.status === 'playing')).toBe(false);
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: 'error', code: 'lobby_timeout', recoverable: false,
+      message: 'Live video waited too long. Reconnect AI voice without live video to start a full duel.',
+    }));
+    expect(messages.filter(message => message.type === 'voice_status' && message.status === 'closed')).toMatchObject([{ message: 'lobby_timeout' }]);
+    expect(provider.stop).toHaveBeenCalledOnce();
     expect(provider.gptClose).toHaveBeenCalledOnce();
-    expect(provider.stop).toHaveBeenCalledTimes(voiceMode === 'avatar' ? 1 : 0);
-    expect(close).not.toHaveBeenCalled();
-    expect(release).not.toHaveBeenCalled();
-    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'closed')).toHaveLength(1);
-    session.handleRaw('{"type":"mic","audio":"AAAA"}');
-    session.handleRaw('{"type":"spin","matchId":"late-match","commandId":"after-limit"}');
-    await vi.advanceTimersByTimeAsync(20_001);
-    expect(messages.filter(m => m.type === 'match_ended')).toMatchObject([{
-      snapshot: { matchId: 'late-match', status: 'result', elapsed: 60, remaining: 0, rounds: { player: 2, rival: 26 } },
-    }]);
-    expect(provider.mic).not.toHaveBeenCalled();
-    expect(provider.gptConnect).toHaveBeenCalledOnce();
-    expect(provider.gptClose).toHaveBeenCalledOnce();
-    expect(close).toHaveBeenCalledOnce();
     expect(release).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each(['timer', 'late-start'])('closes the idle lobby at 90 seconds via %s without starting a shortened game', async trigger => {
-    const { session, messages, release, close } = setup();
+  it.each([
+    ['audio', 75_000],
+    ['avatar', 25_000],
+  ] as const)('closes the unused %s lobby before a shortened game can start', async (voiceMode, lobbyMs) => {
+    const { session, messages, release, close } = setup(`idle-${voiceMode}`, 'manual', voiceMode);
     await session.initialize();
-    if (trigger === 'timer') await vi.advanceTimersByTimeAsync(90_000);
-    else {
-      vi.setSystemTime(Date.now() + 90_000);
-      session.handleRaw('{"type":"start"}');
-    }
-    await session.shutdown('test_finished');
-    expect(messages.some(m => m.type === 'snapshot' && m.snapshot.status === 'playing')).toBe(false);
+    await vi.advanceTimersByTimeAsync(lobbyMs);
+    expect(messages.some(message => message.type === 'snapshot' && message.snapshot.status === 'playing')).toBe(false);
+    expect(messages.filter(m => m.type === 'error')).toContainEqual(expect.objectContaining({ type: 'error', code: 'lobby_timeout', recoverable: false }));
     expect(messages.filter(m => m.type === 'voice_status' && m.status === 'closed')).toMatchObject([{ message: 'lobby_timeout' }]);
-    expect(provider.stop).toHaveBeenCalledOnce();
+    expect(provider.stop).toHaveBeenCalledTimes(voiceMode === 'avatar' ? 1 : 0);
     expect(provider.gptClose).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['audio', 75_000],
+    ['avatar', 25_000],
+  ] as const)('rejects a late %s PLAY even when its lobby timer has not run yet', async (voiceMode, lobbyMs) => {
+    const { session, messages, release, close } = setup(`late-${voiceMode}`, 'manual', voiceMode);
+    await session.initialize();
+    vi.setSystemTime(Date.now() + lobbyMs);
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(messages.some(message => message.type === 'snapshot' && message.snapshot.status === 'playing')).toBe(false);
+    expect(messages.filter(m => m.type === 'error')).toContainEqual(expect.objectContaining({ type: 'error', code: 'lobby_timeout', recoverable: false }));
     expect(release).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);

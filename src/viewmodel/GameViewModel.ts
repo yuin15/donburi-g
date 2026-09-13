@@ -735,6 +735,12 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'error') {
       this.connectionText = message.message;
       if (!message.recoverable) {
+        // The server reserves enough lifetime for a full duel. A lobby timeout
+        // must remain visible as a retry option instead of becoming CPU silently.
+        if (message.code === 'lobby_timeout') {
+          this.returnToGate(`${message.message} Retry AI voice, or start a CPU duel.`);
+          return;
+        }
         // LiveClient forwards a server error before rejecting setup. Preserve
         // the generation so establishLive can classify it for a retry.
         if (this.connecting && !this.gameConnected && !this.liveSnapshot) return;

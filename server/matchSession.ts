@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import type { AiProvider, AiProviderState, ClientMessage, MatchSnapshot, ServerMessage, SpinView } from '../shared/protocol.js';
+import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type MatchSnapshot, type ServerMessage, type SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
   applyTimeExtension,
@@ -50,9 +50,14 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
 ]);
 
 const MAX_SESSION_MS = 120_000;
-// A late start must still leave a full 60-second game inside Vercel's 180s budget.
+const MAX_TOTAL_SESSION_MS = 170_000;
 const MAX_LOBBY_MS = 90_000;
 const RESULT_REACTION_MS = 8_000;
+const EXTENSION_SPEECH_FALLBACK_MS = 15_000;
+// 70 seconds of play, a held acceptance line, final reaction, and a small cleanup margin.
+const PLAY_VOICE_WINDOW_MS = MAX_MATCH_SECONDS * 1000 + EXTENSION_SPEECH_FALLBACK_MS + RESULT_REACTION_MS + 2_000;
+const AUDIO_LOBBY_MS = Math.min(MAX_LOBBY_MS, MAX_TOTAL_SESSION_MS - PLAY_VOICE_WINDOW_MS);
+const AVATAR_LOBBY_MS = Math.min(MAX_LOBBY_MS, MAX_SESSION_MS - PLAY_VOICE_WINDOW_MS);
 const EXTENSION_OFFER_CHANCE = 0.2;
 const EXTENSION_OFFER_AUDIBLE_DELAY_MS = 1000;
 const EXTENSION_OFFER_REPLY_MS = 5000;
@@ -83,6 +88,7 @@ export class MatchSession {
   private resultStop: NodeJS.Timeout | null = null;
   private resultSilence: NodeJS.Timeout | null = null;
   private sessionDeadline = 0;
+  private sessionOpenedAt = 0;
   private voiceGeneration = 0;
   private resultSpeechStarted = false;
   private readonly closingBridges = new Set<Promise<boolean>>();
@@ -143,10 +149,12 @@ export class MatchSession {
   private async initializeProviders(): Promise<void> {
     this.emit({ type: 'hello', live: true, sessionId: this.sessionId });
     this.emit({ type: 'voice_status', status: 'connecting' });
-    this.sessionDeadline = Date.now() + MAX_SESSION_MS;
-    this.lobbyDeadline = Date.now() + MAX_LOBBY_MS;
-    this.lobbyStop = setTimeout(() => void this.shutdown('lobby_timeout'), MAX_LOBBY_MS);
-    this.hardStop = setTimeout(() => this.expireVoice(), MAX_SESSION_MS);
+    const openedAt = Date.now();
+    this.sessionOpenedAt = openedAt;
+    this.armVoiceDeadline(openedAt + MAX_SESSION_MS);
+    const lobbyWindowMs = this.voiceMode === 'avatar' ? AVATAR_LOBBY_MS : AUDIO_LOBBY_MS;
+    this.lobbyDeadline = openedAt + lobbyWindowMs;
+    this.lobbyStop = setTimeout(() => this.expireLobby(), lobbyWindowMs);
     try {
       if (this.voiceMode === 'avatar') {
         this.setProviderStatus('liveAvatar', 'connecting');
@@ -181,9 +189,11 @@ export class MatchSession {
     }
   }
 
-  private createVoiceBridge(openingContext = '', resultOnly = false, deadline = this.sessionDeadline): GptLiveBridge {
+  private createVoiceBridge(openingContext = '', resultOnly = false, fixedDeadline?: number): GptLiveBridge {
     const generation = ++this.voiceGeneration;
-    const current = () => generation === this.voiceGeneration && !this.closed && !this.voiceDisabled && Date.now() < deadline;
+    // The play bridge follows an authoritative deadline that may be re-armed at
+    // PLAY. A result bridge receives its own fixed, shorter deadline.
+    const current = () => generation === this.voiceGeneration && !this.closed && !this.voiceDisabled && Date.now() < (fixedDeadline ?? this.sessionDeadline);
     const outputAllowed = () => current() && this.voiceReady && (!resultOnly || this.resultSpeechStarted);
     return new GptLiveBridge({
       onReady: () => {
@@ -303,6 +313,21 @@ export class MatchSession {
       if (this.frontend.readyState === 1) this.frontend.close(1000, 'session_closed');
     })();
     return this.stopping;
+  }
+
+  private armVoiceDeadline(deadline: number): void {
+    this.sessionDeadline = deadline;
+    if (this.hardStop) clearTimeout(this.hardStop);
+    this.hardStop = setTimeout(() => this.expireVoice(), Math.max(0, deadline - Date.now()));
+  }
+
+  private expireLobby(): void {
+    if (this.closed || this.state.status !== 'ready') return;
+    const message = this.voiceMode === 'avatar'
+      ? 'Live video waited too long. Reconnect AI voice without live video to start a full duel.'
+      : 'AI voice waited too long. Reconnect AI voice to start a full duel.';
+    this.emitSafeError('lobby_timeout', message, false);
+    void this.shutdown('lobby_timeout');
   }
 
   private expireVoice(): void {
@@ -471,11 +496,22 @@ export class MatchSession {
       return;
     }
     if (this.state.status !== 'ready') return;
-    if (Date.now() >= this.lobbyDeadline) { void this.shutdown('lobby_timeout'); return; }
+    const now = Date.now();
+    if (now >= this.lobbyDeadline) { this.expireLobby(); return; }
+    // Audio has no provider-issued session token, so reserve a bounded play
+    // window only after PLAY. Avatar tokens are fixed at initialization and
+    // therefore use their shorter lobby window above.
+    if (this.voiceMode === 'audio') {
+      const deadline = Math.min(
+        this.sessionOpenedAt + MAX_TOTAL_SESSION_MS,
+        Math.max(this.sessionDeadline, now + PLAY_VOICE_WINDOW_MS),
+      );
+      this.armVoiceDeadline(deadline);
+    }
     if (this.lobbyStop) clearTimeout(this.lobbyStop);
     this.lobbyStop = null;
     startMatch(this.state);
-    this.startedAt = Date.now();
+    this.startedAt = now;
     this.pushContext();
     this.emitSnapshot();
     this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
@@ -769,7 +805,7 @@ export class MatchSession {
     const id = randomUUID();
     // Normal completion is driven by playback acknowledgments. This only
     // bounds a broken stream after suppression, generation, and avatar delay.
-    const timer = setTimeout(() => this.commitExtensionSpeech(true), 15_000);
+    const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
     this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false };
     // Existing commentary is the supported GPT-Live speech path. It is queued
     // after the suppressed turn so stale speech cannot precede this decision.

@@ -189,6 +189,21 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('keeps an expired voice lobby visible so the player can reconnect instead of silently falling back to CPU', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({
+      type: 'error', code: 'lobby_timeout', recoverable: false,
+      message: 'AI voice waited too long. Reconnect AI voice to start a full duel.',
+    });
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, message: expect.stringContaining('Reconnect AI voice') },
+    });
+    expect(h.presentation.focus).toHaveBeenLastCalledWith('gate');
+    h.vm.dispose();
+  });
+
   it('waits for the current BET acknowledgement before spinning and rolls back a rejected BET', async () => {
     const h = setup();
     const session = await beginLive(h);
