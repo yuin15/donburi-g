@@ -1,12 +1,12 @@
 import type { MatchSnapshot, Side, SpinView } from '../../shared/protocol';
-import { createMatch, evaluateGrid, getSnapshot, gridFromStops, PAYOUT } from '../domain/game';
+import { createMatch, evaluateGrid, getSnapshot, gridFromStops, PAYOUT, STARTING_BALANCE } from '../domain/game';
 import type { GameView } from '../view/GameView';
 import { RivalReactions } from '../viewmodel/RivalReactions';
 import { mountVisualReview, type ReviewExample } from '../view/VisualReview';
 import type { GameViewState } from '../viewmodel/GameViewState';
 
 function fixtureStats(scores: MatchSnapshot['scores']): MatchSnapshot['stats'] {
-  const side = (balance: number) => balance > 100
+  const side = (balance: number) => balance > STARTING_BALANCE
     ? { wins: { cherry: 1, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: PAYOUT.cherry } }
     : { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null };
   return { player: side(scores.player), rival: side(scores.rival) };
@@ -18,14 +18,14 @@ function setFixtureBalances(snapshot: MatchSnapshot, scores: MatchSnapshot['scor
   snapshot.stats = fixtureStats(scores);
 }
 
-function fixtureSpin(side: Side, round: number, stops: [number, number, number], bet: 1 | 3 | 5, before = 100): SpinView {
+function fixtureSpin(side: Side, round: number, stops: [number, number, number], bet: 1 | 3 | 5, before = STARTING_BALANCE): SpinView {
   const grid = gridFromStops(stops);
   const outcome = evaluateGrid(grid, bet);
   return { side, round, symbols: grid[1], grid, stops, bet, winningLines: outcome.winningLines, payout: outcome.payout, total: before - bet + outcome.payout };
 }
 
 function fixtureSnapshot(): MatchSnapshot {
-  const scores = { player: 94, rival: 88 };
+  const scores = { player: 24, rival: 18 };
   return {
     ...getSnapshot(createMatch(1, 'visual-fixture')),
     status: 'playing', elapsed: 22, remaining: 38, round: 20, rounds: { player: 20, rival: 11 }, balances: scores, scores,
@@ -136,7 +136,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     view.stopScene();
     render({
       snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
-      sessionRecord: { best: Math.max(100, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > 100 },
+      sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },
       expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
       rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
       line: resultLine(snapshot), heard: '',
@@ -166,29 +166,30 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     if (example === 'normal') view.scene.show(['bell', 'seven', 'cherry']);
     if (example === 'final-seconds') {
       snapshot.remaining = 8; snapshot.elapsed = 52;
-      setFixtureBalances(snapshot, { player: 94, rival: 88 });
+      setFixtureBalances(snapshot, { player: 24, rival: 18 });
       view.scene.show(['cherry', 'bell', 'seven']);
-      render({ snapshot, scores: snapshot.scores, sessionRecord: { best: 100, streak: 2, newBest: false },
+      render({ snapshot, scores: snapshot.scores, sessionRecord: { best: STARTING_BALANCE, streak: 2, newBest: false },
         machineNotice: 'FINAL SPINS · KEEP GOING', line: 'Eight seconds. Make it count!',
         rivalMood: 'One spin could change it.' });
     }
     if (example === 'session-best') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;
       snapshot.rounds = { player: 42, rival: 30 }; snapshot.round = 42;
-      setFixtureBalances(snapshot, { player: 112, rival: 94 }); snapshot.winner = 'player';
+      setFixtureBalances(snapshot, { player: 42, rival: 24 }); snapshot.winner = 'player';
       view.scene.show(['seven', 'seven', 'seven']);
       showResult(snapshot);
     }
-    if (['small', 'bell-cherry', 'cherry-bell', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
+    if (['small', 'diagonal', 'bell-cherry', 'cherry-bell', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
       const jackpot = example === 'jackpot' || example === 'both-jackpot';
       // These stops are deliberately central-line-only wins: [0] is cherry,
       // [1] is bell, and [8] is seven. Multi-line fixtures use separate labels.
-      let player = fixtureSpin('player', 20, jackpot ? [8, 8, 8] : [0, 0, 0], 1, 95);
-      let rival = fixtureSpin('rival', 11, [1, 2, 4], 3, 91);
-      if (example === 'bell-cherry') { player = fixtureSpin('player', 20, [1, 1, 1], 1, 95); rival = fixtureSpin('rival', 11, [0, 0, 0], 1, 91); }
-      if (example === 'cherry-bell') { player = fixtureSpin('player', 20, [0, 0, 0], 1, 95); rival = fixtureSpin('rival', 11, [1, 1, 1], 1, 91); }
-      if (example === 'rival-jackpot' || example === 'both-jackpot') rival = fixtureSpin('rival', 11, [8, 8, 8], 1, 91);
-      if (example === 'rival-jackpot' || example === 'quiet') player = fixtureSpin('player', 20, [1, 2, 4], 3, 95);
+      let player = fixtureSpin('player', 20, jackpot ? [8, 8, 8] : [0, 0, 0], 1, 25);
+      let rival = fixtureSpin('rival', 11, [1, 2, 4], 3, 21);
+      if (example === 'diagonal') player = fixtureSpin('player', 20, [0, 2, 7], 5, 25);
+      if (example === 'bell-cherry') { player = fixtureSpin('player', 20, [1, 1, 1], 1, 25); rival = fixtureSpin('rival', 11, [0, 0, 0], 1, 21); }
+      if (example === 'cherry-bell') { player = fixtureSpin('player', 20, [0, 0, 0], 1, 25); rival = fixtureSpin('rival', 11, [1, 1, 1], 1, 21); }
+      if (example === 'rival-jackpot' || example === 'both-jackpot') rival = fixtureSpin('rival', 11, [8, 8, 8], 1, 21);
+      if (example === 'rival-jackpot' || example === 'quiet') player = fixtureSpin('player', 20, [1, 2, 4], 3, 25);
       previousLeader = example === 'jackpot' ? 'rival' : null;
       setFixtureBalances(snapshot, { player: player.total, rival: rival.total });
       snapshot.bets = { player: player.bet!, rival: rival.bet! };
@@ -200,7 +201,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     }
     if (example === 'draw' || example === 'defeat') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 };
-      setFixtureBalances(snapshot, { player: 94, rival: example === 'draw' ? 94 : 106 }); snapshot.winner = example === 'draw' ? 'draw' : 'rival';
+      setFixtureBalances(snapshot, { player: 24, rival: example === 'draw' ? 24 : 36 }); snapshot.winner = example === 'draw' ? 'draw' : 'rival';
       showResult(snapshot);
     }
     if (example.startsWith('mic-')) {
@@ -237,8 +238,8 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     }
     if (example === 'final') {
       snapshot.status = 'result'; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 }; snapshot.remaining = 0; snapshot.elapsed = 60;
-      const player = fixtureSpin('player', 30, [8, 8, 8], 1, 95);
-      const rival = fixtureSpin('rival', 30, [1, 2, 4], 3, 91);
+      const player = fixtureSpin('player', 30, [8, 8, 8], 1, 25);
+      const rival = fixtureSpin('rival', 30, [1, 2, 4], 3, 21);
       setFixtureBalances(snapshot, { player: player.total, rival: rival.total });
       snapshot.bets = { player: player.bet!, rival: rival.bet! };
       snapshot.winner = 'player';

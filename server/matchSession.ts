@@ -533,7 +533,11 @@ export class MatchSession {
 
   private emitSnapshot(): void {
     this.lastSnapshotAt = Date.now();
-    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), ...(this.state.spinMode === 'manual' ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
+    const splitLatest = this.state.spinMode === 'manual'
+      || this.state.rounds.player !== this.state.rounds.rival
+      || this.lastSpins.player !== this.lastSpin?.player
+      || this.lastSpins.rival !== this.lastSpin?.rival;
+    this.emit({ type: 'snapshot', snapshot: getSnapshot(this.state), ...(splitLatest ? { lastSpins: { ...this.lastSpins } } : { lastSpin: this.lastSpin }) });
   }
 
   private emitSpinStatus(commandId: string, accepted: boolean, retryAfterMs: number): void {

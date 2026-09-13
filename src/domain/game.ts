@@ -4,7 +4,7 @@ import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 
 export { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from '../../shared/protocol.js';
 export type MatchStatus = MatchSnapshot['status'];
-export const STARTING_BALANCE = 100;
+export const STARTING_BALANCE = 30;
 export const BETS = [1, 3, 5] as const satisfies readonly Bet[];
 export const PAYOUT: Record<SymbolId, number> = { cherry: 3, bell: 6, seven: 30 };
 export const BASE_POOL: readonly SymbolId[] = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'];

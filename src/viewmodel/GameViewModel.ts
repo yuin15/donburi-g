@@ -45,7 +45,7 @@ export class GameViewModel implements GameCommands {
   private result: MatchSnapshot | null = null;
   private sessionRecord = { best: 0, streak: 0, newBest: false };
   private lastSpin: GameViewState['lastSpin'] = null;
-  private displayBalances: Record<Side, number> = { player: 100, rival: 100 };
+  private displayBalances: Record<Side, number> = { player: 30, rival: 30 };
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private line = INITIAL_LINE;
@@ -450,7 +450,7 @@ export class GameViewModel implements GameCommands {
     this.lastSpin = { ...this.lastSpin, [side]: spin };
     this.displayBalances[side] = spin.total;
     // RoundPresentation starts at zero so it can wait for both reel stops. The
-    // bankroll already includes the untouched side's $100 and the paid BET.
+    // bankroll already includes the untouched side's starting cash and the paid BET.
     const scores = this.displayBalances;
     const leader = scores.player > scores.rival ? 'player' : scores.player < scores.rival ? 'rival' : null;
     const settled = this.rounds.isSettled;

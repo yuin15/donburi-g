@@ -87,6 +87,11 @@ export class GameView implements GamePresentation {
         if (!event.repeat) { unlock(); commands.requestSpin(); }
         return;
       }
+      if (!event.repeat && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && state.snapshot.status === 'playing' && !event.isComposing) {
+        const editable = event.target instanceof Element ? event.target.closest('input,textarea,select,[contenteditable=true]') : null;
+        const bet = event.code === 'Digit1' ? 1 : event.code === 'Digit2' ? 3 : event.code === 'Digit3' ? 5 : null;
+        if (bet && !editable) { event.preventDefault(); commands.setBet(bet); }
+      }
     }, options);
     document.addEventListener('visibilitychange', () => commands.visibilityChanged(), options);
   }
@@ -158,16 +163,6 @@ export class GameView implements GamePresentation {
     });
     this.q('#lineOverlay').querySelectorAll<SVGPathElement>('path[data-line]').forEach(path => {
       path.dataset.active = String(ACTIVE_LINES[selectedBet].includes(path.dataset.line as WinningLine));
-    });
-    const rivalGrid = state.lastSpin?.rival?.grid ?? [
-      ['cherry', 'bell', 'seven'], ['cherry', 'bell', 'seven'], ['cherry', 'bell', 'seven'],
-    ];
-    const symbolLabel = { cherry: '🍒', bell: '🔔', seven: '7' };
-    this.q('#rivalGrid').querySelectorAll<HTMLSpanElement>('span').forEach((cell, index) => {
-      this.textCell(cell, symbolLabel[rivalGrid[Math.floor(index / 3)][index % 3]]);
-    });
-    this.q('#rivalLineOverlay').querySelectorAll<SVGPathElement>('path[data-line]').forEach(path => {
-      path.dataset.active = String(ACTIVE_LINES[state.bets.rival].includes(path.dataset.line as WinningLine));
     });
     this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
@@ -248,10 +243,6 @@ export class GameView implements GamePresentation {
   private glyphs(spin: SpinView): string {
     const glyph = { cherry: 'Cherry', bell: 'Bell', seven: 'Seven' };
     return spin.symbols.map(symbol => glyph[symbol]).join(', ');
-  }
-
-  private textCell(element: HTMLElement, value: string): void {
-    if (element.textContent !== value) element.textContent = value;
   }
 
   private renderResult(snapshot: MatchSnapshot | null): void {

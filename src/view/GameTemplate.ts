@@ -35,8 +35,6 @@ app.innerHTML = `
     <span id="rivalMood">60 seconds. Let's play.</span><p id="line">Think you can beat me?</p><small id="heard"></small>
     <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS · BET $3</span><strong id="rivalPay" hidden></strong></div>
     <strong class="sr-only" id="rivalReels">Cherry, Bell, Seven</strong>
-    <div id="rivalGrid" aria-label="Rival 3 by 3 reels"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-    <svg id="rivalLineOverlay" viewBox="0 0 300 300" preserveAspectRatio="none" aria-hidden="true"><path data-line="top" d="M15 50H285"/><path data-line="middle" d="M15 150H285"/><path data-line="bottom" d="M15 250H285"/><path data-line="diagonalDown" d="M15 50L285 250"/><path data-line="diagonalUp" d="M15 250L285 50"/></svg>
     <div id="duelRules"><strong>MOST CASH WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>
     <div id="voicePanel" aria-label="Microphone controls" hidden>
       <button id="mic" aria-label="Mute your microphone" aria-pressed="false">
@@ -68,7 +66,7 @@ app.innerHTML = `
     <div class="eyebrow">60 SECOND DUEL</div>
     <h2 id="gateTitle">PICK YOUR BET.<br><em>BEAT YOUR RIVAL.</em></h2>
     <p>Click or press SPACE after the reels stop.<br>Your rival spins automatically.<br>Finish with more cash in 60 seconds.</p>
-    <p class="gate-strategy">Start with $100. Pick $1, $3, or $5.<br>More BET unlocks more lines.<br>Every spin could turn the game.</p>
+    <p class="gate-strategy">Start with $30. Pick $1, $3, or $5.<br>More BET unlocks more lines.<br>Every spin could turn the game.</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>Pick your risk.<br>No queued spins.</span></div>
     <button id="practice" class="primary">PLAY NOW <span>→</span></button>
     <small>Free · No mic needed · Desktop 1280×720 or larger</small>

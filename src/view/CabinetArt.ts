@@ -1,16 +1,16 @@
 import * as THREE from 'three';
-import type { Side, SymbolId } from '../../shared/protocol';
+import type { Side } from '../../shared/protocol';
 import { STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
 import { createGoldCoinEnvironment, createGoldCoinGeometry, createGoldCoinMaterial } from './GoldCoin';
 import { PAYOUT } from '../domain/game';
-import { WinSymbols } from './WinSymbols';
+import { WinSymbols, type WinningCell } from './WinSymbols';
 import type { WinSymbol } from './SymbolModels';
 import { CabinetModel } from './CabinetModel';
 import { CasinoStage } from './CasinoStage';
 import { SculptedType } from './SculptedType';
 
-type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; reels: boolean };
-const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, reels: false });
+type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; cells: WinningCell[]; payout: number; reels: boolean };
+const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
 const sides: Side[] = ['player', 'rival'];
 
 /** Two independent win lanes, sharing one renderer and 24 reusable 3D coins. */
@@ -80,7 +80,7 @@ export class CabinetArt {
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
   press(now: number): void { this.body.press(now); this.pressedAt = now; }
   hideReelWin(side: Side): void { this.bursts[side].reels = false; }
-  reelInkHidden(side: Side): number { return this.winSymbols.reelInkHidden(side); }
+  reelInkHidden(side: Side, column: number): [number, number, number] { return this.winSymbols.reelInkHidden(side, column); }
   setButtonCaption(caption: string): boolean {
     const text = caption.replace(/[^A-Z !?.-]/g, '');
     if (text === this.buttonCaption) return false;
@@ -194,11 +194,14 @@ export class CabinetArt {
     return mesh;
   }
 
-  flash(payout: number, now: number, duration: number, still = false, side: Side = 'player', winningSymbol: SymbolId | null = null): void {
+  flash(payout: number, now: number, duration: number, still = false, side: Side = 'player', winningCells: WinningCell[] = [], winningSymbol: WinSymbol | null = null): void {
     this.resultUntil = 0;
+    const primary = winningSymbol ?? winningCells.reduce<WinSymbol | null>((best, cell) => !best || PAYOUT[cell.symbol] > PAYOUT[best] ? cell.symbol : best, null);
     this.bursts[side] = {
-      started: now, until: payout > 0 ? now + duration : 0, jackpot: winningSymbol === 'seven' || payout >= PAYOUT.seven, still: still && payout > 0,
-      symbol: winningSymbol ?? (payout >= PAYOUT.seven ? 'seven' : payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null),
+      started: now, until: payout > 0 ? now + duration : 0, jackpot: primary === 'seven' || payout >= PAYOUT.seven, still: still && payout > 0,
+      symbol: primary ?? (payout >= PAYOUT.seven ? 'seven' : payout === PAYOUT.bell ? 'bell' : payout === PAYOUT.cherry ? 'cherry' : null),
+      cells: winningCells,
+      payout,
       reels: true,
     };
   }
@@ -256,7 +259,7 @@ export class CabinetArt {
       animating ||= winning && !burst.still;
       const duration = burst.until - burst.started;
       const progress = duration > 0 ? Math.max(0, (time - burst.started) / duration) : 1;
-      this.winSymbols.update(side, winning ? burst.symbol : null, progress, reducedMotion, burst.reels);
+      this.winSymbols.update(side, winning ? burst.cells : [], winning ? burst.symbol : null, burst.payout, progress, reducedMotion, burst.reels);
       if (side === 'player' && winning && !reducedMotion) {
         const recoil = Math.sin(progress * Math.PI * 3) * Math.exp(-progress * 5) * (burst.jackpot ? 1 : .45);
         this.machine.rotation.x = recoil * .012;
