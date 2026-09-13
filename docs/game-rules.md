@@ -2,9 +2,9 @@
 
 ## Match
 
-- One player faces one CPU rival for 60 seconds. Both sides start with a `$100` balance.
+- One player faces one CPU rival for 60 seconds. Both sides start with a `$30` balance.
 - Click **SPIN** or press **Space** to request only the player's spin. Holding Space does not repeat, and input while the reels are moving is ignored rather than queued.
-- The player can change BET at any time. A spin already in progress keeps its applied BET; a changed BET applies to the next accepted spin. `$1`, `$3`, and `$5` are selectable only when the current balance covers the amount.
+- The player can change BET at any time. A spin already in progress keeps its applied BET; a changed BET applies to the next accepted spin. Keyboard `1`, `2`, and `3` select `$1`, `$3`, and `$5`. Those shortcuts ignore editable fields and modified key presses. `$1`, `$3`, and `$5` are selectable only when the current balance covers the amount.
 - Each accepted spin deducts its BET first. Matching active lines then add their payouts to the balance. A side at `$0` cannot spin and watches the rest of the match.
 - Player requests are accepted only after the previous reels have stopped, at least 1.1 seconds apart, and strictly before 60 seconds: at most 55 spins.
 - The rival spins independently at 2, 4, …, 60 seconds: up to 30 spins, depending on its balance. Its policy is BET3 by default, BET1 when the CPU leads by a wide margin, and BET5 when losing near the end; if funds are insufficient it falls back to the highest affordable BET.

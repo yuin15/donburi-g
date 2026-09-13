@@ -44,7 +44,7 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 
 Snapshots never contain RNG state, unrevealed choices, reel pools, API credentials, or future results.
 
-`snapshot` includes `balances` and `bets` for both sides. Both begin at $100; the winner has the greater balance at 60 seconds, and a side at zero simply cannot spin. `SpinView` includes the authoritative 3×3 `grid`, `stops`, applied `bet`, all `winningLines`, payout, and post-settlement balance. A line pays cherry $3, bell $6, or seven $30; multiple lines add. The 9-symbol strips have 729 stop combinations, with a theoretical 81.481% return rate for each BET and a maximum total payout of $30 for BET1 or $39 for BET3/BET5. `snapshot.round` aliases `rounds.player`.
+`snapshot` includes `balances` and `bets` for both sides. Both begin at $30; the winner has the greater balance at 60 seconds, and a side at zero simply cannot spin. `SpinView` includes the authoritative 3×3 `grid`, `stops`, applied `bet`, all `winningLines`, payout, and post-settlement balance. A line pays cherry $3, bell $6, or seven $30; multiple lines add. The 9-symbol strips have 729 stop combinations, with a theoretical 81.481% return rate for each BET and a maximum total payout of $30 for BET1 or $39 for BET3/BET5. `snapshot.round` aliases `rounds.player`.
 
 The public strip and the visible neighbours of each authoritative stop determine the complete grid; there is no second outcome RNG in the renderer.
 
