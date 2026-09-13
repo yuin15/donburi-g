@@ -9,19 +9,19 @@ export class WinSymbols {
   readonly group = new THREE.Group();
   private readonly source: SymbolModels;
   private readonly models: Record<Side, Record<WinSymbol, THREE.Group>>;
-  private readonly materials: Record<Side, THREE.MeshStandardMaterial[]>;
+  private readonly materials: Record<Side, THREE.Material[]>;
 
   constructor(environment: THREE.Texture) {
     this.source = createSymbolModels(environment);
     const copies = (side: Side) => {
-      const materials = new Map<THREE.MeshStandardMaterial, THREE.MeshStandardMaterial>();
+      const materials = new Map<THREE.Material, THREE.Material>();
       const copy = (kind: WinSymbol) => {
         const group = this.source[kind].clone(true);
         group.name = side + '-win-' + kind;
         group.visible = false;
         group.traverse(node => {
           if (!(node instanceof THREE.Mesh)) return;
-          const original = node.material as THREE.MeshStandardMaterial;
+          const original = node.material as THREE.Material;
           let material = materials.get(original);
           if (!material) {
             material = original.clone();
@@ -39,6 +39,14 @@ export class WinSymbols {
     const player = copies('player'), rival = copies('rival');
     this.models = { player: player.models, rival: rival.models };
     this.materials = { player: player.materials, rival: rival.materials };
+    (['cherry', 'bell', 'seven'] as const).forEach((kind, index) => {
+      const icon = this.source[kind].clone(true);
+      icon.name = 'paytable-' + kind;
+      icon.position.set(221, STAGE_HEIGHT - (746 + index * 30), 148);
+      icon.rotation.set(kind === 'bell' ? -.18 : 0, -.12, kind === 'seven' ? -.06 : 0);
+      icon.scale.setScalar(kind === 'bell' ? 12 : 11);
+      this.group.add(icon);
+    });
   }
 
   createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
@@ -55,9 +63,9 @@ export class WinSymbols {
     const player = side === 'player';
     const motion = reducedMotion ? 0 : Math.sin(progress * Math.PI * 4) * Math.exp(-progress * 3);
     const pop = reducedMotion ? 1 : 1 + Math.sin(Math.min(1, progress * 3) * Math.PI) * .14;
-    model.position.set(player ? 554 : 1280, STAGE_HEIGHT - (player ? 204 : 658) + (reducedMotion ? 0 : Math.sin(progress * Math.PI) * 3), 65);
+    model.position.set(player ? 282 : 1280, STAGE_HEIGHT - (player ? 681 : 658) + (reducedMotion ? 0 : Math.sin(progress * Math.PI) * 3), 145);
     model.rotation.set(kind === 'bell' ? -.34 : -.1, -.22 + motion * .18, (kind === 'bell' ? .1 : -.1) + motion * (kind === 'bell' ? .28 : .13));
-    model.scale.setScalar((player ? 32 : 23) * (kind === 'bell' ? 1.12 : 1) * pop);
+    model.scale.setScalar((player ? 23 : 23) * (kind === 'bell' ? 1.12 : 1) * pop);
     this.materials[side].forEach(material => { material.opacity = reducedMotion ? 1 : opacity; });
   }
 

@@ -19,17 +19,19 @@ export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolM
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1.20, 1.20, 1.20, -1.20, .1, 15);
   camera.position.z = 6;
-  const light = new THREE.DirectionalLight(0xfff3dd, 2.0);
-  light.position.set(-3, 4, 8);
+  const light = new THREE.DirectionalLight(0xffefd2, 2.35);
+  light.position.set(-3, 5, 14);
   light.castShadow = true;
   light.shadow.mapSize.set(512, 512);
   Object.assign(light.shadow.camera, { left: -1.5, right: 1.5, top: 1.5, bottom: -1.5, near: .1, far: 18 });
   light.shadow.bias = -.0008;
   light.shadow.normalBias = .005;
-  light.shadow.radius = 3;
-  const paper = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({ color: 0xffeed2, roughness: 1 }));
+  light.shadow.radius = 4;
+  const paper = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshBasicMaterial({ color: 0xf6dfb6 }));
   paper.position.z = -.58;
-  scene.add(paper, light, new THREE.AmbientLight(0xfff4e1, 1.1));
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.ShadowMaterial({ opacity: .10 }));
+  shadow.position.z = -.565; shadow.receiveShadow = true;
+  scene.add(paper, shadow, light, new THREE.AmbientLight(0xe7edff, .3));
   try {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -38,10 +40,10 @@ export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolM
     renderer.setClearColor(0xffeed2, 1);
     (['cherry', 'bell', 'seven'] as const).forEach((kind, index) => {
       const symbol = models[kind].clone(true);
-      symbol.rotation.set(kind === 'bell' ? -.18 : -.025, -.10, kind === 'seven' ? -.055 : 0);
+      symbol.rotation.set(kind === 'bell' ? -.23 : -.055, kind === 'seven' ? -.27 : -.12, kind === 'seven' ? -.035 : 0);
       symbol.position.y = kind === 'bell' ? -.035 : -.02;
-      symbol.scale.setScalar(kind === 'bell' ? 1.10 : .99);
-      symbol.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
+      symbol.scale.setScalar(kind === 'bell' ? 1.08 : kind === 'seven' ? 1.08 : 1.04);
+      symbol.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = node.name !== 'symbol-contour'; node.receiveShadow = node.name !== 'symbol-contour'; } });
       scene.add(symbol);
       // Shadow rendering restores the render target's own viewport/scissor.
       target.viewport.set(index * size, 0, size, size);
@@ -66,6 +68,7 @@ export function createSymbolAtlas(renderer: THREE.WebGLRenderer, models: SymbolM
     light.shadow.dispose();
     paper.geometry.dispose();
     paper.material.dispose();
+    shadow.geometry.dispose(); shadow.material.dispose();
     scene.clear();
   }
   return target;

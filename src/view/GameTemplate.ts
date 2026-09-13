@@ -16,12 +16,12 @@ app.innerHTML = `
     <div class="status-cluster" id="status"><span id="modeBadge">CPU DUEL</span><button id="sound" aria-label="Mute AI voice" aria-pressed="false" hidden>VOICE ON</button><button id="effects" aria-label="Mute sound effects" aria-pressed="false">SOUND ON</button><button id="leave">EXIT</button></div>
   </header>
   <div class="scores">
-    <div class="you" id="playerScore"><span class="score-name"><i aria-hidden="true">♛</i><b>YOU</b><small><em id="roundCount">00</em> SPINS</small></span><strong id="ps">0</strong><span class="score-meter" aria-hidden="true"><i id="playerMeter"></i></span></div>
-    <div class="rival" id="rivalScore"><span class="score-name"><i aria-hidden="true">♜</i><b>RIVAL</b><small><em id="rivalRoundCount">00</em> SPINS</small></span><strong id="rs">0</strong><span class="score-meter" aria-hidden="true"><i id="rivalMeter"></i></span></div>
+    <div class="you" id="playerScore"><span class="score-name"><i aria-hidden="true"><svg viewBox="0 0 40 48"><path d="M4 5 20 1 36 5v22c0 10-16 19-16 19S4 37 4 27Z"/><path d="m10 17 6 5 4-12 4 12 6-5-3 15H13Z"/><path d="M13 36h14"/></svg></i><b>YOU</b><small><em id="roundCount">00</em> SPINS</small></span><strong id="ps">0</strong><span class="score-meter" aria-hidden="true"><i id="playerMeter"></i></span></div>
+    <div class="rival" id="rivalScore"><span class="score-name"><i aria-hidden="true"><svg viewBox="0 0 40 48"><path d="M4 5 20 1 36 5v22c0 10-16 19-16 19S4 37 4 27Z"/><path d="m20 9 3.6 10.4L31 23l-7.4 3.6L20 37l-3.6-10.4L9 23l7.4-3.6Z"/></svg></i><b>RIVAL</b><small><em id="rivalRoundCount">00</em> SPINS</small></span><strong id="rs">0</strong><span class="score-meter" aria-hidden="true"><i id="rivalMeter"></i></span></div>
     <span class="duel-gap" id="scoreGap" role="status">EVEN</span>
   </div>
   <section class="machine" aria-label="Your slot machine">
-    <div id="machineTitle"><span>WIN</span><strong id="pay" aria-live="polite">0</strong></div>
+    <div id="machineTitle"><span id="winLabel">MATCH 3 · WIN BIG</span><strong id="pay" aria-live="polite">0</strong></div>
     <div class="event-cue" id="eventCue" role="status" hidden></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>

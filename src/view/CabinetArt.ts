@@ -6,6 +6,7 @@ import { PAYOUT } from '../domain/game';
 import { WinSymbols } from './WinSymbols';
 import type { WinSymbol } from './SymbolModels';
 import { CabinetModel } from './CabinetModel';
+import { CasinoStage } from './CasinoStage';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null });
@@ -18,6 +19,7 @@ export class CabinetArt {
   private coinEnvironment = createGoldCoinEnvironment();
   private winSymbols = new WinSymbols(this.coinEnvironment);
   private body: CabinetModel;
+  private stage = new CasinoStage(this.coinEnvironment);
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
   private coinMaterials: Record<Side, THREE.MeshStandardMaterial>;
   private coins: THREE.Mesh[];
@@ -36,10 +38,10 @@ export class CabinetArt {
   private resultUntil = 0;
 
   constructor() {
-    this.body = new CabinetModel(this.coinEnvironment, { reels: false });
+    this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
     this.body.group.scale.setScalar(100);
     this.body.group.position.set(530, STAGE_HEIGHT - 870, 0);
-    this.group.add(this.body.group);
+    this.group.add(this.body.group, this.stage.group);
     this.coinMaterials = {
       player: createGoldCoinMaterial(this.coinEnvironment),
       rival: createGoldCoinMaterial(this.coinEnvironment),
@@ -95,21 +97,21 @@ export class CabinetArt {
       fragmentShader: `varying vec2 vUv; uniform float strength; uniform float progress; uniform float jackpot; uniform vec3 tint;
         void main(){vec2 p=(vUv-.5)*2.; float radius=length(p);
           float halo=pow(max(0.,1.-radius),3.);
-          float line=exp(-abs(p.y)*38.)*max(0.,1.-abs(p.x));
+          float line=exp(-abs(p.y)*120.)*max(0.,1.-abs(p.x));
           float angle=atan(p.y,p.x);
           float rays=pow(max(0.,cos(angle*16.+progress*1.8)),18.)
             *smoothstep(.24,.42,radius)*(1.-smoothstep(.6,1.,radius));
           float ring=exp(-abs(radius-(.25+progress*.72))*60.)*(1.-progress);
-          gl_FragColor=vec4(tint,(halo*.26+line*.9+(rays*.26+ring*.25)*jackpot)*strength);}`,
+          gl_FragColor=vec4(tint,(halo*.07+line*.7+(rays*.12+ring*.22)*jackpot)*strength);}`,
     });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(player ? 980 : 610, player ? 690 : 290), material);
-    mesh.position.set(player ? 530 : 1250, STAGE_HEIGHT - (player ? 405 : 740), 30);
+    mesh.position.set(player ? 530 : 1250, STAGE_HEIGHT - (player ? 458.5 : 740), 60);
     return mesh;
   }
 
   private makeBulbs(side: Side): THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> {
     const player = side === 'player';
-    const bounds = player ? { x: 258, y: 241, w: 550, h: 330 } : { x: 1033, y: 689, w: 435, h: 103 };
+    const bounds = player ? { x: 242, y: 272, w: 572, h: 374 } : { x: 1033, y: 689, w: 435, h: 103 };
     const points: Array<[number, number]> = [];
     for (let i = 0; i < 8; i++) {
       const x = bounds.x + bounds.w * i / 7;
@@ -125,7 +127,7 @@ export class CabinetArt {
     lamps.name = side + '-win-lights';
     lamps.visible = false;
     const matrix = new THREE.Matrix4();
-    points.forEach(([x, y], index) => lamps.setMatrixAt(index, matrix.makeTranslation(x, STAGE_HEIGHT - y, 32)));
+    points.forEach(([x, y], index) => lamps.setMatrixAt(index, matrix.makeTranslation(x, STAGE_HEIGHT - y, 63)));
     lamps.instanceMatrix.needsUpdate = true;
     return lamps;
   }
@@ -189,8 +191,8 @@ export class CabinetArt {
       const winning = time < burst.until;
       const fade = Math.min(1, Math.max(0, (burst.until - time) / 200));
       this.glows[side].material.uniforms.strength.value = winning ? (burst.jackpot ? side === 'player' ? 1.15 : .7 : .45) * fade : 0;
-      this.glows[side].material.uniforms.jackpot.value = Number(burst.jackpot);
-      this.bulbs[side].visible = winning;
+      this.glows[side].material.uniforms.jackpot.value = burst.jackpot ? 1 : burst.symbol === 'bell' ? .4 : 0;
+      this.bulbs[side].visible = winning && burst.symbol !== 'cherry';
       this.bulbs[side].material.opacity = winning ? fade : 0;
       if (winning) {
         const lamps = this.bulbs[side];
@@ -211,15 +213,15 @@ export class CabinetArt {
       sparkle.visible = winning && !reducedMotion;
       sparkle.material.uniforms.opacity.value = fade;
       if (sparkle.visible) {
-        sparkle.count = burst.jackpot ? 18 : 8;
+        sparkle.count = burst.jackpot ? 18 : burst.symbol === 'bell' ? 10 : 5;
         for (let i = 0; i < sparkle.count; i++) {
           const angle = i * 2.39996;
           const spread = 1 - (1 - Math.min(1, progress)) ** 3;
           const radius = 110 + spread * (80 + i % 5 * 28);
           this.particle.position.set(
             (side === 'player' ? 534 : 1252) + Math.cos(angle) * radius * (side === 'player' ? 1.6 : .85),
-            STAGE_HEIGHT - (side === 'player' ? 400 : 740) + Math.sin(angle) * radius * (side === 'player' ? .83 : .28),
-            38,
+            STAGE_HEIGHT - (side === 'player' ? 459 : 740) + Math.sin(angle) * radius * (side === 'player' ? .83 : .28),
+            90,
           );
           this.particle.rotation.set(0, 0, angle + progress * .6);
           this.particle.scale.setScalar((burst.jackpot ? 25 : 14) + (i % 4) * 8);
@@ -230,7 +232,7 @@ export class CabinetArt {
       }
       for (let i = 0; i < 12; i++) {
         const coin = this.coins[i + (side === 'player' ? 0 : 12)];
-        coin.visible = !reducedMotion && (result || winning && i < (burst.jackpot ? 12 : 4));
+        coin.visible = !reducedMotion && (result || winning && i < (burst.jackpot ? 12 : burst.symbol === 'bell' ? 6 : 0));
         if (!coin.visible) continue;
         if (result) {
           const index = this.coins.indexOf(coin);
@@ -251,13 +253,13 @@ export class CabinetArt {
         const startX = player ? right ? 825 : 245 : right ? 1500 : 1028;
         const endX = player ? right ? 680 : 104 : right ? 1584 : 990;
         const controlX = player ? right ? 950 + i % 6 * 12 : 70 - i % 6 * 9 : right ? 1630 : 975;
-        const startY = (player ? 520 : 748) + (i % 6) * (player ? 24 : 13);
+        const startY = (player ? 630 : 748) + (i % 6) * (player ? 13 : 13);
         const delay = (i % 6) * .032;
         const t = Math.min(1, Math.max(0, (progress - delay) / (1 - delay)));
         const u = 1 - t;
         const x = u * u * startX + 2 * u * t * controlX + t * t * endX;
         const y = u * u * startY + 2 * u * t * (player ? 20 + i % 6 * 33 : 380) + t * t * (player ? 112 + i % 6 * 24 : 112);
-        coin.position.set(x, STAGE_HEIGHT - y, 40 + i);
+        coin.position.set(x, STAGE_HEIGHT - y, 105 + i*3);
         coin.rotation.set(.32 + Math.sin(i + t * 4) * .18, i * .62 + t * 5.6, (right ? 1 : -1) * (.3 + t));
         coin.scale.setScalar((player && burst.jackpot ? 1.35 : .85) + (i % 3) * .23);
       }
@@ -270,6 +272,7 @@ export class CabinetArt {
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
     this.body.dispose();
+    this.stage.dispose();
     this.coinEnvironment.dispose();
     this.bulbGeometry.dispose();
     this.sparkleGeometry.dispose();

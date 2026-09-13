@@ -224,143 +224,313 @@ class SidePanel:
         self.model.face(points, directions, name)
 
 
+def bezier(points, steps=16):
+    p = [hou.Vector3(tuple(value) + (0,) if len(value) == 2 else value) for value in points]
+    return [tuple(p[0]*(1-t)**3 + p[1]*3*t*(1-t)**2 + p[2]*3*t*t*(1-t) + p[3]*t**3)
+            for t in (i/steps for i in range(steps+1))]
+
+
+def seven_outline():
+    """The approved broad wavy flag and curved, flared diagonal, in real geometry."""
+    points = [(-.92,.94),(-.53,.98),(-.51,.86)]
+    for controls in [((-.51,.86),(-.07,1.10),(.25,.88),(.90,1.04)),
+                     ((.90,1.04),(.89,.89),(.89,.83),(.85,.74)),
+                     ((.85,.74),(.55,.33),(.05,-.12),(.08,-1.02))]:
+        points.extend([p[:2] for p in bezier(controls,12)[1:]])
+    points.append((-.94,-1.02))
+    points.extend([p[:2] for p in bezier(((-.94,-1.02),(-.77,-.23),(-.20,.02),(.28,.38)),16)[1:]])
+    points.extend([p[:2] for p in bezier(((.28,.38),(-.17,.20),(-.60,.52),(-.74,.18)),14)[1:]])
+    points.append((-1.01,.15))
+    return ccw(points)
+
+
+def crowned_cap(m, path, z, height, name):
+    """Tessellated enamel surface with an actual convex cushion and smooth normals."""
+    edges = list(zip(path,path[1:]+path[:1]))
+    def elevation(x,y):
+        d = 1e9
+        for (ax,ay),(bx,by) in edges:
+            dx,dy = bx-ax,by-ay
+            t = max(0,min(1,((x-ax)*dx+(y-ay)*dy)/(dx*dx+dy*dy)))
+            d = min(d,math.hypot(x-ax-t*dx,y-ay-t*dy))
+        return z + height * (1-math.exp(-d/.075))
+    def vertex(p):
+        x,y = p[:2]
+        dx = (elevation(x+.001,y)-elevation(x-.001,y))/.002
+        dy = (elevation(x,y+.001)-elevation(x,y-.001))/.002
+        return (x,y,elevation(x,y)),tuple(hou.Vector3((-dx,-dy,1)).normalized())
+    class Cap:
+        def face(self,positions,normals,group):
+            def split(a,b,c,depth):
+                if depth == 0:
+                    values = [vertex(p) for p in (a,b,c)]
+                    m.face([p for p,n in values],[n for p,n in values],group)
+                    return
+                ab = tuple((x+y)/2 for x,y in zip(a,b)); bc = tuple((x+y)/2 for x,y in zip(b,c)); ca = tuple((x+y)/2 for x,y in zip(c,a))
+                for tri in ((a,ab,ca),(ab,b,bc),(ca,bc,c),(ab,bc,ca)):
+                    split(*tri,depth-1)
+            split(*positions,getattr(m,'cap_depth',3))
+    flat(Cap(),[(x,y,z) for x,y in path],(0,0,1),name)
+
+
+def make_seven(m):
+    outline = seven_outline()
+    def inner(amount):
+        # Offset cusps can form tiny loops at the flag's upstand. Trim those
+        # loops before capping, retaining the large connected glyph contour.
+        path = []
+        for i,(x,y) in enumerate(outline):
+            px,py = outline[i-1]; qx,qy = outline[(i+1)%len(outline)]
+            ax,ay,bx,by = x-px,y-py,qx-x,qy-y
+            al,bl = math.hypot(ax,ay),math.hypot(bx,by)
+            n,mn = (-ay/al,ax/al),(-by/bl,bx/bl)
+            if ax*by-ay*bx < -1e-8:
+                # A concave notch needs a round offset join. A miter shoots
+                # across the diagonal and falsely disconnects the red face.
+                start,end = math.atan2(n[1],n[0]),math.atan2(mn[1],mn[0])
+                while end>start:end-=math.tau
+                steps=max(1,math.ceil((start-end)/.20))
+                for j in range(steps+1):
+                    angle=start+(end-start)*j/steps
+                    path.append((x+math.cos(angle)*amount,y+math.sin(angle)*amount))
+            else:
+                distance=amount/max(.001,1+n[0]*mn[0]+n[1]*mn[1])
+                path.append((x+(n[0]+mn[0])*distance,y+(n[1]+mn[1])*distance))
+        for _ in range(len(path)):
+            crossing = None
+            for i in range(len(path)):
+                a,b = path[i],path[(i+1)%len(path)]
+                for j in range(i+2,len(path)):
+                    if i == 0 and j == len(path)-1:
+                        continue
+                    c,d = path[j],path[(j+1)%len(path)]
+                    dx,dy,ex,ey = b[0]-a[0],b[1]-a[1],d[0]-c[0],d[1]-c[1]
+                    det = dx*ey-dy*ex
+                    if abs(det)<1e-10: continue
+                    t = ((c[0]-a[0])*ey-(c[1]-a[1])*ex)/det
+                    u = ((c[0]-a[0])*dy-(c[1]-a[1])*dx)/det
+                    if 0<t<1 and 0<u<1:
+                        crossing = (i,j,(a[0]+t*dx,a[1]+t*dy)); break
+                if crossing: break
+            if not crossing: return ccw(path)
+            i,j,p = crossing
+            candidates = [path[:i+1]+[p]+path[j+1:],[p]+path[i+1:j+1]]
+            path = max(candidates,key=lambda ring:abs(sum(a[0]*b[1]-b[0]*a[1] for a,b in zip(ring,ring[1:]+ring[:1]))))
+        raise ValueError('Seven offset did not converge')
+    solid(m,outline,-.26,.11,.028,'seven_gold')
+    moulding(m,inner(.035),.14,.028,.039,'seven_gold',segments=8)
+    solid(m,inner(.065),.105,.19,0,'seven_border')
+    moulding(m,inner(.090),.211,.012,.016,'seven_chrome',segments=8)
+    face = inner(.115)
+    solid(m,face,.17,.225,0,'seven_enamel')
+    crowned_cap(m,face,.226,.060,'seven_enamel')
+
+
 def build_seven(geo):
-    m = Model(geo)
-    # Draw the glyph itself: a waved flag, bowed stem and flared serif.
-    current = (-.74, .98)
-    outline = [current]
-    curves = [((-.26, 1.02), (.22, .90), (.69, 1.03), 14),
-              ((.90, 1.11), (1.02, .90), (.87, .69), 10),
-              ((.47, .19), (.13, -.23), (.07, -.80), 18),
-              ((.05, -.94), (-.17, -1.01), (-.43, -.98), 10),
-              ((-.63, -.98), (-.68, -.91), (-.61, -.73), 10),
-              ((-.42, -.10), (-.17, .34), (.24, .62), 18),
-              ((-.13, .55), (-.41, .75), (-.64, .60), 14),
-              ((-.86, .49), (-1.04, .66), (-.96, .84), 12),
-              ((-.92, .97), (-.85, .99), (-.74, .98), 10)]
-    for a, b, end, steps in curves:
-        for i in range(1, steps + 1):
-            t = i / steps
-            outline.append(tuple(current[k] * (1 - t) ** 3 + a[k] * 3 * t * (1 - t) ** 2 + b[k] * 3 * t * t * (1 - t) + end[k] * t ** 3 for k in range(2)))
-        current = end
-    outline = ccw(outline[:-1])
-    rounded_solid(m, outline, -.13, .15, .036, 'seven_gold', steps=5)
-    solid(m, inset(outline, .054), .137, .184, .009, 'seven_border')
-    rounded_solid(m, inset(outline, .070), .175, .245, .024, 'seven_enamel', steps=5)
+    make_seven(Model(geo))
+
+
+
+def stage_path(points):
+    return ccw([((x-530)/100,(870-y)/100) for x,y in points])
+
+
+def resample(path,count=128):
+    edges=list(zip(path,path[1:]+path[:1]))
+    lengths=[math.dist(a,b) for a,b in edges]
+    total=sum(lengths)
+    out=[]
+    for i in range(count):
+        distance=i*total/count
+        for (a,b),length in zip(edges,lengths):
+            if distance<=length:
+                t=distance/length
+                out.append((a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t));break
+            distance-=length
+    return out
+
+
+def arch_outline():
+    points=[(186,661),(186,244)]
+    for controls in [((186,244),(181,215),(192,205),(213,197)),
+                     ((213,197),(350,125),(375,164),(530,194)),
+                     ((530,194),(680,164),(711,125),(850,197)),
+                     ((850,197),(873,206),(878,220),(876,244))]:
+        points += [p[:2] for p in bezier(controls,16)[1:]]
+    points += [(876,661),(855,683),(208,683)]
+    return stage_path(points)
+
+
+def gem(m,x,y,rx,ry,z):
+    setting=ellipse(x,y,rx+6,ry+6,40)
+    rounded_solid(m,setting,z-.10,z+.05,.025,'cabinet_shadow')
+    moulding(m,setting,z+.04,.036,.043,'cabinet_gold')
+    rings=[]
+    for scale,depth in ((1,z+.055),(.80,z+.13),(.48,z+.27)):
+        rings.append([((x-530+rx*scale*math.cos(i*math.tau/10))/100,
+                       (870-y+ry*scale*math.sin(i*math.tau/10))/100,depth) for i in range(10)])
+    for a,b in zip(rings,rings[1:]): walls(m,a,b,'cabinet_ruby')
+    flat(m,rings[-1],(0,0,1),'cabinet_ruby')
+
+
+def petal(m,controls,width,height,z,material='cabinet_gold'):
+    """Cast acanthus leaf with a curved central rib and rolled, tapering sides."""
+    controls=[((x-530)/100,(870-y)/100,z) for x,y in controls]
+    p=[hou.Vector3(q) for q in controls]
+    def curve(u): return p[0]*(1-u)**3+p[1]*3*u*(1-u)**2+p[2]*3*u*u*(1-u)+p[3]*u**3
+    def point(u,v):
+        u=max(.00001,min(.99999,u))
+        q=curve(u); tangent=(curve(min(1,u+.001))-curve(max(0,u-.001))).normalized()
+        across=hou.Vector3((-tangent[1],tangent[0],0)); t=v*2-1
+        q+=across*(width/100)*math.sin(math.pi*u)**.75*t
+        q[2]+=height*math.sin(math.pi*u)**.8*(1-t*t*.82)
+        return q
+    def surface(u,v):
+        q=point(u,v)
+        du=point(min(1,u+.001),v)-point(max(0,u-.001),v)
+        dv=point(u,min(1,v+.001))-point(u,max(0,v-.001))
+        n=du.cross(dv).normalized()
+        if n[2]<0:n*=-1
+        return tuple(q),tuple(n)
+    m.grid(surface,16,6,material)
+    for v in (.5,):
+        m.tube([tuple(point(i/20,v)+hou.Vector3((0,0,.009))) for i in range(21)],.009 if v==.5 else .005,'cabinet_highlight',sides=6)
+
+
+def scroll(m,x,y,scale,side,z):
+    points=[]
+    for i in range(45):
+        t=i/44; a=t*math.pi*2.1
+        radius=scale*(1-t*.91)
+        points.append(((x-530+side*math.cos(a)*radius)/100,(870-y+math.sin(a)*radius*.8)/100,z+.055*math.sin(math.pi*t)))
+    m.tube(points,.044,'cabinet_gold',sides=10)
+    m.sphere(points[-1],(.058,.058,.037),'cabinet_highlight',segments=12,rows=8)
+
+
+def ornament(m,x,y,span,side,z):
+    for i in range(5):
+        reach=span*(.34+i*.16)
+        end=(x+side*reach,y-10-i*8)
+        controls=[(x,y),(x+side*reach*.22,y-18-i*4),(x+side*reach*.70,y-32-i*7),end]
+        petal(m,controls,6+i*.7,.055+i*.013,z+i*.008)
+    scroll(m,x+side*span*.83,y-span*.26,span*.23,side,z+.02)
 
 
 def build_cabinet(geo):
-    m = Model(geo)
-    # The shoulders taper toward the rear instead of extruding a flat box.
-    loft_shell(m, [(rectangle(216, 174, 624, 641, 56), -3.58),
-                   (rectangle(210, 168, 636, 653, 54), -3.46),
-                   (rectangle(196, 155, 664, 671, 49), -2.45),
-                   (rectangle(184, 150, 688, 682, 48), -.72),
-                   (rectangle(183, 154, 690, 679, 48), -.20)], 'cabinet_body')
-    rounded_solid(m, rectangle(230, 191, 596, 605, 36), -3.635, -3.575, .025, 'cabinet_back')
-    moulding(m, rectangle(229, 190, 598, 607, 36), -3.63, .012, .014, 'cabinet_shadow')
-    for y in range(269, 425, 17):
-        rounded_solid(m, rectangle(388, y, 280, 6, 3, 3), -3.655, -3.630, .008, 'cabinet_vent', steps=2)
-    for x in (-2.68, 2.63):
-        for y in (1.03, 6.35):
-            m.sphere((x, y, -3.653), (.04, .04, .018), 'cabinet_shadow', segments=10, rows=6)
-    # Inlaid side panels carry a restrained fan motif in actual brass geometry.
-    panel_path = ccw([(-1.10, 1.15), (1.10, 1.15), (1.10, 6.16), (.85, 6.48), (-.85, 6.48), (-1.10, 6.16)])
-    panel_path = rounded_outline(panel_path, .22)
-    for side in (-1, 1):
-        panel = SidePanel(m, side)
-        rounded_solid(panel, panel_path, .02, .075, .025, 'cabinet_lacquer', steps=3)
-        moulding(panel, inset(panel_path, .055), .087, .023, .012, 'cabinet_gold', segments=6)
-        moulding(panel, inset(panel_path, .12), .085, .007, .007, 'cabinet_engraving', segments=6)
-        for i in range(-3, 4):
-            x = i * .24
-            fan = ccw([(x * .10 - .008, 2.18), (x - .008, 5.73 - abs(i) * .12),
-                       (x + .008, 5.73 - abs(i) * .12), (x * .10 + .008, 2.18)])
-            solid(panel, fan, .077, .087, .002, 'cabinet_engraving')
-        diamond = ccw([(0, 1.57), (.17, 1.90), (0, 2.25), (-.17, 1.90)])
-        rounded_solid(panel, diamond, .075, .11, .008, 'cabinet_gold', steps=2)
-    # Rolled, round brass edges catch a continuous highlight around the window.
-    outer = rectangle(183, 155, 692, 497, 40)
-    window = rectangle(248, 239, 561, 326, 11)
-    frame(m, outer, window, -.20, .27, .035, 'cabinet_lacquer')
-    frame(m, outer, rectangle(198, 170, 662, 467, 28), .20, .36, .025, 'cabinet_shadow')
-    moulding(m, rectangle(191, 163, 676, 481, 35), .35, .074, .070)
-    moulding(m, rectangle(204, 176, 650, 455, 27), .33, .016, .020, 'cabinet_highlight')
-    frame(m, rectangle(233, 226, 591, 352, 19), window, .22, .40, .02, 'cabinet_shadow')
-    moulding(m, rectangle(239, 232, 579, 340, 15), .43, .056, .054)
-    moulding(m, rectangle(246, 238, 563, 328, 11), .40, .015, .018, 'cabinet_highlight')
-    rounded_solid(m, rectangle(254, 175, 550, 47, 12), .26, .31, .018, 'cabinet_black', steps=3)
-    moulding(m, rectangle(252, 173, 554, 51, 12), .33, .016, .017, 'cabinet_highlight')
-    # Rounded pilasters with narrow flutes and rings at both ends.
-    for x in (208, 847):
-        rounded_solid(m, rectangle(x - 12, 254, 24, 319, 12), .29, .64, .09, 'cabinet_gold')
-        for dx in (-6, 0, 6):
-            rounded_solid(m, rectangle(x + dx - 1, 275, 2, 277, 1, 2), .637, .641, .0015, 'cabinet_shadow', steps=2)
-        for y in (244, 253, 566, 576):
-            rounded_solid(m, rectangle(x - 18, y, 36, 10, 5), .27, .65, .045, 'cabinet_gold', steps=3)
-    rounded_solid(m, rectangle(176, 600, 708, 30, 14), -.10, .60, .13, 'cabinet_gold')
-    rounded_solid(m, rectangle(210, 604, 640, 19, 8), .59, .61, .007, 'cabinet_engraving', steps=2)
-    deck = ccw([((x - 530) / 100, (870 - y) / 100) for x, y in
-                ((159, 641), (884, 641), (937, 695), (934, 832), (892, 856),
-                 (126, 856), (90, 829), (101, 706))])
-    deck = rounded_outline(deck, .28)
-    rear_deck = [(x * .95, (y - 1.2) * .85 + 1.2) for x, y in deck]
-    shoulder = [(x * .975, (y - 1.2) * .92 + 1.2) for x, y in deck]
-    loft_shell(m, [(rear_deck, -3.58), (shoulder, -3.46),
-                   (deck, -.08), (deck, .44), (inset(deck, .045), .66)], 'cabinet_body', close_front=True)
-    rounded_solid(m, inset(deck, .04), .60, .78, .065, 'cabinet_gold', steps=3)
-    rounded_solid(m, inset(deck, .15), .73, .81, .035, 'cabinet_lacquer', steps=3)
-    moulding(m, inset(deck, .11), .81, .022, .027, 'cabinet_highlight', segments=6)
-    for x, y, w, h in ((112, 706, 213, 84), (645, 703, 264, 91)):
-        rounded_solid(m, rectangle(x, y, w, h, 16), .78, .86, .035, 'cabinet_gold', steps=3)
-        rounded_solid(m, rectangle(x + 7, y + 7, w - 14, h - 14, 11), .85, .88, .011, 'cabinet_black', steps=3)
-        moulding(m, rectangle(x + 2, y + 2, w - 4, h - 4, 14), .86, .017, .018, 'cabinet_highlight', segments=6)
-    rounded_solid(m, ellipse(487, 738, 151, 76, 64), .75, .91, .07, 'cabinet_shadow')
-    rounded_solid(m, ellipse(487, 738, 144, 69, 64), .86, 1.08, .085, 'cabinet_gold')
-    moulding(m, ellipse(487, 738, 132, 58, 64), 1.04, .026, .028, 'cabinet_highlight')
-    rounded_solid(m, ellipse(487, 738, 125, 53, 64), 1.025, 1.14, .045, 'cabinet_black', steps=3)
-    rounded_solid(m, ellipse(487, 738, 120, 48, 64), 1.09, 1.255, .08, 'cabinet_spin_button', steps=6)
-    rounded_solid(m, rectangle(115, 849, 806, 31, 14), -3.58, .81, .12, 'cabinet_gold')
-    moulding(m, rectangle(123, 854, 790, 21, 10), .80, .018, .024, 'cabinet_highlight', segments=6)
-    for x in (151, 794):
-        rounded_solid(m, rectangle(x, 874, 97, 17, 7), -3.42, .48, .055, 'cabinet_black', steps=3)
-    # Fine fan engraving in the apron and a split line above the control deck.
-    for x in (246, 799):
-        for i in range(-3, 4):
-            path = ccw([((x + i * 4 - 530) / 100, (870 - 661) / 100),
-                        ((x + i * 9 + 1 - 530) / 100, (870 - 688) / 100),
-                        ((x + i * 9 - 1 - 530) / 100, (870 - 688) / 100),
-                        ((x + i * 4 - 1 - 530) / 100, (870 - 661) / 100)])
-            solid(m, path, .812, .822, .002, 'cabinet_engraving')
-    for y in (650, 835):
-        rounded_solid(m, rectangle(317, y, 343, 2, 1, 2), .812, .819, .002, 'cabinet_engraving', steps=2)
-    # A small gilded fan above the switch is made from swept round wires.
-    for side in (-1, 1):
-        for i in range(4):
-            points = [(487 + side * 7, 678, .833), (487 + side * (28 + i * 13), 663 - i * 3, .836),
-                      (487 + side * (55 + i * 15), 656 - i * 3, .836), (487 + side * (73 + i * 13), 675, .833)]
-            m.stem([((x - 530) / 100, (870 - y) / 100, z) for x, y, z in points], .010, 'cabinet_engraving', steps=10)
-    rounded_solid(m, ccw([(-.43, 1.87), (-.35, 1.99), (-.43, 2.11), (-.51, 1.99)]), .818, .848, .006, 'cabinet_gold', steps=2)
-    for x, y, z in ((217, 187, .46), (841, 187, .46), (217, 617, .46), (841, 617, .46),
-                    (129, 723, .90), (307, 723, .90), (129, 774, .90), (307, 774, .90),
-                    (661, 720, .90), (892, 720, .90), (661, 778, .90), (892, 778, .90)):
-        m.sphere(((x - 530) / 100, (870 - y) / 100, z), (.038, .038, .016), 'cabinet_gold', segments=12, rows=6)
-        rounded_solid(m, rectangle(x - 2, y - .4, 4, .8, .3, 2), z + .014, z + .017, .001, 'cabinet_shadow', steps=2)
-    m.sphere((3.46, 3.33, -.24), (.25, .25, .25), 'cabinet_gold', segments=24, rows=14)
-    m.stem([(3.48, 3.33, -.24), (3.93, 3.37, -.16), (3.78, 4.12, -.12),
-            (3.80, 4.54, -.08)], .065, 'cabinet_chrome', steps=20)
-    m.sphere((3.80, 4.57, -.08), (.23, .28, .23), 'cabinet_button', segments=32, rows=20)
-    m.torus((3.80, 4.34, -.08), .105, .018, 'cabinet_gold', segments=24)
-    # Optional blank drums are retained in the source model, omitted by the game.
-    for index, (left, width) in enumerate(((258, 178), (447, 178), (639, 156))):
-        x0, x1 = (left - 530) / 100, (left + width - 530) / 100
-        cy, cz, radius = (870 - 402.5) / 100, -1.52, 1.77
-        for i in range(48):
-            a, b = i * math.tau / 48, (i + 1) * math.tau / 48
-            points = [(x, cy + math.sin(t) * radius, cz + math.cos(t) * radius)
-                      for x, t in ((x0, a), (x1, a), (x1, b), (x0, b))]
-            normals = [(0, math.sin(t), math.cos(t)) for t in (a, a, b, b)]
-            m.face(points, normals, 'cabinet_reel_' + str(index))
+    m=Model(geo)
+    arch=arch_outline()
+    rear=[(x*.93,(y-3.5)*.94+3.5) for x,y in arch]
+    loft_shell(m,[(rear,-2.85),(rear,-2.75),(arch,-.30),(arch,.04)],'cabinet_body')
+    # Both front boundaries are sampled in perimeter order for a clean open annulus.
+    outer=resample(arch)
+    window=rectangle(242,263,572,375,10)
+    inner=resample(window)
+    frame(m,outer,inner,.02,.31,0,'cabinet_lacquer')
+    moulding(m,inset(arch,.025),.33,.074,.080,'cabinet_gold',segments=12)
+    moulding(m,inset(arch,.145),.33,.015,.022,'cabinet_highlight')
+    # A broad bowed green-marble inlay defines the upper silhouette.
+    for side in (-1,1):
+        points=[]
+        for controls in [((530,204),(530+side*108,137),(530+side*224,148),(530+side*302,209)),
+                         ((530+side*302,209),(530+side*179,177),(530+side*102,207),(530,227))]:
+            points += [p[:2] for p in bezier(controls,24)]
+        panel=stage_path(points)
+        solid(m,panel,.32,.41,0,'cabinet_marble')
+        moulding(m,panel,.43,.036,.044,'cabinet_gold')
+        ornament(m,530+side*100,199,77,side,.48)
+    # A tall ruby crest with actual gold leaves, open curls and a faceted stone.
+    for side in (-1,1):
+        for i in range(5):
+            petal(m,[(530+side*12,224),(530+side*(52+i*9),213-i*4),
+                     (530+side*(29+i*17),136+i*9),(530+side*(15+i*22),143+i*13)],
+                  14+i*1.2,.16+i*.02,.52+i*.012)
+        scroll(m,530+side*83,201,26,side,.58)
+    gem(m,530,186,21,40,.73)
+    petal(m,[(530,147),(506,135),(521,127),(530,135)],6,.08,.64)
+    # Curved marquee ribbon and individual glass bulbs beneath the crest.
+    top=[]; bottom=[]
+    for i in range(41):
+        x=233+i*594/40; y=239-16*math.sin(math.pi*i/40)
+        top.append((x,y-5));bottom.append((x,y+11))
+    ribbon=stage_path(top+list(reversed(bottom)))
+    solid(m,ribbon,.31,.39,0,'cabinet_lacquer')
+    for points in (top,bottom):
+        m.tube([((x-530)/100,(870-y)/100,.42) for x,y in points],.018,'cabinet_gold')
+    for i in range(11):
+        x=252+i*55.2;y=243-16*math.sin(math.pi*(x-233)/594)
+        m.sphere(((x-530)/100,(870-y)/100,.46),(.076,.076,.035),'cabinet_gold',segments=16,rows=10)
+        m.sphere(((x-530)/100,(870-y)/100,.493),(.049,.049,.045),'cabinet_lamp',segments=16,rows=10)
+    moulding(m,rectangle(229,253,598,398,17),.38,.052,.065,'cabinet_gold',segments=12)
+    moulding(m,rectangle(239,261,578,380,11),.34,.018,.023,'cabinet_chrome')
+    # The fluted, caged glass columns sit proud of the opening.
+    for x in (205,852):
+        for y in (282,622):
+            shell=rectangle(x-24,y-34,48,68,16)
+            rounded_solid(m,shell,.32,.79,.09,'cabinet_gold',steps=4)
+            moulding(m,inset(shell,.04),.76,.016,.026,'cabinet_chrome')
+            gem(m,x,y,10,21,.79)
+        for y in (316,328,568,580):
+            m.torus(((x-530)/100,(870-y)/100,.64),.235,.040,'cabinet_gold',segments=40)
+        for dx in (-18,-11,11,18):
+            m.tube([((x+dx-530)/100,(870-y)/100,.76) for y in (331,345,555,566)],.015,'cabinet_gold')
+    # Deep sides with a medallion; these remain modeled in the editable prop.
+    for side in (-1,1):
+        panel=SidePanel(m,side)
+        path=ccw([(-.73,1),(.93,1),(1.08,5.6),(.73,6.25),(-.6,5.9)])
+        solid(panel,path,.04,.11,.02,'cabinet_marble')
+        moulding(panel,inset(path,.06),.12,.025,.020,'cabinet_gold')
+        circle=ccw([(.12+math.cos(i*math.tau/64)*.68,2.5+math.sin(i*math.tau/64)*.84) for i in range(64)])
+        moulding(panel,circle,.14,.075,.075,'cabinet_gold')
+        solid(panel,inset(circle,.07),.13,.15,0,'cabinet_black')
+        for i in range(32):
+            a=i*math.tau/32
+            p=[(.12+math.cos(a)*r,2.5+math.sin(a)*r*1.25,.19) for r in (.45,.6)]
+            # The adaptor handles actual side-facing geometry and normals.
+            panel.face([(p[0][0]-.006,p[0][1],.18),(p[1][0]-.006,p[1][1],.18),
+                        (p[1][0]+.006,p[1][1],.18),(p[0][0]+.006,p[0][1],.18)],[(0,0,1)]*4,'cabinet_gold')
+    # The projecting deck is narrower than the old flat tray, with a curved apron.
+    deck=rounded_outline(stage_path([(184,656),(875,656),(907,701),(922,823),(901,867),(159,867),(137,824),(150,707)]),.20)
+    loft_shell(m,[([(x*.95,y) for x,y in deck],-2.85),(deck,.48),(inset(deck,.06),.93)],'cabinet_body',close_front=True)
+    moulding(m,inset(deck,.065),.94,.048,.057,'cabinet_gold',segments=12)
+    moulding(m,inset(deck,.14),.95,.013,.015,'cabinet_chrome')
+    # Dark green lower apron and a second cast ornament centered on a ruby.
+    apron=rectangle(171,819,717,37,15)
+    solid(m,apron,.94,.99,.02,'cabinet_marble')
+    moulding(m,apron,1.00,.020,.025,'cabinet_gold')
+    for side in (-1,1): ornament(m,530,839,82,side,1.03)
+    gem(m,530,833,7,15,1.10)
+    # Left vertical payout plaque and right ornamental marble insert.
+    for x,w,material in ((182,163,'cabinet_black'),(704,170,'cabinet_marble')):
+        plaque=rectangle(x,703,w,106,14)
+        rounded_solid(m,plaque,.96,1.02,.023,'cabinet_shadow')
+        solid(m,inset(plaque,.03),1.015,1.04,0,material)
+        moulding(m,plaque,1.05,.025,.032,'cabinet_gold')
+        for px in (x+7,x+w-7):
+            for py in (710,802):m.sphere(((px-530)/100,(870-py)/100,1.065),(.031,.031,.017),'cabinet_highlight',segments=12,rows=8)
+    for i in range(6):
+        petal(m,[(724,791),(771+i*10,797-i*5),(832+i*4,782-i*13),(816+i*6,724+i*5)],8,.09,1.055+i*.006)
+    scroll(m,808,754,30,1,1.10)
+    # Domed ruby switch: machined socket, gasket, clear lacquer and raised text in the UI.
+    for rx,ry,back,front,material in ((158,69,.94,1.04,'cabinet_shadow'),(150,63,1.01,1.15,'cabinet_gold'),
+                                   (140,55,1.14,1.21,'cabinet_chrome'),(134,50,1.20,1.25,'cabinet_black')):
+        rounded_solid(m,ellipse(525,754,rx,ry,64),back,front,.025,material,steps=4)
+    m.sphere((-.05,1.16,1.245),(1.27,.46,.22),'cabinet_spin_button',segments=64,rows=28)
+    moulding(m,ellipse(525,754,127,46,64),1.245,.015,.025,'cabinet_gold')
+    # A narrow black plinth keeps gold highlights away from broad, flat bands.
+    rounded_solid(m,rectangle(152,868,755,29,12),-2.85,.92,.07,'cabinet_black',steps=4)
+    for y in (867,890):moulding(m,rectangle(153,y,754,4,2),.94,.012,.022,'cabinet_gold')
+    for x in (186,819):rounded_solid(m,rectangle(x,895,54,11,5),-2.7,.62,.025,'cabinet_gold')
+    m.sphere((3.54,3.15,-.20),(.26,.26,.26),'cabinet_gold',segments=24,rows=16)
+    m.stem([(3.55,3.15,-.20),(4.06,3.20,-.08),(4.01,4.6,.08),(4.03,4.8,.08)],.065,'cabinet_chrome',steps=24)
+    m.sphere((4.03,4.83,.08),(.24,.26,.24),'cabinet_ruby',segments=40,rows=24)
+    m.torus((4.03,4.6,.08),.105,.025,'cabinet_gold',segments=24)
+    # Complete ivory drums remain in the native model; game strips occupy this cavity.
+    for index,left in enumerate((248,437,626)):
+        for i in range(64):
+            a,b=i*math.tau/64,(i+1)*math.tau/64
+            points=[((x-530)/100,4.19+math.sin(t)*2.05,-1.88+math.cos(t)*2.05)
+                    for x,t in ((left,a),(left+178,a),(left+178,b),(left,b))]
+            m.face(points,[(0,math.sin(t),math.cos(t)) for t in (a,a,b,b)],'cabinet_reel_'+str(index))
 
 
 def main():

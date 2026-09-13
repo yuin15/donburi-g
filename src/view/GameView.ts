@@ -149,6 +149,7 @@ export class GameView implements GamePresentation {
     this.text('#rivalMood', state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
     this.q('#line').dataset.conversation = state.conversation;
+    this.q('#line').dataset.long = String(Array.from(state.line).reduce((width, letter) => width + (letter.charCodeAt(0) > 127 ? 2 : 1), 0) > 78);
     this.text('#line', state.line);
     this.text('#heard', state.heard);
     this.text('#machineTrim', state.machineNotice);
@@ -158,6 +159,7 @@ export class GameView implements GamePresentation {
     this.text('#rivalReels', state.lastSpin?.rival ? this.glyphs(state.lastSpin.rival) : 'Cherry, Bell, Seven');
 
     this.text('#pay', state.payout?.player ? `+${state.payout.player.toLocaleString()}` : '0');
+    this.text('#winLabel', state.payout?.player ? 'WIN' : 'MATCH 3 · WIN BIG');
     this.q('#pay').dataset.jackpot = String((state.payout?.player ?? 0) >= PAYOUT.seven);
     this.text('#rivalPay', state.payout?.rival ? `+${state.payout.rival.toLocaleString()}` : '');
     this.q('#rivalPay').dataset.jackpot = String((state.payout?.rival ?? 0) >= PAYOUT.seven);
@@ -204,6 +206,7 @@ export class GameView implements GamePresentation {
     this.text('#spinHint', state.startControl.hint);
     this.text('#queueStatus', state.startControl.spinState === 'queued' ? 'NEXT SPIN QUEUED ✓' : state.result ? 'START A NEW ROUND' : 'CLICK TO SPIN');
     this.q('#roundStatus').dataset.queued = String(state.startControl.spinState === 'queued');
+    this.q('#roundStatus').hidden = state.mode === 'live';
     this.q('#connection').hidden = state.mode !== 'live' || state.microphone.visible;
     const record = state.sessionRecord;
     this.q('#bestRun').hidden = !record.best;

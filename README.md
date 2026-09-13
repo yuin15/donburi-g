@@ -4,13 +4,13 @@
 
 チーム **donburi** のゲームソン向けスロット対戦デモです。クリック・Spaceで連打し、独立して回転するライバルと獲得コインを競います。GPT-Liveの音声とLiveAvatarの映像は、任意で追加できます。
 
-**[公開デモで遊ぶ](https://slot-chan.vercel.app/) · [メンバー向け引き継ぎ](docs/demo-handoff.md) · [3Dモデルの配布](https://github.com/yuin15/donburi-g/releases/tag/demo-2026-09-13) · [MVVM構成](docs/architecture.md)**
+**[公開デモで遊ぶ](https://slot-chan.vercel.app/) · [メンバー向け引き継ぎ](docs/demo-handoff.md) · [最新の3Dモデルと制作元](art-source/houdini/) · [MVVM構成](docs/architecture.md)**
 
 対象は **PC・横画面1280×720以上・マウスとキーボード**。ゲーム画面は英語です。
 
-![公開CPU対戦：3D筐体、モデルから描画したリール、大きな得点](docs/evidence/houdini-finish/published-1920.webp)
+![立体装飾を増やした筐体と作り直したチェリー・ベル・7](docs/evidence/game-art-direction/normal-1600.webp)
 
-*公開版の通常CPU対戦です。*
+*更新後のゲーム画面。上の画像は開発用の固定局面プレビューです。公開状況は下の公開記録で管理しています。*
 
 ## 遊び方
 
@@ -85,11 +85,9 @@ TypeScript / Vite / Three.jsで実装し、**MVVM**でゲーム規則・進行�
 | [`src/client/`](src/client/) | 通信、マイク、音声再生、任意の映像接続 |
 | [`server/`](server/) / [`api/`](api/) | ライブ対戦、外部API、接続の開始と終了 |
 
-筐体・リール・光・立体モデルは1つのThree.js描画にまとめ、文字と操作はHTML/CSSで扱います。背景と表情は2枚の共有WebP。回転リールの絵柄はHoudini製の3Dモデルから起動時に一度だけ画像へ描画し、両者で共有します。小さな配当アイコンには既存画像を使います。Houdini製のコインは厚み・両面の7・刻みのある縁を持ち、24枚が同じ形状を共有します。ベル・チェリーの小当たりでは、WINの横に[同じ種類の立体モデル](docs/houdini-symbols.md)が現れます。効果音はWeb Audioで合成しています。静止中・非表示中は連続描画を止め、LiveAvatar用SDKは映像を選んだときだけ読み込みます。
+筐体・リール・光・立体モデルは1つのThree.js描画にまとめ、文字と操作はHTML/CSSで扱います。背景と表情は2枚の共有WebP。回転リールの絵柄はHoudini製の3Dモデルから起動時に一度だけ画像へ描画し、両者で共有します。ゲーム中の配当アイコンにも同じ立体モデルを使います。入口・結果の小さな画像は別途残しています。Houdini製のコインは厚み・両面の7・刻みのある縁を持ち、24枚が同じ形状を共有します。ベル・チェリーの小当たりでは、WINの横に[同じ種類の立体モデル](docs/houdini-symbols.md)が現れます。効果音はWeb Audioで合成しています。静止中・非表示中は連続描画を止め、LiveAvatar用SDKは映像を選んだときだけ読み込みます。
 
-7の立体モデルと背面まで持つ筐体も追加しました。曲線の7、丸い金枠、濃い赤の塗装、押し込めるボタンを作り込み、通常リールと当たりの質感を揃えています。[PR #107](https://github.com/yuin15/donburi-g/pull/107)をマージし、公開デモへ反映済みです。[仕上げ後のモデルと公開画面](docs/houdini-finish.md)。
-
-![曲面と金属の質感を仕上げた7と筐体](docs/evidence/houdini-finish/collection.webp)
+[採用した3枚の制作目標](docs/art-reference/README.md)に沿って、[PR #110](https://github.com/yuin15/donburi-g/pull/110)でHoudiniの造形から作り直しました。膨らんだ赤い7と厚い金銀の縁、空洞と星のあるベル、くぼみのあるチェリーと折れた葉を制作。筐体は曲線アーチ、ルビー、立体の葉・渦巻き、緑の石材、照明柱、ドーム状のSPINボタンを備えます。小当たりは控えめに、7揃いは12枚のコインと大きな獲得表示で強調します。[参考と実ゲームの比較・確認範囲](docs/game-art-direction.md)。
 
 詳しい責務と変更例は [architecture.md](docs/architecture.md)、作業方針は [AGENTS.md](AGENTS.md) を参照してください。
 
