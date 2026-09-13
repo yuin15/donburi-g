@@ -1,4 +1,4 @@
-import type { Bet, MatchSnapshot, Side, SpinView } from '../../shared/protocol';
+import type { Bet, MatchSnapshot, Side, SpinView, UpgradeId } from '../../shared/protocol';
 import type { LiveSessionFactory } from '../client/LiveSession';
 import type { AiConnectionState } from '../client/AiStatus';
 
@@ -76,6 +76,7 @@ export interface GameCommands {
   start(): Promise<void>;
   connectLive(inviteCode: string, video?: boolean): Promise<void>;
   requestSpin(): void;
+  purchaseUpgrade(id: UpgradeId): void;
   setBet(bet: Bet): void;
   leave(): void;
   toggleVoiceMuted(): void;

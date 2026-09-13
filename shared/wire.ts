@@ -28,11 +28,12 @@ const spin = z.object({
     z.tuple([symbols, symbols, symbols]),
     z.tuple([symbols, symbols, symbols]),
   ]).optional(),
-  stops: z.tuple([z.number().int().min(0).max(20), z.number().int().min(0).max(20), z.number().int().min(0).max(20)]).optional(),
+  stops: z.tuple([z.number().int().min(0).max(29), z.number().int().min(0).max(29), z.number().int().min(0).max(29)]).optional(),
   bet: z.union([z.literal(1), z.literal(3), z.literal(5)]).optional(),
   winningLines: z.array(z.enum(['middle', 'top', 'bottom', 'diagonalDown', 'diagonalUp'])).max(5).optional(),
   payout: z.number().int().min(0).max(150), total: score,
-  upgrades: z.array(upgrade).max(2).optional(),
+  upgrades: z.array(upgrade).max(6).optional(),
+  upgradeSpent: z.number().int().min(0).max(60).optional(),
 }).refine(value => {
   const fields = [value.grid, value.stops, value.bet, value.winningLines];
   if (fields.every(field => field === undefined)) return true;
@@ -61,7 +62,8 @@ const snapshot = z.object({
   bets: z.object({ player: z.union([z.literal(1), z.literal(3), z.literal(5)]), rival: z.union([z.literal(1), z.literal(3), z.literal(5)]) }),
   scores: z.object({ player: score, rival: score }),
   stats: z.object({ player: sideStats, rival: sideStats }),
-  upgrades: z.object({ player: z.array(upgrade).max(2), rival: z.array(upgrade).max(2) }),
+  upgrades: z.object({ player: z.array(upgrade).max(6), rival: z.array(upgrade).max(2) }),
+  upgradeSpent: z.number().int().min(0).max(60).optional(),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
 }).refine(v => v.round === v.rounds.player)
   .refine(v => v.status !== 'result' || (v.elapsed === MATCH_SECONDS && v.remaining === 0 && v.winner !== undefined))
@@ -108,7 +110,8 @@ export function parseServerEnvelope(raw: string): ServerEnvelope | null {
         for (const side of ['player', 'rival'] as const) {
           const last = latest?.[side];
           const count = message.snapshot.rounds[side];
-          if (count === 0 ? !!last : !last || last.side !== side || last.round !== count || last.total !== message.snapshot.scores[side]) return null;
+          const spentSinceSpin = side === 'player' ? (message.snapshot.upgradeSpent ?? 0) - (last?.upgradeSpent ?? 0) : 0;
+          if (spentSinceSpin < 0 || (count === 0 ? !!last : !last || last.side !== side || last.round !== count || last.total - spentSinceSpin !== message.snapshot.scores[side])) return null;
         }
       }
     }

@@ -104,6 +104,27 @@ async function beginCpu(h: ReturnType<typeof setup>) {
   await start;
 }
 
+it('purchases during CPU play, retains spending after stopping, and resets on rematch', async () => {
+  const h = setup();
+  await beginCpu(h);
+  h.vm.requestSpin();
+  const started = structuredClone(h.rounds[0].spin);
+  h.vm.purchaseUpgrade('steady');
+  expect(h.vm.state.scores.player).toBe(24);
+  expect(h.vm.state.snapshot.upgrades.player).toEqual(['steady']);
+  expect(h.rounds[0].spin).toEqual(started);
+  h.rounds[0].stopped();
+  expect(h.vm.state.scores.player).toBe(started.total - 5);
+  await h.clock.advance(60000);
+  const spent = h.vm.state.snapshot.upgradeSpent;
+  h.vm.purchaseUpgrade('jackpot');
+  expect(h.vm.state.snapshot.upgradeSpent).toBe(spent);
+  await beginCpu(h);
+  expect(h.vm.state.scores.player).toBe(30);
+  expect(h.vm.state.snapshot.upgrades.player).toEqual([]);
+  h.vm.dispose();
+});
+
 async function beginLive(h: ReturnType<typeof setup>) {
   await h.vm.connectLive('private-invite-value');
   const start = h.vm.start();

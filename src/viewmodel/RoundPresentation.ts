@@ -14,6 +14,7 @@ export class RoundPresentation {
   private revision = 0;
   private result: MatchSnapshot | null = null;
   private didEnd = false;
+  private upgradeSpent = 0;
 
   constructor(private readonly port: PresentationPort) {}
 
@@ -28,18 +29,26 @@ export class RoundPresentation {
     this.scores = { ...scores };
     this.result = null;
     this.didEnd = false;
+    this.upgradeSpent = 0;
+  }
+
+  syncPurchases(spent: number): void {
+    const difference = spent - this.upgradeSpent;
+    this.upgradeSpent = spent;
+    this.scores = { ...this.scores, player: this.scores.player - difference };
   }
 
   spin(spin: SpinView): boolean {
     const { side, round } = spin;
     if (round <= this.latest[side] || this.didEnd) return false;
     this.latest[side] = round;
-    this.scores = { ...this.scores, [side]: spin.total - spin.payout };
+    const purchaseAdjustment = () => side === 'player' ? this.upgradeSpent - (spin.upgradeSpent ?? 0) : 0;
+    this.scores = { ...this.scores, [side]: spin.total - spin.payout - purchaseAdjustment() };
     const revision = this.revision;
     this.port.play(spin, (celebrate = true) => {
       if (revision !== this.revision || round !== this.latest[side] || round <= this.revealed[side]) return;
       this.revealed[side] = round;
-      this.scores = { ...this.scores, [side]: spin.total };
+      this.scores = { ...this.scores, [side]: spin.total - purchaseAdjustment() };
       this.port.settled(spin, celebrate);
       this.flushResult();
     });

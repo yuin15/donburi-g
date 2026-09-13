@@ -1,9 +1,10 @@
-import type { Bet, MatchSnapshot, ServerMessage, Side, SpinView } from '../../shared/protocol';
+import type { Bet, MatchSnapshot, ServerMessage, Side, SpinView, UpgradeId } from '../../shared/protocol';
+import { upgradePrice } from '../../shared/shop';
 import type { LiveSession } from '../client/LiveSession';
 import type { AiConnectionState, AiProvider, AiRuntimeEvent } from '../client/AiStatus';
 import {
   advanceMatch, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, setBet,
-  startMatch, type GameEvent, type MatchState,
+  startMatch, purchaseUpgrade, type GameEvent, type MatchState,
 } from '../domain/game';
 import { RoundPresentation } from './RoundPresentation';
 import { RivalReactions } from './RivalReactions';
@@ -75,6 +76,7 @@ export class GameViewModel implements GameCommands {
   private assistantTimer: number | undefined;
   private revision = 0;
   private disposed = false;
+  private purchaseCommand = 0;
   private readonly timers = new Set<number>();
   private readonly waits = new Map<number, (valid: boolean) => void>();
   private readonly listeners = new Set<(state: GameViewState) => void>();
@@ -184,6 +186,22 @@ export class GameViewModel implements GameCommands {
       this.liveSnapshot = this.snapshot;
     }
     this.emit();
+  }
+
+  purchaseUpgrade(id: UpgradeId): void {
+    if (this.disposed || !this.isPlaying()) return;
+    const price = upgradePrice(this.snapshot.upgrades.player, id);
+    if (price === null || Math.min(this.snapshot.scores.player, this.displayBalances.player) < price) return;
+    const expectedCount = this.snapshot.upgrades.player.filter(value => value === id).length;
+    if (this.practiceState) {
+      this.processPracticeEvents(advanceMatch(this.practiceState, this.practiceElapsed()));
+      purchaseUpgrade(this.practiceState, id, expectedCount);
+      this.consumeSnapshot(getSnapshot(this.practiceState));
+      this.emit();
+    } else {
+      this.liveSession?.send({ type: 'purchase', matchId: this.snapshot.matchId,
+        commandId: `purchase:${++this.purchaseCommand}`, upgradeId: id, expectedCount });
+    }
   }
 
   leave(): void {
@@ -379,7 +397,14 @@ export class GameViewModel implements GameCommands {
     }
   }
 
+  private syncPurchases(snapshot: MatchSnapshot): void {
+    const previous = this.rounds.scores.player;
+    this.rounds.syncPurchases(snapshot.upgradeSpent ?? 0);
+    this.displayBalances.player += this.rounds.scores.player - previous;
+  }
+
   private consumeSnapshot(snapshot: MatchSnapshot): void {
+    this.syncPurchases(snapshot);
     this.snapshot = snapshot;
     if (snapshot.status === 'playing' || snapshot.status === 'result' || snapshot.status === 'aborted') this.awaitingStart = false;
     if (snapshot.status === 'playing') {
@@ -455,7 +480,7 @@ export class GameViewModel implements GameCommands {
     const side = spin.side;
     if (side === 'player') this.spinAnimating = false;
     this.lastSpin = { ...this.lastSpin, [side]: spin };
-    this.displayBalances[side] = spin.total;
+    this.displayBalances[side] = this.rounds.scores[side];
     // RoundPresentation starts at zero so it can wait for both reel stops. The
     // bankroll already includes the untouched side's starting cash and the paid BET.
     const scores = this.displayBalances;
@@ -629,6 +654,7 @@ export class GameViewModel implements GameCommands {
       this.liveSnapshot = message.snapshot;
       this.liveReelUpgrades = { player: [...message.snapshot.upgrades.player], rival: [...message.snapshot.upgrades.rival] };
       const last = message.lastSpins ?? message.lastSpin;
+      this.syncPurchases(message.snapshot);
       if (last) for (const side of ['player', 'rival'] as const) {
         if (last[side]) this.handleSpin(last[side], message.snapshot.upgrades);
       }

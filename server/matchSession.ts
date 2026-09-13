@@ -10,6 +10,7 @@ import {
   MANUAL_SPIN_INTERVAL,
   PAYOUT,
   requestManualSpin,
+  purchaseUpgrade,
   setBet,
   startMatch,
   submitUpgrade,
@@ -23,6 +24,7 @@ import { chooseRivalUpgrade } from './rivalBrain.js';
 import { ReactionQueue } from './reactions.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('purchase'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100), upgradeId: z.enum(['steady', 'jackpot']), expectedCount: z.number().int().min(0).max(2) }),
   z.object({ type: z.literal('start') }),
   z.object({ type: z.literal('spin'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100) }),
   z.object({
@@ -359,6 +361,17 @@ export class MatchSession {
       this.emitSpinStatus(message.commandId, accepted, retryAfterMs);
       return;
     }
+    if (message.type === 'purchase') {
+      if (message.matchId !== this.sessionId) return;
+      this.tick();
+      if (!this.commands.has(message.commandId)) {
+        this.commands.add(message.commandId);
+        purchaseUpgrade(this.state, message.upgradeId, message.expectedCount);
+      }
+      this.pushContext();
+      this.emitSnapshot();
+      return;
+    }
     if (message.type === 'set_bet') {
       if (message.matchId !== this.sessionId) {
         this.emitSafeError('wrong_match', '別の対戦への操作は受付できません。', true);
@@ -582,8 +595,11 @@ export class MatchSession {
       }).join(';')}。`
       : '直近の確定回転: まだ回転していない。';
     const leader = snapshot.balances.player === snapshot.balances.rival ? '同点' : snapshot.balances.player > snapshot.balances.rival ? 'プレイヤー' : 'あなた';
+    const reelContext = this.state.upgradesEnabled || this.state.upgradeSpent > 0
+      ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
+      : '';
     // Static rules belong in the startup persona; repeat only the current facts.
-    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${recentSpin}`;
+    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {

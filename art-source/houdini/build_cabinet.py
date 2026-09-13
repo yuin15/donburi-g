@@ -499,17 +499,14 @@ def build_cabinet(geo):
     moulding(m,apron,1.00,.020,.025,'cabinet_gold')
     for side in (-1,1): ornament(m,530,839,82,side,1.03)
     gem(m,530,833,7,15,1.10)
-    # Left vertical payout plaque and right ornamental marble insert.
-    for x,w,material in ((182,163,'cabinet_black'),(704,170,'cabinet_marble')):
+    # Matching inset plaques for payouts and the upgrade purchase controls.
+    for x,w,material in ((182,163,'cabinet_black'),(704,163,'cabinet_black')):
         plaque=rectangle(x,703,w,106,14)
         rounded_solid(m,plaque,.96,1.02,.023,'cabinet_shadow')
         solid(m,inset(plaque,.03),1.015,1.04,0,material)
         moulding(m,plaque,1.05,.025,.032,'cabinet_gold')
         for px in (x+7,x+w-7):
             for py in (710,802):m.sphere(((px-530)/100,(870-py)/100,1.065),(.031,.031,.017),'cabinet_highlight',segments=12,rows=8)
-    for i in range(6):
-        petal(m,[(724,791),(771+i*10,797-i*5),(832+i*4,782-i*13),(816+i*6,724+i*5)],8,.09,1.055+i*.006)
-    scroll(m,808,754,30,1,1.10)
     # Domed ruby switch: machined socket, gasket, clear lacquer and raised text in the UI.
     for rx,ry,back,front,material in ((158,69,.94,1.04,'cabinet_shadow'),(150,63,1.01,1.15,'cabinet_gold'),
                                    (140,55,1.14,1.21,'cabinet_chrome'),(134,50,1.20,1.25,'cabinet_black')):

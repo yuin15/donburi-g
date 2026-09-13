@@ -20,6 +20,7 @@ export const OVERLAYS: Record<string, Rect> = {
   start: { x: 402, y: 742, w: 247, h: 76 },
   spinHint: { x: 394, y: 820, w: 265, h: 20 },
   paytable: { x: 201, y: 729, w: 130, h: 90 },
+  upgradeShop: { x: 716, y: 726, w: 139, h: 94 },
   betControls: { x: 205, y: 650, w: 565, h: 74 },
   lineIndicators: { x: 160, y: 273, w: 80, h: 371 },
   roundStatus: { x: 1052, y: 872, w: 484, h: 22 },
