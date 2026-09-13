@@ -1,8 +1,25 @@
 import * as THREE from 'three';
 
+const SIZE = 512;
+let enamelPixels: Uint8Array | undefined;
+let stonePixels: Uint8Array | undefined;
+
 /** Deterministic material color, not a photograph of a cabinet or a symbol. */
 export function createEnamelTexture(stone = false): THREE.DataTexture {
-  const size = 512, data = new Uint8Array(size * size * 4);
+  // Cabinet and symbols use the same pattern. Cache only CPU pixels; every
+  // owner still receives its own texture and can dispose it independently.
+  if (!enamelPixels || !stonePixels) generateFinishes();
+  const data = (stone ? stonePixels! : enamelPixels!).slice();
+  const texture = new THREE.DataTexture(data, SIZE, SIZE);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.magFilter = THREE.LinearFilter; texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true; texture.needsUpdate = true;
+  return texture;
+}
+
+function generateFinishes(): void {
+  const size = SIZE, enamel = new Uint8Array(size * size * 4), stone = new Uint8Array(size * size * 4);
   const hash = (x: number, y: number) => {
     let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
     n = Math.imul(n ^ n >>> 13, 1274126177);
@@ -23,22 +40,15 @@ export function createEnamelTexture(stone = false): THREE.DataTexture {
     const vein = Math.pow(1 - Math.abs(Math.sin(u * 1.7 + v * .8 + cloud * 22)), 22);
     const t = THREE.MathUtils.clamp(cloud * .85 + grain * .15, 0, 1);
     const i = (y * size + x) * 4;
-    if (stone) {
-      data[i] = 3 + t * 19 + vein * 94;
-      data[i + 1] = 14 + t * 43 + vein * 101;
-      data[i + 2] = 11 + t * 31 + vein * 76;
-    } else {
-      const flake = grain > .96 ? (grain - .96) * 170 : 0;
-      data[i] = 94 + Math.pow(t, 1.1) * 151 + flake;
-      data[i + 1] = 2 + t * 9 + flake * .6;
-      data[i + 2] = 7 + t * 18 + flake * .5;
-    }
-    data[i + 3] = 255;
+    stone[i] = 3 + t * 19 + vein * 94;
+    stone[i + 1] = 14 + t * 43 + vein * 101;
+    stone[i + 2] = 11 + t * 31 + vein * 76;
+    const flake = grain > .96 ? (grain - .96) * 170 : 0;
+    enamel[i] = 94 + Math.pow(t, 1.1) * 151 + flake;
+    enamel[i + 1] = 2 + t * 9 + flake * .6;
+    enamel[i + 2] = 7 + t * 18 + flake * .5;
+    enamel[i + 3] = stone[i + 3] = 255;
   }
-  const texture = new THREE.DataTexture(data, size, size);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.magFilter = THREE.LinearFilter; texture.minFilter = THREE.LinearMipmapLinearFilter;
-  texture.generateMipmaps = true; texture.needsUpdate = true;
-  return texture;
+  enamelPixels = enamel;
+  stonePixels = stone;
 }
