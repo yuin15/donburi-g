@@ -6,15 +6,13 @@ import { mountVisualReview, type ReviewExample } from '../view/VisualReview';
 import type { GameViewState } from '../viewmodel/GameViewState';
 
 function fixtureStats(scores: MatchSnapshot['scores']): MatchSnapshot['stats'] {
-  const side = (total: number, round: number) => ({
-    wins: { cherry: (total % PAYOUT.seven) / PAYOUT.cherry, bell: 0, seven: Math.floor(total / PAYOUT.seven) },
-    bestSpin: total ? { round, payout: total >= PAYOUT.seven ? PAYOUT.seven : PAYOUT.cherry } : null,
-  });
-  return { player: side(scores.player, 5), rival: side(scores.rival, 8) };
+  void scores;
+  const side = { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null };
+  return { player: structuredClone(side), rival: structuredClone(side) };
 }
 
 function fixtureSnapshot(): MatchSnapshot {
-  const scores = { player: 1440, rival: 1320 };
+  const scores = { player: 30, rival: 30 };
   return {
     ...getSnapshot(createMatch(1, 'visual-fixture')),
     status: 'playing', elapsed: 22, remaining: 38, round: 20, rounds: { player: 20, rival: 11 }, scores,
@@ -123,7 +121,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     view.stopScene();
     render({
       snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
-      sessionRecord: { best: Math.max(2400, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > 2400 },
+      sessionRecord: { best: Math.max(30, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > 30 },
       expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
       rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
       line: resultLine(snapshot), heard: '',
@@ -170,17 +168,17 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     }
     if (['small', 'bell-cherry', 'cherry-bell', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
       const jackpot = example === 'jackpot' || example === 'both-jackpot';
-      const player: SpinView = { side: 'player', round: 20, symbols: jackpot ? ['seven', 'seven', 'seven'] : ['bell', 'bell', 'bell'], payout: jackpot ? 1200 : 240, total: jackpot ? 2640 : 1440 };
-      const rival: SpinView = { side: 'rival', round: 11, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 2400 : 1320 };
+      const player: SpinView = { side: 'player', round: 20, symbols: jackpot ? ['seven', 'seven', 'seven'] : ['bell', 'bell', 'bell'], payout: jackpot ? PAYOUT.seven : PAYOUT.bell, total: jackpot ? 59 : 35 };
+      const rival: SpinView = { side: 'rival', round: 11, symbols: ['bell', 'seven', 'cherry'], payout: 0, total: jackpot ? 29 : 19 };
       if (example === 'bell-cherry') { rival.symbols = ['cherry', 'cherry', 'cherry']; rival.payout = PAYOUT.cherry; }
       if (example === 'cherry-bell') { player.symbols = ['cherry', 'cherry', 'cherry']; player.payout = PAYOUT.cherry; rival.symbols = ['bell', 'bell', 'bell']; rival.payout = PAYOUT.bell; }
-      if (example === 'rival-jackpot' || example === 'both-jackpot') { rival.symbols = ['seven', 'seven', 'seven']; rival.payout = 1200; rival.total = 3240; }
+      if (example === 'rival-jackpot' || example === 'both-jackpot') { rival.symbols = ['seven', 'seven', 'seven']; rival.payout = PAYOUT.seven; rival.total = 49; }
       if (example === 'rival-jackpot' || example === 'quiet') { player.symbols = ['cherry', 'bell', 'seven']; player.payout = 0; }
       previousLeader = example === 'jackpot' ? 'rival' : null;
       snapshot.scores = { player: player.total, rival: rival.total };
       snapshot.stats = fixtureStats(snapshot.scores);
       if (jackpot) { snapshot.remaining = 21; snapshot.elapsed = 39; }
-      if (example === 'rival-jackpot') { player.total = 1920; snapshot.scores.player = 1920; snapshot.remaining = 12; snapshot.elapsed = 48; snapshot.stats = fixtureStats(snapshot.scores); }
+      if (example === 'rival-jackpot') { player.total = 19; snapshot.scores.player = 19; snapshot.remaining = 12; snapshot.elapsed = 48; snapshot.stats = fixtureStats(snapshot.scores); }
       showSnapshot(snapshot);
       view.scene.show(player.symbols, player.payout, rival.symbols, true, rival.payout);
       settle(player, rival, true, true);

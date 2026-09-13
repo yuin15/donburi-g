@@ -7,8 +7,8 @@ import { LiveSync } from './LiveSync';
 
 const wrap = (message: ServerMessage, streamSeq: number, sessionId = 'match-a'): ServerEnvelope => ({ ...message, sessionId, streamSeq, serverTime: 1000 });
 const hello = wrap({ type: 'hello', sessionId: 'match-a', live: true }, 1);
-const spin = { player: { side: 'player' as const, round: 30, symbols: ['seven', 'seven', 'seven'] as ['seven', 'seven', 'seven'], payout: 1200 as const, total: 3600 }, rival: { side: 'rival' as const, round: 30, symbols: ['cherry', 'bell', 'seven'] as ['cherry', 'bell', 'seven'], payout: 0 as const, total: 3240 } };
-const result: ServerMessage = { type: 'snapshot', snapshot: { matchId: 'match-a', status: 'result', elapsed: 60, remaining: 0, round: 30, rounds: { player: 30, rival: 30 }, scores: { player: 3600, rival: 3240 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1200 } }, rival: { wins: { cherry: 1, bell: 3, seven: 2 }, bestSpin: { round: 12, payout: 1200 } } }, upgrades: { player: [], rival: [] }, eventSeq: 38, winner: 'player' }, lastSpin: spin };
+const spin = { player: { side: 'player' as const, round: 30, symbols: ['seven', 'seven', 'seven'] as ['seven', 'seven', 'seven'], payout: 30 as const, total: 90 }, rival: { side: 'rival' as const, round: 30, symbols: ['cherry', 'bell', 'seven'] as ['cherry', 'bell', 'seven'], payout: 0 as const, total: 81 } };
+const result: ServerMessage = { type: 'snapshot', snapshot: { matchId: 'match-a', status: 'result', elapsed: 60, remaining: 0, round: 30, rounds: { player: 30, rival: 30 }, scores: { player: 90, rival: 81 }, stats: { player: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 30 } }, rival: { wins: { cherry: 1, bell: 3, seven: 2 }, bestSpin: { round: 12, payout: 30 } } }, upgrades: { player: [], rival: [] }, eventSeq: 38, winner: 'player' }, lastSpin: spin };
 
 describe('live wire validation and recovery', () => {
   it('requests one snapshot for a gap and recovers the exact final reels and result', () => {
@@ -66,27 +66,27 @@ describe('live wire validation and recovery', () => {
     expect(parseServerEnvelope(JSON.stringify(missing))).toBeNull();
   });
   it.each([
-    { name: 'negative wins', stats: { wins: { cherry: -1, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1200 } } },
-    { name: 'fractional wins', stats: { wins: { cherry: 0, bell: 0, seven: 2.5 }, bestSpin: { round: 10, payout: 1200 } } },
-    { name: 'more wins than the match limit', stats: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS + 1 }, bestSpin: { round: 1, payout: 1200 } } },
-    { name: 'score mismatch', stats: { wins: { cherry: 1, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1200 } } },
-    { name: 'missing winning symbol', stats: { wins: { cherry: 0, bell: 0 }, bestSpin: { round: 10, payout: 1200 } } },
+    { name: 'negative wins', stats: { wins: { cherry: -1, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 30 } } },
+    { name: 'fractional wins', stats: { wins: { cherry: 0, bell: 0, seven: 2.5 }, bestSpin: { round: 10, payout: 30 } } },
+    { name: 'more wins than the match limit', stats: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS + 1 }, bestSpin: { round: 1, payout: 30 } } },
+    { name: 'score mismatch', stats: { wins: { cherry: 1, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 30 } } },
+    { name: 'missing winning symbol', stats: { wins: { cherry: 0, bell: 0 }, bestSpin: { round: 10, payout: 30 } } },
     { name: 'missing highest hit', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: null } },
-    { name: 'incorrect highest payout', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 240 } } },
+    { name: 'incorrect highest payout', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 6 } } },
     { name: 'unsupported highest payout', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 10, payout: 1000 } } },
-    { name: 'zero highest round', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 0, payout: 1200 } } },
-    { name: 'future highest round', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 31, payout: 1200 } } },
-    { name: 'impossible first highest tie', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 29, payout: 1200 } } },
+    { name: 'zero highest round', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 0, payout: 30 } } },
+    { name: 'future highest round', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 31, payout: 30 } } },
+    { name: 'impossible first highest tie', stats: { wins: { cherry: 0, bell: 0, seven: 3 }, bestSpin: { round: 29, payout: 30 } } },
   ])('rejects $name in the authoritative breakdown', ({ stats }) => {
     const invalid = { ...wrap(result, 2), snapshot: { ...result.snapshot, stats: { ...result.snapshot.stats, player: stats } } };
     expect(parseServerEnvelope(JSON.stringify(invalid))).toBeNull();
   });
   it('rejects more winning spins than completed rounds even when the score adds up', () => {
-    const invalid = { ...wrap(result, 2), snapshot: { ...result.snapshot, status: 'playing', elapsed: 4, remaining: 56, round: 2, rounds: { player: 2, rival: 2 }, scores: { player: 360, rival: 0 }, stats: { player: { wins: { cherry: 3, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: 120 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } } }, lastSpin: { player: { ...spin.player, round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 120, total: 360 }, rival: { ...spin.rival, round: 2, total: 0 } } };
+    const invalid = { ...wrap(result, 2), snapshot: { ...result.snapshot, status: 'playing', elapsed: 4, remaining: 56, round: 2, rounds: { player: 2, rival: 2 }, scores: { player: 37, rival: 28 }, stats: { player: { wins: { cherry: 3, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: 3 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } } }, lastSpin: { player: { ...spin.player, round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 37 }, rival: { ...spin.rival, round: 2, total: 28 } } };
     expect(parseServerEnvelope(JSON.stringify(invalid))).toBeNull();
   });
   it('rejects a highest hit when no winning spins were recorded', () => {
-    const invalid = { ...wrap(result, 2), snapshot: { ...result.snapshot, scores: { ...result.snapshot.scores, player: 0 }, stats: { ...result.snapshot.stats, player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: { round: 5, payout: 120 } } } }, lastSpin: { ...spin, player: { ...spin.player, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } } };
+    const invalid = { ...wrap(result, 2), snapshot: { ...result.snapshot, scores: { ...result.snapshot.scores, player: 0 }, stats: { ...result.snapshot.stats, player: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: { round: 5, payout: 3 } } } }, lastSpin: { ...spin, player: { ...spin.player, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 0 } } };
     expect(parseServerEnvelope(JSON.stringify(invalid))).toBeNull();
   });
 
@@ -116,22 +116,21 @@ describe('live wire validation and recovery', () => {
     const maximum: ServerMessage = {
       ...result,
       snapshot: {
-        ...result.snapshot, round: MAX_MATCH_ROUNDS, rounds: { player: MAX_MATCH_ROUNDS, rival: MAX_MATCH_ROUNDS },
-        scores: { player: MAX_MATCH_ROUNDS * 1200, rival: 0 },
-        stats: { player: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS }, bestSpin: { round: 1, payout: 1200 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } },
+        ...result.snapshot, round: MAX_MATCH_ROUNDS, rounds: { player: MAX_MATCH_ROUNDS, rival: 30 },
+        scores: { player: 30 - MAX_MATCH_ROUNDS + MAX_MATCH_ROUNDS * 30, rival: 0 },
+        stats: { player: { wins: { cherry: 0, bell: 0, seven: MAX_MATCH_ROUNDS }, bestSpin: { round: 1, payout: 30 } }, rival: { wins: { cherry: 0, bell: 0, seven: 0 }, bestSpin: null } },
       },
-      lastSpin: { player: { ...spin.player, round: MAX_MATCH_ROUNDS, total: MAX_MATCH_ROUNDS * 1200 }, rival: { ...spin.rival, round: MAX_MATCH_ROUNDS, total: 0 } },
+      lastSpin: undefined,
+      lastSpins: { player: { ...spin.player, round: MAX_MATCH_ROUNDS, total: 30 - MAX_MATCH_ROUNDS + MAX_MATCH_ROUNDS * 30 }, rival: { ...spin.rival, total: 0 } },
     };
     expect(parseServerEnvelope(JSON.stringify(wrap(maximum, 2)))).not.toBeNull();
     const excessive = structuredClone(maximum);
     excessive.snapshot.round += 1;
     excessive.snapshot.rounds.player += 1;
-    excessive.snapshot.rounds.rival += 1;
-    excessive.snapshot.scores.player += 1200;
+    excessive.snapshot.scores.player += 29;
     excessive.snapshot.stats.player.wins.seven += 1;
-    excessive.lastSpin!.player.round += 1;
-    excessive.lastSpin!.player.total += 1200;
-    excessive.lastSpin!.rival.round += 1;
+    excessive.lastSpins!.player!.round += 1;
+    excessive.lastSpins!.player!.total += 29;
     expect(parseServerEnvelope(JSON.stringify(wrap(excessive, 2)))).toBeNull();
   });
 

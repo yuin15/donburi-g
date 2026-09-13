@@ -19,9 +19,9 @@ describe('independent spin presentation', () => {
     const { presenter, stopped, settled } = setup();
     const p = spin('player', 4, 480), r = spin('rival', 15, 1320);
     presenter.spin(p); presenter.spin(r);
-    expect(presenter.scores).toEqual({ player: 0, rival: 0 });
+    expect(presenter.scores).toEqual({ player: p.total - p.payout, rival: r.total - r.payout });
     stopped[1]();
-    expect(presenter.scores).toEqual({ player: 0, rival: 1320 });
+    expect(presenter.scores).toEqual({ player: p.total - p.payout, rival: r.total });
     expect(settled).toHaveBeenCalledExactlyOnceWith(r, true);
     stopped[0]();
     expect(presenter.scores).toEqual({ player: 480, rival: 1320 });

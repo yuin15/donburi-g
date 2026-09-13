@@ -4,6 +4,7 @@ import { CabinetArt } from './CabinetArt';
 import { planTravel, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
 import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
 import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
+import { PAYOUT } from '../domain/game';
 
 export type RivalExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
 const EXPRESSIONS: RivalExpression[] = ['neutral', 'confident', 'surprised', 'frustrated'];
@@ -312,7 +313,7 @@ export class ReelScene {
 
   private flashSide(side: Side, payout: number, still = false): void {
     const now = performance.now();
-    const duration = this.motionPreference.matches ? 180 : payout >= 1200 ? 1200 : 650;
+    const duration = this.motionPreference.matches ? 180 : payout >= PAYOUT.seven ? 1200 : 650;
     const until = payout > 0 ? still ? Infinity : now + duration : 0;
     if (payout > 0) this.cabinet.flash(payout, now, duration, still, side);
     if (side === 'player') {
@@ -320,11 +321,11 @@ export class ReelScene {
       // A miss or rival stop cannot cut short an earlier player coin burst.
 
       this.host.dataset.win = String(payout > 0);
-      this.host.dataset.jackpot = String(payout >= 1200);
+      this.host.dataset.jackpot = String(payout >= PAYOUT.seven);
     } else {
       this.rivalWinUntil = until;
       this.host.dataset.rivalWin = String(payout > 0);
-      this.host.dataset.rivalJackpot = String(payout >= 1200);
+      this.host.dataset.rivalJackpot = String(payout >= PAYOUT.seven);
     }
     this.materials.slice(side === 'player' ? 0 : 3, side === 'player' ? 3 : 6).forEach(m => { m.uniforms.winning.value = payout > 0 ? 1 : 0; });
   }

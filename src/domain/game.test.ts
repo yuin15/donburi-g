@@ -13,10 +13,10 @@ import {
 
 describe('authoritative match domain', () => {
   it.each([
-    { seed: 2654435761, winner: 'rival', player: 600, rival: 1680 },
-    { seed: 3668339987, winner: 'player', player: 1800, rival: 240 },
-    { seed: 4203543429, winner: 'draw', player: 480, rival: 480 },
-    { seed: 1035485675, winner: 'player', player: 720, rival: 600, comeback: true },
+    { seed: 2654435761, winner: 'rival', player: 15, rival: 42 },
+    { seed: 3668339987, winner: 'player', player: 45, rival: 6 },
+    { seed: 4203543429, winner: 'draw', player: 12, rival: 12 },
+    { seed: 1035485675, winner: 'player', player: 18, rival: 15, comeback: true },
   ])('replays the $winner outcome for test seed $seed', (fixture) => {
     const state = createMatch(fixture.seed, 'test-fixture', 'automatic', { upgrades: true });
     startMatch(state);
@@ -110,7 +110,7 @@ describe('authoritative match domain', () => {
         expect(snapshot.stats[side].wins[symbol]).toBe(history.filter(spin => spin.payout === PAYOUT[symbol]).length);
       }
       const total = snapshot.stats[side].wins.cherry * PAYOUT.cherry + snapshot.stats[side].wins.bell * PAYOUT.bell + snapshot.stats[side].wins.seven * PAYOUT.seven;
-      expect(total).toBe(snapshot.scores[side]);
+      expect(snapshot.scores[side]).toBe(30 - snapshot.rounds[side] + total);
     }
     const ended = events.find(event => event.type === 'match_end');
     expect(ended?.snapshot.stats).toEqual(snapshot.stats);
@@ -179,7 +179,7 @@ describe('independent manual match authority', () => {
     expect(spins).toHaveLength(30);
     expect(spins.map(event => event.at)).toEqual(Array.from({ length: 30 }, (_, i) => (i + 1) * 2));
     expect(spins.every(event => event.spin.side === 'rival')).toBe(true);
-    expect(state).toMatchObject({ round: 0, rounds: { player: 0, rival: 30 }, status: 'result', winner: 'rival', scores: { player: 0 }, rngState: { player: playerRng } });
+    expect(state).toMatchObject({ round: 0, rounds: { player: 0, rival: 30 }, status: 'result', winner: 'player', scores: { player: 30 }, rngState: { player: playerRng } });
     expect(state.scores.rival).toBeGreaterThan(0);
     expect(state.stats.player).toEqual(getSnapshot(createMatch()).stats.player);
   });
@@ -207,6 +207,17 @@ describe('independent manual match authority', () => {
     expect(requestManualSpin(state, 1.1)).toEqual([]);
     expect(advanceMatch(state, 2).filter(e => e.type === 'side_spin').map(e => e.spin.side)).toEqual(['rival']);
     expect(state.rounds).toEqual({ player: 2, rival: 1 });
+  });
+
+  it('rejects a player spin with no cash without advancing the round or charging again', () => {
+    const state = createMatch(777, 'no-funds', 'manual');
+    startMatch(state);
+    state.scores.player = 0;
+    const rng = state.rngState.player;
+    expect(requestManualSpin(state, 0)).toEqual([]);
+    expect(state.rounds.player).toBe(0);
+    expect(state.scores.player).toBe(0);
+    expect(state.rngState.player).toBe(rng);
   });
 
   it('settles the last scheduled rival spin at 60s, while rejecting deadline and later player clicks', () => {

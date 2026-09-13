@@ -5,16 +5,19 @@ import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_ROUNDS } from './protoco
 const id = z.string().min(1).max(100);
 const upgrade = z.enum(['steady', 'jackpot']);
 const index = z.union([z.literal(0), z.literal(1)]);
-const score = z.number().int().min(0).max(MAX_MATCH_ROUNDS * 1200);
+const STARTING_BALANCE = 30;
+const SPIN_COST = 1;
+const score = z.number().int().min(0).max(STARTING_BALANCE + MAX_MATCH_ROUNDS * (30 - SPIN_COST));
 const winCount = z.number().int().min(0).max(MAX_MATCH_ROUNDS);
+const payout = z.union([z.literal(0), z.literal(3), z.literal(6), z.literal(30)]);
 const sideStats = z.object({
   wins: z.object({ cherry: winCount, bell: winCount, seven: winCount }),
-  bestSpin: z.object({ round: z.number().int().min(1).max(MAX_MATCH_ROUNDS), payout: z.union([z.literal(120), z.literal(240), z.literal(1200)]) }).nullable(),
+  bestSpin: z.object({ round: z.number().int().min(1).max(MAX_MATCH_ROUNDS), payout: z.union([z.literal(3), z.literal(6), z.literal(30)]) }).nullable(),
 });
 const spin = z.object({
   side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_MATCH_ROUNDS),
   symbols: z.tuple([z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven'])]),
-  payout: z.union([z.literal(0), z.literal(120), z.literal(240), z.literal(1200)]), total: score,
+  payout, total: score,
   upgrades: z.array(upgrade).max(2).optional(),
 });
 const pair = z.object({ player: spin, rival: spin }).refine(v => v.player.side === 'player' && v.rival.side === 'rival' && v.player.round === v.rival.round);
@@ -33,10 +36,11 @@ const snapshot = z.object({
   .refine(v => (['player', 'rival'] as const).every(side => {
     const { wins, bestSpin } = v.stats[side];
     const count = wins.cherry + wins.bell + wins.seven;
-    const total = wins.cherry * 120 + wins.bell * 240 + wins.seven * 1200;
-    if (total !== v.scores[side] || count > v.rounds[side]) return false;
+    const total = wins.cherry * 3 + wins.bell * 6 + wins.seven * 30;
+    const expectedBalance = STARTING_BALANCE - v.rounds[side] * SPIN_COST + total;
+    if (expectedBalance !== v.scores[side] || count > v.rounds[side]) return false;
     if (count === 0) return bestSpin === null;
-    const highestPayout = wins.seven > 0 ? 1200 : wins.bell > 0 ? 240 : 120;
+    const highestPayout = wins.seven > 0 ? 30 : wins.bell > 0 ? 6 : 3;
     const highestCount = wins.seven > 0 ? wins.seven : wins.bell > 0 ? wins.bell : wins.cherry;
     // The first highest-paying hit must leave enough later rounds for its remaining ties.
     return bestSpin !== null && bestSpin.payout === highestPayout && bestSpin.round + highestCount - 1 <= v.rounds[side];
