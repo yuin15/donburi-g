@@ -137,7 +137,11 @@ export class GameView implements GamePresentation {
       const button = this.q<HTMLButtonElement>(selector);
       button.disabled = snapshot.status !== 'playing' || price === null || Math.min(state.scores.player, snapshot.scores.player) < price;
       this.text(selector, price === null ? 'MAX' : `BUY $${price}`);
-      this.text(`#${id}Level`, `${base + added * count} IN REEL · ${count}/3`);
+      const symbolName = id === 'steady' ? 'cherries' : 'sevens';
+      const description = `${base + added * count} ${symbolName} in reel. ${count}/3 purchased. This match only.`;
+      this.text(`#${id}Level`, description);
+      button.title = description;
+      button.setAttribute('aria-label', price === null ? `${symbolName}: maximum upgrades purchased` : `Buy ${added} ${id === 'steady' ? 'cherries' : 'seven'} for $${price}`);
     }
     const spent = snapshot.upgradeSpent ?? 0;
     const oldSpent = previous?.snapshot.upgradeSpent ?? 0;

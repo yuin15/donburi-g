@@ -1,12 +1,11 @@
 /* Built-in brass shop at the cabinet's coin outlet. */
-#upgradeShop{z-index:3;padding:.45cqw .55cqw;border:2px solid #a8844e;border-radius:.45cqw;background:linear-gradient(125deg,#382b1e,#100e0b 60%,#302419);box-shadow:inset 0 0 0 2px #100c08,inset 0 0 14px #b2833430;color:#ffedc4}
-#upgradeShop h2{display:inline;margin:0;font:700 .85cqw/1.2 Georgia;letter-spacing:.08em}
-#upgradeShop>small{float:right;font:600 .48cqw/1.8 system-ui;color:#c9b58c}
-.shop-row{display:grid;grid-template-columns:1.7cqw 1fr auto;align-items:center;gap:.25cqw;margin-top:.4cqw}
-.shop-row>span{font:700 .7cqw/1.3 system-ui;white-space:nowrap}.shop-row small{display:block;font:500 .6cqw/1.5 system-ui;color:#d0bb96}
-.shop-row button{padding:.32cqw .3cqw;border:1px solid #c29b59;border-bottom-width:3px;border-radius:.2cqw;background:linear-gradient(#705027,#332214);color:#fff0c9;font:800 .65cqw/1.2 system-ui;white-space:nowrap}
-.shop-row button:hover:enabled{background:#8c622f}.shop-row button:disabled{opacity:.5;cursor:default}.shop-row button:focus-visible{outline:2px solid #ffe098;outline-offset:2px}
-#purchaseNotice{display:block;margin-top:.42cqw;font:600 .48cqw/1.2 system-ui;color:#edc887;white-space:nowrap}
+#upgradeShop{z-index:3;padding:.35cqw .65cqw;border:2px solid #c4a36a;border-radius:.45cqw;background:#131514;box-shadow:inset 0 0 0 1px #715637,0 1px 3px #0008;color:#f2dfb5}
+#upgradeShop h2{margin:0 0 .2cqw;text-align:center;font:700 .85cqw/1.2 Georgia;letter-spacing:.09em}
+.shop-row{display:grid;grid-template-columns:1.6cqw 1fr auto;align-items:center;gap:.35cqw;margin-top:.15cqw}
+.shop-row>.symbol-icon{width:1.6cqw;height:1.6cqw}
+.shop-row>span:not(.sr-only){font:700 1cqw/1 Georgia;white-space:nowrap}
+.shop-row button{padding:.22cqw .48cqw;border:1px solid #b79a64;border-radius:.2cqw;background:#22231f;color:#f2dfb5;font:700 .82cqw/1.2 Georgia;white-space:nowrap}
+.shop-row button:hover:enabled{background:#514127}.shop-row button:disabled{opacity:.5;cursor:default}.shop-row button:focus-visible{outline:2px solid #ffe098;outline-offset:2px}
 #purchaseSymbol{position:absolute;left:15%;top:40%;pointer-events:none;opacity:0;z-index:6}
 /* PC result panel. */
 .result {

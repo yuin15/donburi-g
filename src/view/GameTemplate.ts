@@ -46,10 +46,10 @@ app.innerHTML = `
   </aside>
   <footer>
     <section id="upgradeShop" aria-label="Upgrade your machine">
-      <h2>UPGRADE</h2><small>THIS MATCH ONLY</small>
-      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>ADD 6 CHERRIES<small id="steadyLevel">4 IN REEL · 0/3</small></span><button id="buySteady" disabled>BUY $5</button></div>
-      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>ADD 1 SEVEN<small id="jackpotLevel">2 IN REEL · 0/3</small></span><button id="buyJackpot" disabled>BUY $5</button></div>
-      <span id="purchaseNotice" role="status">BUY → BOOST YOUR NEXT SPIN</span>
+      <h2>UPGRADE</h2>
+      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $5</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $5</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
+      <span class="sr-only" id="purchaseNotice" role="status">BUY → BOOST YOUR NEXT SPIN</span>
       <i id="purchaseSymbol" aria-hidden="true"></i>
     </section>
     <section class="result" id="result" aria-labelledby="resultTitle" hidden>
