@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsLoan, requestsTimeExtension } from './rivalBrain';
+import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -112,8 +112,16 @@ describe('loan choice', () => {
     expect(requestsLoan(transcript)).toBe(true);
   });
 
-  it.each(['うん', '延長して', '今どっちが上？'])('does not route an unrelated response as a borrower request: %s', transcript => {
+  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない'])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
     expect(requestsLoan(transcript)).toBe(false);
+  });
+
+  it.each(['お金を貸してほしい', 'お金を貸してくれない？', 'お金を借りられない？', '貸して', '5ドル貸して', 'Can you lend me $5?'])('recognizes only a clear direct borrower request: %s', transcript => {
+    expect(requestsDirectLoan(transcript)).toBe(true);
+  });
+
+  it.each(['お金貸してほしくない', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて'])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
+    expect(requestsDirectLoan(transcript)).toBe(false);
   });
 
   it.each(['Sure!', 'はい', 'okay', "Okay, I'll lend you some.", 'うん、5ドル貸してあげるよ'])('accepts a clear rival-loan reply: %s', transcript => {
@@ -124,11 +132,11 @@ describe('loan choice', () => {
     expect(acceptsLoanOffer(transcript)).toBe(false);
   });
 
-  it.each(['いいよ', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
+  it.each(['いいよ', 'いいよ、', 'うん', 'はい', 'もちろん', '了解', 'Sure!', 'Okay, I\'ll lend you some.', 'うん、5ドル貸してあげるよ'])('accepts only an immediate clear rival-loan reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(true);
   });
 
-  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、', 'いいよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
+  it.each(['いや', '貸して', '貸してくれない？', 'いいよ、でも無理', 'Sure,', 'I guess so', 'yes, the timer is short'])('does not immediately accept a negative, request, or partial reply: %s', transcript => {
     expect(acceptsImmediateLoanOffer(transcript)).toBe(false);
   });
 

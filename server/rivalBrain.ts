@@ -10,10 +10,22 @@ interface ChoiceResult {
 export type TimeExtensionDecision = 'accept_extension_10s' | 'reject_extension' | 'no_request';
 export type LoanDecision = 'accept_loan' | 'reject_loan' | 'no_request';
 
+export function rejectsLoanRequest(transcript: string): boolean {
+  const normalized = transcript.normalize('NFKC').trim();
+  return /(?:貸してほしくない|借り(?:たくない|ない|る(?:必要)?ない)|(?:お金|金|money|cash).{0,12}(?:いらない|不要|足りて))/i.test(normalized);
+}
+
 /** Routes a likely borrower request to the bounded model decision; it never approves a transfer. */
 export function requestsLoan(transcript: string): boolean {
   const normalized = transcript.normalize('NFKC');
-  return /(?:貸して|貸してほしい|借り|お金|金|lend\b|loan\b|borrow\b|cash\b|money\b)|(?:(?:もう一(?:回|度)|one more).{0,12}(?:勝負|spin\b|shot\b))/i.test(normalized);
+  return !rejectsLoanRequest(normalized) && /(?:貸して|貸してほしい|借り|お金|金|lend\b|loan\b|borrow\b|cash\b|money\b)|(?:(?:もう一(?:回|度)|one more).{0,12}(?:勝負|spin\b|shot\b))/i.test(normalized);
+}
+
+/** A direct transcript route needs a complete request, not a loose money mention. */
+export function requestsDirectLoan(transcript: string): boolean {
+  const normalized = transcript.normalize('NFKC').trim();
+  if (rejectsLoanRequest(normalized)) return false;
+  return /(?:(?:お金|金|\$?\s*5\s*ドル?|money|cash).{0,16}(?:貸して(?:ほしい|欲しい|ください|下さい|くれ(?:ない)?|ちょうだい)?|借り(?:たい|させて|られる|られない)?)|(?:貸して(?:ほしい|欲しい|ください|下さい|くれ(?:ない)?|ちょうだい)?|借り(?:たい|させて|られる|られない)?).{0,16}(?:お金|金|\$?\s*5\s*ドル?|money|cash)|^(?:貸して(?:ほしい|欲しい|ください|下さい|くれ(?:ない)?|ちょうだい)?|借り(?:たい|させて|られる|られない)?)[、。！？!?]?$|\b(?:can|could|would|please)\b.{0,24}\b(?:lend|loan)\b.{0,24}\b(?:money|cash|\$?5)\b)/i.test(normalized);
 }
 
 /** A reply is eligible only inside the server's currently audible loan offer. */
@@ -28,7 +40,8 @@ export function acceptsLoanOffer(transcript: string): boolean {
 export function acceptsImmediateLoanOffer(transcript: string): boolean {
   const normalized = transcript.normalize('NFKC').trim();
   if (rejectsLoanOffer(normalized)) return false;
-  if (/^(?:うん|はい|いいよ|もちろん|了解|yes|yeah|yep|sure|okay|ok)(?:[。！？!?])*$/i.test(normalized)) return true;
+  if (/^(?:うん|はい|いいよ|もちろん|了解)(?:[、。！？!?])*$/i.test(normalized)) return true;
+  if (/^(?:yes|yeah|yep|sure|okay|ok)(?:[。！？!?])*$/i.test(normalized)) return true;
   if (/^(?:(?:うん|はい|いいよ|もちろん|了解)[、,\s]+)?(?:\$?\s*5ドル(?:なら|だけ)?[、,\s]*)?(?:貸す|貸してあげる|貸してやる)(?:よ|ね)?[、。！？!?\s]*$/i.test(normalized)) return true;
   return /^(?:(?:yes|yeah|yep|sure|okay|ok)[,!\s]+)?(?:i(?:'|’)ll|i will)\s+(?:lend|loan)\s+you(?:\s+(?:\$?5|five|some))?[.!\s]*$/i.test(normalized);
 }
