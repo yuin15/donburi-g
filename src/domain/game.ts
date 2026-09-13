@@ -26,6 +26,7 @@ export interface MatchState {
   remaining: number;
   duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
   extensionUsed: boolean;
+  rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
   round: number;
   rounds: Record<Side, number>;
   /** Compatibility projection for older adapters. It shares the bankroll object. */
@@ -150,6 +151,7 @@ export function createMatch(
     remaining: MATCH_SECONDS,
     duration: MATCH_SECONDS,
     extensionUsed: false,
+    rivalDistraction: null,
     round: 0,
     rounds: { player: 0, rival: 0 },
     balances: scores,
@@ -228,8 +230,14 @@ function performSpin(state: MatchState, atElapsed: number, events: GameEvent[], 
     events.push({ type: 'leader_change', seq: nextSeq(state), at: atElapsed, leader: leaderAfter });
   }
 }
-function processSecond(state: MatchState, second: number, events: GameEvent[]): void {
-  if (second % SPIN_INTERVAL === 0 && second <= state.duration) performSpin(state, second, events, state.spinMode === 'manual' ? 'rival' : undefined);
+function processSecond(state: MatchState, second: number, events: GameEvent[], rivalPaused: boolean): void {
+  if (second % SPIN_INTERVAL === 0 && second <= state.duration) {
+    if (state.spinMode === 'manual') {
+      if (!rivalPaused) performSpin(state, second, events, 'rival');
+    } else {
+      performSpin(state, second, events, rivalPaused ? 'player' : undefined);
+    }
+  }
   const openIndex = UPGRADE_OPEN_SECONDS.indexOf(second as 20 | 40);
   if (state.upgradesEnabled && openIndex >= 0) {
     const offerIndex = openIndex as 0 | 1;
@@ -250,12 +258,15 @@ function processSecond(state: MatchState, second: number, events: GameEvent[]): 
     events.push({ type: 'upgrade_applied', seq: nextSeq(state), at: second, offerIndex, player, rival });
   }
   if (second === state.duration) {
+    // A result snapshot must never advertise a pause that cannot outlive the match.
+    state.rivalDistraction = null;
     state.status = 'result';
     state.winner = currentLeader(state.scores);
     state.remaining = 0;
     events.push({ type: 'match_end', seq: nextSeq(state), at: second, snapshot: getSnapshot(state) });
   }
 }
+/** A pause skips only rival turns; elapsed time and the normal cadence continue. */
 export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDeadline = false): GameEvent[] {
   if (state.status !== 'playing') return [];
   const target = Math.min(state.duration, Math.max(state.elapsed, elapsedSeconds));
@@ -264,12 +275,21 @@ export function advanceMatch(state: MatchState, elapsedSeconds: number, holdAtDe
     if (holdAtDeadline && second === state.duration) break;
     state.elapsed = second;
     state.remaining = state.duration - second;
-    processSecond(state, second, events);
+    processSecond(state, second, events, Boolean(state.rivalDistraction && second < state.rivalDistraction.untilElapsed));
     state.processedSecond = second;
   }
   state.elapsed = Math.min(target, state.duration);
   state.remaining = Math.max(0, state.duration - state.elapsed);
+  if (state.rivalDistraction && (state.elapsed >= state.rivalDistraction.untilElapsed || state.elapsed >= state.duration)) state.rivalDistraction = null;
   return events;
+}
+
+/** The server may apply only the exact short pause selected by its allowlist. */
+export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot | null {
+  if (state.status !== 'playing' || state.rivalDistraction || (seconds !== 2 && seconds !== 4) || state.elapsed + seconds > state.duration) return null;
+  state.rivalDistraction = { seconds, untilElapsed: state.elapsed + seconds };
+  nextSeq(state);
+  return getSnapshot(state);
 }
 
 /** The domain is the only place that can turn a model decision into extra time. */
@@ -303,6 +323,9 @@ export function abortMatch(state: MatchState): void {
   if (state.status !== 'result') state.status = 'aborted';
 }
 export function getSnapshot(state: MatchState): MatchSnapshot {
+  const distraction = state.status === 'playing' && state.rivalDistraction && state.rivalDistraction.untilElapsed <= state.duration
+    ? state.rivalDistraction
+    : null;
   return {
     matchId: state.matchId,
     status: state.status,
@@ -317,6 +340,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     stats: cloneMatchStats(state.stats),
     upgradeSpent: state.upgradeSpent,
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
+    ...(distraction ? { rivalDistraction: { ...distraction } } : {}),
     winner: state.winner,
     eventSeq: state.eventSeq,
   };

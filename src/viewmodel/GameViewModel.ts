@@ -62,6 +62,7 @@ export class GameViewModel implements GameCommands {
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private timeExtension: GameViewState['timeExtension'] = null;
+  private rivalDistraction: GameViewState['rivalDistraction'] = null;
   private line = INITIAL_LINE;
   private videoEnabled = false;
   private heard = '';
@@ -341,6 +342,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.timeExtension = null;
+    this.rivalDistraction = null;
     this.assistantText = '';
     this.conversation = 'idle';
     const previous = this.liveSession;
@@ -363,6 +365,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.timeExtension = null;
+    this.rivalDistraction = null;
     this.line = INITIAL_LINE;
     this.heard = this.assistantText = '';
     this.conversation = 'idle';
@@ -671,6 +674,7 @@ export class GameViewModel implements GameCommands {
       const enteringPlay = this.liveSnapshot?.status !== 'playing' && message.snapshot.status === 'playing';
       this.prepareLiveResult(message.snapshot);
       this.liveSnapshot = message.snapshot;
+      this.syncRivalDistraction(message.snapshot);
       this.liveReelUpgrades = { player: [...message.snapshot.upgrades.player], rival: [...message.snapshot.upgrades.rival] };
       const last = message.lastSpins ?? message.lastSpin;
       this.syncPurchases(message.snapshot);
@@ -700,6 +704,10 @@ export class GameViewModel implements GameCommands {
         this.cancelTimer(this.timeExtensionTimer);
         this.timeExtensionTimer = this.schedule(() => { this.timeExtension = null; this.emit(); }, 1350);
       }
+    } else if (message.type === 'rival_distraction') {
+      this.line = message.line;
+      this.setConversation('replying');
+      this.rivalDistraction = message.state === 'started' ? { active: true, seconds: message.seconds } : null;
     } else if (message.type === 'voice_interrupt') {
       this.cancelTimer(this.assistantTimer);
       this.assistantText = this.heard = '';
@@ -730,6 +738,7 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'match_ended') {
       this.prepareLiveResult(message.snapshot);
       this.liveSnapshot = message.snapshot;
+      this.syncRivalDistraction(message.snapshot);
       this.consumeSnapshot(message.snapshot);
       this.rounds.end(message.snapshot);
     } else if (message.type === 'error') {
@@ -765,6 +774,15 @@ export class GameViewModel implements GameCommands {
     }, 3000);
   }
 
+  private syncRivalDistraction(snapshot: MatchSnapshot): void {
+    const distraction = snapshot.rivalDistraction;
+    if (distraction && distraction.untilElapsed > snapshot.elapsed) {
+      this.rivalDistraction = { active: true, seconds: distraction.seconds };
+    } else if (this.rivalDistraction?.active) {
+      this.rivalDistraction = null;
+    }
+  }
+
   private buildState(): GameViewState {
     const now = this.deps.clock.now();
     const scores = { ...this.displayBalances };
@@ -784,9 +802,9 @@ export class GameViewModel implements GameCommands {
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
       sessionRecord: { ...this.sessionRecord },
-      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null,
+      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
-      rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
+      rivalMood: this.rivalDistraction?.active ? 'DISTRACTED...' : this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },
       line: this.line, heard: this.heard, conversation: this.conversation, voiceMuted: this.voiceMuted, effectsMuted: this.effectsMuted,
       aiDebug: { configured: { ...this.aiConfigured }, runtime: { ...this.aiRuntime }, responses: this.responsesState },
