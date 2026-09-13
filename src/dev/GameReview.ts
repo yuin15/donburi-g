@@ -81,7 +81,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
       startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: 'CLICK / SPACE TO SPIN' },
       machineNotice: 'CHOOSE BET · ACTIVE LINES PAY',
-      result: null, payout: null, cue: null, timeExtension: null, loanTransfer: null, expression: 'neutral',
+      result: null, payout: null, cue: null, timeExtension: null, loanTransfer: null, rivalDistraction: null, expression: 'neutral',
       rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',
       conversation: 'idle',
     };
@@ -195,6 +195,16 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
         line: direction === 'rival_to_player' ? 'Fine. Don’t waste it.' : 'All right. One more shot.',
         rivalMood: 'LOAN CONFIRMED',
       });
+    }
+    if (example === 'distraction-started') {
+      view.scene.show(['cherry', 'bell', 'seven'], 0, ['seven', 'bell', 'cherry']);
+      view.scene.setRivalDistracted(true);
+      render({ rivalDistraction: { active: true, seconds: 4 }, line: 'え？ 後ろに誰かいるの？', rivalMood: 'DISTRACTED...', conversation: 'replying' });
+    }
+    if (example === 'distraction-recovered') {
+      view.scene.show(['cherry', 'bell', 'seven'], 0, ['seven', 'bell', 'cherry']);
+      view.scene.setRivalDistracted(false);
+      render({ rivalDistraction: null, line: 'もう、何もないじゃない。次は引っかからないよ。', rivalMood: 'BACK IN THE GAME', conversation: 'replying' });
     }
     if (example === 'session-best') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;
