@@ -29,7 +29,8 @@
 - #8 / PR #105で、割り込みを音声のみ・映像付きの両方からViewModelへ届け、古い字幕の混在を修正。聞き取りと返事の状態を画面に表示した。[画面と確認範囲](conversation-feedback.md)。
 - #106 / #108 / PR #107で7と筐体のHoudiniモデルを公開。曲線の7、丸い金枠、曲面の側板と操作盤、金属・塗装の材質を仕上げ、回転リールの絵柄とWINモデルを揃えた。[モデルと公開画面](houdini-finish.md)。
 - #109 / PR #110で[採用した3枚の制作目標](art-reference/README.md)から、赤いエナメルの7、中空の星付きベル、くぼみのあるチェリー、両面に赤い7を持つコインを再制作。筐体は曲線アーチ・ルビー・立体の金の葉・緑の石材・照明柱・張り出す操作盤を備える。背景の二重写り、影、絵柄の白飛び、結果下の表示の詰まりも修正。[参考と実ゲームの比較](game-art-direction.md)。
-- 更新した主JSは1,964.56KB gzip、CSSは7.52KB gzip。詳細なOBJを主JSへ含めるため転送量が増えている。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
+- #112 / PR #113で、当たった3絵柄を実メッシュでせり出させ、獲得数字・操作・結果見出し・得点枠を立体化。筐体の反動、移動する光、奥行きのあるコインの動きと映像下の字幕へ更新。[実画面と演出動画](physical-win-presentation.md)。
+- 更新した主JSは1,980.71KB gzip、CSSは7.43KB gzip。詳細なOBJを主JSへ含めるため転送量が増えている。CPU入口では任意Live/LiveKitを読み込まない。公開版の反映先は下の公開記録で管理する。
 
 ## 確認した範囲
 
@@ -44,6 +45,17 @@
 - 個人メール・秘密値は追跡ファイル、ビルド、コミット差分を検査する。
 
 ## 公開記録
+
+### 立体の絵柄・獲得数字・筐体の動き
+
+[PR #113](https://github.com/yuin15/donburi-g/pull/113)をマージし、[立体演出と実画面](physical-win-presentation.md)を公開した。
+
+- 公開実装: `a3f485fd8beec9c9b394a6f39a45ae3798cce424`。URL: https://slot-chan.vercel.app/
+- Vercel READY: `dpl_7MJRdd9D8nhVQr8ct4CSzRHcSp8A`。
+- 公開JS `index-BJqCAind.js` / CSS `index-BZ7Q1-nl.css`。公開JSのSHA-256 `FB80A0E01BA6DB8AEEE38CBD57245FDCF2E89085186E054961A168A602046529` がマージ後のローカルビルドと一致。
+- PRのCI: https://github.com/yuin15/donburi-g/actions/runs/34733038510 （success）。マージ後CI: https://github.com/yuin15/donburi-g/actions/runs/34733142676 （success）。
+- 72ファイル、約2.72MBを送信。前回と同様に5つのOBJを可逆圧縮し、公開先で全SHA-256を照合して元の形状を復元してからビルドした。モデルの精度は削減していない。
+- ローカル本番ビルドで無操作0回・0点対相手30回・360点の60秒完走、再戦の初期化、クリックとSpaceの1回予約を確認。再戦は2回・0点対30回・1,440点で完走し、退出した。
 
 ### 採用画像に沿った3Dモデル・筐体・当たり演出
 
