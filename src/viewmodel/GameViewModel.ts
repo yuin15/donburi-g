@@ -16,6 +16,18 @@ const INITIAL_LINE = 'Think you can beat me?';
 const CPU_MESSAGE = 'CLICK / SPACE · PRESS AGAIN TO QUEUE';
 const DEFAULT_NOTICE = '3 MATCHING SYMBOLS · CENTER LINE';
 
+function voiceSetupFailureMessage(error: unknown, videoEnabled = false): string {
+  const detail = error instanceof Error ? `${error.name}:${error.message}` : '';
+  if (/NotAllowedError|SecurityError|permission_denied/.test(detail)) return 'Microphone permission was denied. Allow it in your browser, then retry AI voice.';
+  if (/NotFoundError|microphone_unavailable/.test(detail)) return 'No microphone was found. Connect or select one, then retry AI voice.';
+  if (/NotReadableError|microphone_start_failed/.test(detail)) return 'Your microphone is unavailable or busy. Close other audio apps, then retry AI voice.';
+  if (/access_denied|missing_ticket/.test(detail)) return 'Your invite code was not accepted. Check it, then retry AI voice.';
+  if (/avatar_connect_failed/.test(detail)) return 'Live video could not connect. Retry AI voice, or turn off live video.';
+  if (videoEnabled && /voice_connect_failed|session_failed/.test(detail)) return 'AI voice or live video could not connect. Turn off live video and retry AI voice.';
+  if (/connection_timeout|voice_connect_failed|session_failed|socket_closed|socket_error/.test(detail)) return 'AI voice did not become ready. Retry AI voice, or play a CPU duel.';
+  return 'AI voice setup failed. Allow your microphone, then retry AI voice.';
+}
+
 /** Application state and commands, independent of the browser and renderer. */
 export class GameViewModel implements GameCommands {
   private mode: GameMode = 'idle';
@@ -49,6 +61,7 @@ export class GameViewModel implements GameCommands {
   private displayBalances: Record<Side, number> = { player: 30, rival: 30 };
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
+  private timeExtension: GameViewState['timeExtension'] = null;
   private line = INITIAL_LINE;
   private videoEnabled = false;
   private heard = '';
@@ -72,6 +85,7 @@ export class GameViewModel implements GameCommands {
   private spinQueueTimer: number | undefined;
   private spinRequestTimer: number | undefined;
   private cueTimer: number | undefined;
+  private timeExtensionTimer: number | undefined;
   private payoutTimers: Partial<Record<Side, number>> = {};
   private assistantTimer: number | undefined;
   private revision = 0;
@@ -148,8 +162,8 @@ export class GameViewModel implements GameCommands {
         this.awaitingStart = true;
         this.liveSession.send({ type: 'start' });
       }
-    } catch {
-      if (this.isCurrent(current)) this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
+    } catch (error) {
+      if (this.isCurrent(current)) this.returnToGate(voiceSetupFailureMessage(error, this.videoEnabled));
     } finally {
       if (this.isCurrent(current)) { this.starting = false; this.emit(); }
     }
@@ -282,7 +296,7 @@ export class GameViewModel implements GameCommands {
     for (const [id, resolve] of this.waits) { this.deps.clock.clearTimeout(id); resolve(false); }
     this.waits.clear();
     this.practiceTimer = this.spinQueueTimer = this.spinRequestTimer = undefined;
-    this.cueTimer = this.assistantTimer = this.conversationTimer = undefined;
+    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = undefined;
     this.payoutTimers = {};
   }
 
@@ -326,6 +340,7 @@ export class GameViewModel implements GameCommands {
     this.countdown = null;
     this.payout = null;
     this.cue = null;
+    this.timeExtension = null;
     this.assistantText = '';
     this.conversation = 'idle';
     const previous = this.liveSession;
@@ -347,6 +362,7 @@ export class GameViewModel implements GameCommands {
     this.lastSpin = null;
     this.payout = null;
     this.cue = null;
+    this.timeExtension = null;
     this.line = INITIAL_LINE;
     this.heard = this.assistantText = '';
     this.conversation = 'idle';
@@ -590,8 +606,8 @@ export class GameViewModel implements GameCommands {
       this.connecting = false;
       this.emit();
       return current;
-    } catch {
-      if (this.isCurrent(current)) this.prepareCpu('Voice is unavailable. Press PLAY for a CPU duel.');
+    } catch (error) {
+      if (this.isCurrent(current)) this.returnToGate(voiceSetupFailureMessage(error, this.videoEnabled));
       return null;
     }
   }
@@ -600,6 +616,9 @@ export class GameViewModel implements GameCommands {
     this.voiceReady = false;
     this.micActive = false;
     this.micLevel = 0;
+    // LiveClient dispatches disconnect before rejecting a setup failure. Keep
+    // this generation valid so establishLive can show its classified retry UI.
+    if (this.connecting && !this.gameConnected && !this.liveSnapshot) return;
     if (this.liveSnapshot?.status === 'result') {
       this.connectionText = 'Voice closed · Ready for a rematch';
       this.liveSession = null;
@@ -669,6 +688,18 @@ export class GameViewModel implements GameCommands {
       this.handleSpin(message.spin, this.liveReelUpgrades);
     } else if (message.type === 'rival_line') {
       if (!this.voiceReady) this.line = message.text;
+    } else if (message.type === 'time_extension') {
+      this.liveSnapshot = message.after;
+      this.consumeSnapshot(message.after);
+      this.assistantText = this.heard = '';
+      this.line = message.line;
+      this.setConversation('replying');
+      if (message.decision === 'accepted') {
+        this.timeExtension = { decision: message.decision, before: message.before.remaining, after: message.after.remaining };
+        this.deps.presentation.playSound('ruleChange');
+        this.cancelTimer(this.timeExtensionTimer);
+        this.timeExtensionTimer = this.schedule(() => { this.timeExtension = null; this.emit(); }, 1350);
+      }
     } else if (message.type === 'voice_interrupt') {
       this.cancelTimer(this.assistantTimer);
       this.assistantText = this.heard = '';
@@ -704,6 +735,15 @@ export class GameViewModel implements GameCommands {
     } else if (message.type === 'error') {
       this.connectionText = message.message;
       if (!message.recoverable) {
+        // The server reserves enough lifetime for a full duel. A lobby timeout
+        // must remain visible as a retry option instead of becoming CPU silently.
+        if (message.code === 'lobby_timeout') {
+          this.returnToGate(`${message.message} Retry AI voice, or start a CPU duel.`);
+          return;
+        }
+        // LiveClient forwards a server error before rejecting setup. Preserve
+        // the generation so establishLive can classify it for a retry.
+        if (this.connecting && !this.gameConnected && !this.liveSnapshot) return;
         if (!this.liveSnapshot || this.liveSnapshot.status === 'ready') this.prepareCpu('Voice is unavailable. Ready for a CPU duel.');
         else this.returnToGate(`${message.message} Start a CPU duel to play again.`);
       }
@@ -744,7 +784,7 @@ export class GameViewModel implements GameCommands {
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
       sessionRecord: { ...this.sessionRecord },
-      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null,
+      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },

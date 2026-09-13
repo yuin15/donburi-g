@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventEmitter } from 'node:events';
 import { MediaServerLeg } from './mediaServer';
 
+const buffers = vi.hoisted(() => [] as Array<{ end(): void }>);
+
 // Framing is exercised with real PCM in pcm.test; these tests isolate provider ACKs.
 vi.mock('./pcm', () => ({ AvatarAudioBuffer: class {
-  constructor(private readonly send: (audio: string) => void) {}
+  constructor(private readonly send: (audio: string) => void, end: () => void) { buffers.push({ end }); }
   append(audio: string) { this.send(audio); }
   reset() {}
 } }));
@@ -23,7 +25,7 @@ vi.mock('ws', async () => {
     constructor() { super(); sockets.push(this); }
   } };
 });
-beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
+beforeEach(() => { sockets.length = 0; buffers.length = 0; vi.useFakeTimers(); });
 afterEach(() => vi.useRealTimers());
 
 async function connectMedia() {
@@ -174,6 +176,32 @@ describe('avatar interrupt acknowledgment', () => {
 });
 
 describe('avatar media lifecycle', () => {
+  it('waits for both the GPT terminal fence and the final tagged Avatar utterance', async () => {
+    const spoken = vi.fn();
+    const media = new MediaServerLeg('wss://test.invalid', vi.fn(), spoken);
+    const connecting = media.start();
+    const socket = sockets.at(-1)!;
+    socket.readyState = 1;
+    socket.emit('open');
+    socket.emit('message', JSON.stringify({ type: 'session.state_updated', state: 'connected' }));
+    await connecting;
+
+    media.speak('first', 'extension');
+    const first = lastCommand(socket).event_id!;
+    buffers[0]!.end();
+    socket.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: first }));
+    expect(spoken).not.toHaveBeenCalled();
+
+    media.speak('last', 'extension');
+    const last = lastCommand(socket).event_id!;
+    buffers[0]!.end();
+    media.completeSpeechInput('extension');
+    expect(spoken).not.toHaveBeenCalled();
+    socket.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: last }));
+    expect(spoken).toHaveBeenCalledExactlyOnceWith('extension');
+    media.close();
+  });
+
   it('ignores late ready/open events after cancellation', async () => {
     const failure = vi.fn();
     const media = new MediaServerLeg('wss://test.invalid', failure);

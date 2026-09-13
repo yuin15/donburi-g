@@ -19,7 +19,7 @@ export async function claimQuota(sessionId: string, ticketExpiresAt: number): Pr
   if (starts >= env.maxDailySessions) throw new Error('daily_session_limit');
   if (active.size >= env.maxConcurrentSessions) throw new Error('concurrent_session_limit');
   // No await between checking and reserving: simultaneous requests in this
-  // process cannot pass the limit together. Leases outlive the 120s hard stop.
+  // process cannot pass the limit together. Leases outlive the 170s teardown start.
   active.set(sessionId, now + 180_000);
   used.set(sessionId, Math.max(ticketExpiresAt, now + 180_000));
   starts += 1;

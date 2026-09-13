@@ -12,6 +12,10 @@ interface VoiceMock {
   close: ReturnType<typeof vi.fn>;
   updateGameContext: ReturnType<typeof vi.fn>;
   requestReaction: ReturnType<typeof vi.fn>;
+  requestConfirmedLine: ReturnType<typeof vi.fn>;
+  requestDelegationResult: ReturnType<typeof vi.fn>;
+  requestDelegationThinking: ReturnType<typeof vi.fn>;
+  suppressOutput: ReturnType<typeof vi.fn>;
   sendMic: ReturnType<typeof vi.fn>;
 }
 
@@ -41,6 +45,10 @@ vi.mock('../server/gptLive', () => ({ GptLiveBridge: class {
   close = vi.fn(() => provider.gptClose());
   updateGameContext = vi.fn();
   requestReaction = vi.fn();
+  requestConfirmedLine = vi.fn();
+  requestDelegationResult = vi.fn();
+  requestDelegationThinking = vi.fn();
+  suppressOutput = vi.fn();
   sendMic = vi.fn();
 } }));
 vi.mock('../server/rivalBrain', () => ({ chooseRivalUpgrade: provider.brain }));

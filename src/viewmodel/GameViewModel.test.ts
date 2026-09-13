@@ -137,6 +137,73 @@ async function beginLive(h: ReturnType<typeof setup>) {
 }
 
 describe('game view model', () => {
+  it('keeps the AI voice gate open with a retryable microphone error when setup disconnects first', async () => {
+    let session!: Session;
+    const h = setup(async handlers => {
+      session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.disconnect();
+        throw new Error('permission_denied');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value');
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, connecting: false, message: expect.stringContaining('Microphone permission was denied') },
+    });
+    expect(h.presentation.focus).toHaveBeenLastCalledWith('gate');
+    expect(session.disconnect).toHaveBeenCalledOnce();
+    h.vm.dispose();
+  });
+
+  it('suggests audio-only retry when video setup cannot become ready', async () => {
+    const h = setup(async handlers => {
+      const session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.disconnect();
+        throw new Error('voice_connect_failed');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value', true);
+    expect(h.vm.state.gate).toMatchObject({ visible: true, message: expect.stringContaining('Turn off live video') });
+    h.vm.dispose();
+  });
+
+  it('keeps setup errors for the classified retry instead of switching to CPU before rejection', async () => {
+    const h = setup(async handlers => {
+      const session = new Session(handlers);
+      session.connect = vi.fn(async () => {
+        handlers.message({ type: 'error', code: 'session_rejected', message: 'internal provider detail', recoverable: false });
+        handlers.disconnect();
+        throw new Error('session_failed');
+      });
+      return session;
+    });
+    await h.vm.connectLive('private-invite-value');
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, connecting: false, message: 'AI voice did not become ready. Retry AI voice, or play a CPU duel.' },
+    });
+    h.vm.dispose();
+  });
+
+  it('keeps an expired voice lobby visible so the player can reconnect instead of silently falling back to CPU', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    session.emit({
+      type: 'error', code: 'lobby_timeout', recoverable: false,
+      message: 'AI voice waited too long. Reconnect AI voice to start a full duel.',
+    });
+    expect(h.vm.state).toMatchObject({
+      mode: 'idle',
+      gate: { visible: true, message: expect.stringContaining('Reconnect AI voice') },
+    });
+    expect(h.presentation.focus).toHaveBeenLastCalledWith('gate');
+    h.vm.dispose();
+  });
+
   it('waits for the current BET acknowledgement before spinning and rolls back a rejected BET', async () => {
     const h = setup();
     const session = await beginLive(h);
@@ -294,6 +361,21 @@ describe('game view model', () => {
     expect(h.vm.state.conversation).toBe('idle');
     h.vm.dispose();
     expect(h.clock.timers.size).toBe(0);
+  });
+
+  it('holds the pre-change timer briefly while applying an authoritative +10 second extension', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const before = playingSnapshot();
+    before.elapsed = 54; before.remaining = 6; before.scores = { player: 24, rival: 27 };
+    const after = { ...before, duration: 70 as const, remaining: 16 };
+    session.emit({ type: 'time_extension', decision: 'accepted', before, after, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
+    expect(h.vm.state).toMatchObject({ snapshot: { duration: 70, remaining: 16 }, timeExtension: { before: 6, after: 16 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
+    expect(h.presentation.playSound).toHaveBeenCalledWith('ruleChange');
+    await h.clock.advance(1350);
+    expect(h.vm.state.timeExtension).toBeNull();
+    expect(h.vm.state.snapshot.remaining).toBe(16);
+    h.vm.dispose();
   });
 
   it('keeps a remote match playable after optional voice failure and replaces payout expiry with the next stopped round', async () => {

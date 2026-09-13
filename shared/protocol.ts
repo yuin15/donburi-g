@@ -15,9 +15,12 @@ export type ReelGrid = [
 ];
 
 export const MATCH_SECONDS = 60;
+export const TIME_EXTENSION_SECONDS = 10;
+export const MAX_MATCH_SECONDS = MATCH_SECONDS + TIME_EXTENSION_SECONDS;
+export const EXTENSION_REQUEST_REMAINING_SECONDS = 15;
 export const MANUAL_SPIN_INTERVAL = 1.1;
 export const RIVAL_SPIN_INTERVAL = 2;
-export const MAX_MATCH_ROUNDS = Math.ceil(MATCH_SECONDS / MANUAL_SPIN_INTERVAL);
+export const MAX_MATCH_ROUNDS = Math.ceil(MAX_MATCH_SECONDS / MANUAL_SPIN_INTERVAL);
 
 export type SideStats = {
   wins: Record<SymbolId, number>;
@@ -46,6 +49,8 @@ export interface MatchSnapshot {
   status: 'ready' | 'countdown' | 'playing' | 'result' | 'aborted';
   elapsed: number;
   remaining: number;
+  /** Present on authoritative snapshots. Absent only for older saved wire fixtures. */
+  duration?: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
   round: number;
   rounds: Record<Side, number>;
   balances: Record<Side, number>;
@@ -66,13 +71,15 @@ export type ClientMessage =
   | { type: 'set_bet'; commandId: string; bet: Bet; matchId: string }
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }
   | { type: 'mic'; audio: string }
+  | { type: 'voice_speech_done'; speechId: string }
   | { type: 'voice_close' }
   | { type: 'snapshot' }
   | { type: 'close' };
 
 export type ServerMessage =
   | { type: 'hello'; live: true; sessionId: string }
-  | { type: 'voice_audio'; audio: string }
+  | { type: 'voice_audio'; audio: string; speechId?: string }
+  | { type: 'voice_speech_end'; speechId: string }
   | { type: 'voice_interrupt' }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
   | { type: 'provider_status'; provider: AiProvider; state: AiProviderState }
@@ -85,6 +92,13 @@ export type ServerMessage =
   | { type: 'upgrade_offer'; offerIndex: UpgradeOfferIndex; closesAtElapsed: number }
   | { type: 'upgrade_applied'; offerIndex: UpgradeOfferIndex; player: UpgradeId; rival: UpgradeId }
   | { type: 'rival_line'; text: string; reason: string }
+  | {
+    type: 'time_extension';
+    decision: 'accepted' | 'rejected';
+    before: MatchSnapshot;
+    after: MatchSnapshot;
+    line: string;
+  }
   | { type: 'transcript'; role: 'user' | 'assistant'; delta: string }
   | { type: 'match_ended'; snapshot: MatchSnapshot }
   | { type: 'error'; code: string; message: string; recoverable: boolean };

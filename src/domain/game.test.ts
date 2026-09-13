@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceMatch,
+  applyTimeExtension,
   createMatch,
   getPoolCounts,
   getSnapshot,
@@ -165,6 +166,27 @@ describe('authoritative match domain', () => {
     expect('rngState' in snapshot).toBe(false);
     expect('pools' in snapshot).toBe(false);
   });
+
+  it('authoritatively grants one late +10 second extension and then finishes at 70 seconds', () => {
+    const state = createMatch(123, 'extended', 'manual');
+    startMatch(state);
+    advanceMatch(state, 54.25);
+    const event = applyTimeExtension(state);
+    expect(event).toMatchObject({ type: 'time_extended', before: { duration: 60 }, after: { duration: 70 } });
+    expect(state.remaining).toBeCloseTo(15.75);
+    expect(applyTimeExtension(state)).toBeNull();
+    const end = advanceMatch(state, 70).find(candidate => candidate.type === 'match_end');
+    expect(end).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0, status: 'result' } });
+  });
+
+  it('does not extend early, after the result, or beyond the one permitted change', () => {
+    const state = createMatch(123, 'guarded');
+    startMatch(state);
+    advanceMatch(state, 44.9);
+    expect(applyTimeExtension(state)).toBeNull();
+    advanceMatch(state, 60);
+    expect(applyTimeExtension(state)).toBeNull();
+  });
 });
 
 describe('independent manual match authority', () => {
@@ -248,5 +270,18 @@ describe('independent manual match authority', () => {
     const ended = events.find(e => e.type === 'match_end');
     expect(ended?.snapshot).toEqual(getSnapshot(state));
     expect(requestManualSpin(state, 100)).toEqual([]);
+  });
+
+  it('keeps normal spins available before a reserved extension reaches zero, then holds its result', () => {
+    const state = createMatch(123, 'reserved-deadline', 'manual');
+    startMatch(state);
+    advanceMatch(state, 59, true);
+    const beforeDeadline = requestManualSpin(state, 59.5, true);
+    expect(beforeDeadline.some(event => event.type === 'side_spin' && event.spin.side === 'player')).toBe(true);
+    expect(state.status).toBe('playing');
+    const held = requestManualSpin(state, 61, true);
+    expect(held.some(event => event.type === 'match_end')).toBe(false);
+    expect(state).toMatchObject({ status: 'playing', elapsed: 60, remaining: 0 });
+    expect(applyTimeExtension(state)).toMatchObject({ type: 'time_extended', after: { duration: 70 } });
   });
 });

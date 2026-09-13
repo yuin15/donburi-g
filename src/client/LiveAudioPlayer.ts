@@ -6,6 +6,8 @@ export class LiveAudioPlayer {
   private nextAt = 0;
   private muted = false;
   private closed = false;
+  private readonly speechSources = new Map<string, Set<AudioBufferSourceNode>>();
+  private readonly speechWaiters = new Map<string, Array<() => void>>();
 
   async prepare(): Promise<void> {
     if (this.closed) throw new Error('audio_cancelled');
@@ -18,7 +20,7 @@ export class LiveAudioPlayer {
     if (this.closed || context.state !== 'running') throw new Error('audio_unavailable');
   }
 
-  play(audio: string): void {
+  play(audio: string, speechId?: string): void {
     const context = this.context, gain = this.gain;
     if (this.closed || !context || !gain) return;
     const binary = atob(audio);
@@ -34,11 +36,31 @@ export class LiveAudioPlayer {
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(gain);
-    source.onended = () => { this.sources.delete(source); source.disconnect(); };
+    source.onended = () => {
+      this.sources.delete(source); source.disconnect();
+      if (speechId) {
+        const speech = this.speechSources.get(speechId);
+        speech?.delete(source);
+        if (!speech?.size) this.resolveSpeech(speechId);
+      }
+    };
     this.sources.add(source);
+    if (speechId) {
+      let speech = this.speechSources.get(speechId);
+      if (!speech) {
+        speech = new Set();
+        this.speechSources.set(speechId, speech);
+      }
+      speech.add(source);
+    }
     const at = Math.max(context.currentTime + 0.04, this.nextAt);
     source.start(at);
     this.nextAt = at + buffer.duration;
+  }
+
+  speechEnded(speechId: string): Promise<void> {
+    if (!this.speechSources.get(speechId)?.size) return Promise.resolve();
+    return new Promise(resolve => this.speechWaiters.set(speechId, [...(this.speechWaiters.get(speechId) ?? []), resolve]));
   }
 
   setMuted(muted: boolean): void {
@@ -53,7 +75,15 @@ export class LiveAudioPlayer {
       source.disconnect();
     }
     this.sources.clear();
+    for (const speechId of this.speechSources.keys()) this.resolveSpeech(speechId);
+    this.speechSources.clear();
     this.nextAt = 0;
+  }
+
+  private resolveSpeech(speechId: string): void {
+    this.speechSources.delete(speechId);
+    for (const resolve of this.speechWaiters.get(speechId) ?? []) resolve();
+    this.speechWaiters.delete(speechId);
   }
 
   async close(): Promise<void> {

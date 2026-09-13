@@ -13,7 +13,7 @@ app.innerHTML = `
     </div>
   </div>
   <header class="topbar">
-    <div class="timer" id="timer" aria-label="Time remaining"><small id="timerCaption">TIME LEFT</small><b id="time">1:00</b></div>
+    <div class="timer" id="timer" aria-label="Time remaining"><small id="timerCaption">TIME LEFT</small><b id="time">1:00</b><span id="timeExtension" aria-live="assertive" hidden></span></div>
     <div class="status-cluster" id="status"><span id="modeBadge">CPU DUEL</span><button id="sound" aria-label="Mute AI voice" aria-pressed="false" hidden>VOICE ON</button><button id="effects" aria-label="Mute sound effects" aria-pressed="false">SOUND ON</button><button id="leave">EXIT</button></div>
   </header>
   <div class="scores">

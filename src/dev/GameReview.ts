@@ -81,7 +81,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
       startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: 'CLICK / SPACE TO SPIN' },
       machineNotice: 'CHOOSE BET · ACTIVE LINES PAY',
-      result: null, payout: null, cue: null, expression: 'neutral',
+      result: null, payout: null, cue: null, timeExtension: null, expression: 'neutral',
       rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',
       conversation: 'idle',
     };
@@ -171,6 +171,20 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       render({ snapshot, scores: snapshot.scores, sessionRecord: { best: STARTING_BALANCE, streak: 2, newBest: false },
         machineNotice: 'FINAL SPINS · KEEP GOING', line: 'Eight seconds. Make it count!',
         rivalMood: 'One spin could change it.' });
+    }
+    if (example === 'extension-accepted' || example === 'extension-rejected') {
+      const before = { ...snapshot, elapsed: 54, remaining: 6, duration: 60 as const, scores: { player: 24, rival: 27 }, stats: fixtureStats({ player: 24, rival: 27 }) };
+      if (example === 'extension-accepted') {
+        const after = { ...before, duration: 70 as const, remaining: 16 };
+        render({ snapshot: after, scores: after.scores, timeExtension: { decision: 'accepted', before: before.remaining, after: after.remaining }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？', rivalMood: 'RULE CHANGED · ONE MORE CHANCE' });
+        view.playSound('ruleChange');
+      } else render({ snapshot: before, scores: before.scores, timeExtension: null, line: 'だめ。時間切れまで、このまま勝負しよう。', rivalMood: 'REQUEST DENIED' });
+    }
+    if (example === 'extension-offered') {
+      snapshot.remaining = 12; snapshot.elapsed = 48;
+      snapshot.scores = { player: 24, rival: 27 };
+      snapshot.stats = fixtureStats(snapshot.scores);
+      render({ snapshot, scores: snapshot.scores, line: 'もう少し時間が欲しい？ 伸ばしてあげようか？', rivalMood: 'ONE MORE CHANCE?' });
     }
     if (example === 'session-best') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60;

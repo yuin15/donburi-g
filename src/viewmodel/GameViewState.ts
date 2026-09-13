@@ -4,7 +4,7 @@ import type { AiConnectionState } from '../client/AiStatus';
 
 export type GameMode = 'idle' | 'practice' | 'live';
 export type GameExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
-export type GameSound = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'result';
+export type GameSound = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result';
 export type RoundPair = { player: SpinView; rival: SpinView };
 
 export interface GameViewState {
@@ -29,6 +29,8 @@ export interface GameViewState {
   readonly sessionRecord: { readonly best: number; readonly streak: number; readonly newBest: boolean };
   readonly payout: Readonly<Record<Side, number>> | null;
   readonly cue: { readonly text: string; readonly kind: 'lead' | 'warning' | 'jackpot' } | null;
+  /** A short client-only hold; the server match clock continues underneath it. */
+  readonly timeExtension: { readonly decision: 'accepted' | 'rejected'; readonly before: number; readonly after: number } | null;
   readonly expression: GameExpression;
   readonly rivalMood: string;
   readonly line: string;
