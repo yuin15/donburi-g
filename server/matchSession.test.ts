@@ -775,6 +775,42 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('routes a loan request whose transcript arrives after its delegation', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    const { session, messages } = setup('late-loan-route', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 30;
+    provider.events?.onUserSpeech();
+    provider.events?.onDelegation({ id: 'late-loan-route-delegation', offsetMs: 400 });
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseLoanDecision).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 30 } }), 'rival_to_player', 'お金を貸して', expect.any(String), expect.any(AbortSignal), false);
+    expect(chooseTimeExtension).not.toHaveBeenCalled();
+    expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'rival_to_player', amount: 5 });
+    await session.shutdown('test_finished');
+  });
+
+  it('answers a clear borrower request when the loan decision returns no_request', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('no_request');
+    const { session, messages } = setup('loan-clarification', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 30;
+    provider.events?.onUserSpeech();
+    provider.events?.onDelegation({ id: 'loan-clarification-delegation', offsetMs: 400 });
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(provider.suppress).toHaveBeenCalledOnce();
+    expect(provider.delegationResult).toHaveBeenCalledWith('loan-clarification-delegation', expect.stringContaining('もう一度「貸して」って言ってくれる？'), expect.any(String));
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
   it('keeps an explicit late extension request on the extension decision path when the player is bankrupt', async () => {
     vi.mocked(chooseTimeExtension).mockResolvedValueOnce('reject_extension');
     const { session, messages } = setup('bankrupt-extension', 'manual', 'audio');

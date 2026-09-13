@@ -122,14 +122,13 @@ export class MatchSession {
   private assistantOutputUntil = 0;
   private transcriptHistory: Array<{ role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
   private extensionDelegation: { id: string; generation: number; offsetMs: number } | null = null;
-  private readonly seenExtensionDelegations = new Set<string>();
+  private readonly seenDelegations = new Set<string>();
   private readonly delegationSettles = new Set<NodeJS.Timeout>();
   /** A completed delegated decision consumes the one extension opportunity. */
   private extensionNegotiation = false;
   private extensionDecisionPending = false;
   private loanDecisionPending = false;
   private loanDelegation: { id: string; generation: number; direction: LoanDirection } | null = null;
-  private readonly seenLoanDelegations = new Set<string>();
   private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: string; timer: NodeJS.Timeout; fenceSent: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
@@ -260,15 +259,7 @@ export class MatchSession {
       },
       onDelegation: delegation => {
         if (!current() || resultOnly) return;
-        // An explicit late extension request remains an extension request even
-        // if a bankroll happens to be empty. It cancels an unanswered loan
-        // invitation so the two conversational decisions cannot overlap.
-        const { transcript } = this.selectedDelegationTranscript(delegation.offsetMs);
-        if (requestsTimeExtension(transcript)) {
-          this.loanOffer = null;
-          this.queueExtensionDelegation(delegation.id, delegation.offsetMs, generation);
-        } else if (this.isLoanDelegationEligible(Date.now(), transcript)) this.queueLoanDelegation(delegation.id, delegation.offsetMs, generation);
-        else this.queueExtensionDelegation(delegation.id, delegation.offsetMs, generation);
+        this.queueDelegationRoute(delegation.id, delegation.offsetMs, generation);
       },
       onError: () => { if (current()) this.failVoice('gptLive'); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -757,18 +748,28 @@ export class MatchSession {
     this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE);
   }
 
-  /** Wait briefly for transcript deltas that can follow the delegation event. */
-  private queueExtensionDelegation(id: string, offsetMs: number, generation: number): void {
-    if (this.seenExtensionDelegations.has(id)) return;
-    this.seenExtensionDelegations.add(id);
-    if (this.seenExtensionDelegations.size > 16) this.seenExtensionDelegations.delete(this.seenExtensionDelegations.values().next().value!);
-    // The offer window is enforced at delegation arrival, not after the
-    // transcript settle delay. A "yes" before the offer is audible cannot win
-    // the race just because the callback is queued behind that delay.
-    const offerActive = this.isExtensionOfferActive(Date.now());
+  /** Route only after transcript deltas following the delegation have settled. */
+  private queueDelegationRoute(id: string, offsetMs: number, generation: number): void {
+    if (this.seenDelegations.has(id)) return;
+    this.seenDelegations.add(id);
+    if (this.seenDelegations.size > 16) this.seenDelegations.delete(this.seenDelegations.values().next().value!);
+    // An offer's arrival-time window is authoritative. A late transcript may
+    // belong to this turn, but a reply before the offer becomes audible cannot.
+    const extensionOfferActive = this.isExtensionOfferActive(Date.now());
+    const loanOfferActive = this.isLoanOfferActive(Date.now());
     const timer = setTimeout(() => {
       this.delegationSettles.delete(timer);
-      this.handleExtensionDelegation(id, offsetMs, generation, offerActive);
+      if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration) return;
+      // An explicit late extension request remains an extension request even
+      // if a bankroll happens to be empty. It cancels an unanswered loan
+      // invitation so the two conversational decisions cannot overlap.
+      const { transcript } = this.selectedDelegationTranscript(offsetMs);
+      if (requestsTimeExtension(transcript)) {
+        this.loanOffer = null;
+        this.handleExtensionDelegation(id, offsetMs, generation, extensionOfferActive);
+      } else if (this.isLoanDelegationEligible(transcript, loanOfferActive)) {
+        this.handleLoanDelegation(id, offsetMs, generation, loanOfferActive);
+      } else this.handleExtensionDelegation(id, offsetMs, generation, extensionOfferActive);
     }, 150);
     this.delegationSettles.add(timer);
   }
@@ -781,22 +782,10 @@ export class MatchSession {
     return Boolean(this.loanOffer && now >= this.loanOffer.acceptAfter && now < this.loanOffer.expiresAt);
   }
 
-  private isLoanDelegationEligible(now: number, transcript: string): boolean {
+  private isLoanDelegationEligible(transcript: string, rivalLoanOfferActive: boolean): boolean {
     if (this.closed || this.voiceDisabled || this.state.status !== 'playing' || this.loanDecisionPending || this.extensionDecisionPending || this.extensionOffer) return false;
-    if (this.isLoanOfferActive(now)) return true;
+    if (rivalLoanOfferActive) return true;
     return !this.state.loanUsed.rival_to_player && this.state.scores.player < 1 && this.state.scores.rival >= LOAN_AMOUNT && requestsLoan(transcript);
-  }
-
-  private queueLoanDelegation(id: string, offsetMs: number, generation: number): void {
-    if (this.seenLoanDelegations.has(id)) return;
-    this.seenLoanDelegations.add(id);
-    if (this.seenLoanDelegations.size > 16) this.seenLoanDelegations.delete(this.seenLoanDelegations.values().next().value!);
-    const offerActive = this.isLoanOfferActive(Date.now());
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      this.handleLoanDelegation(id, offsetMs, generation, offerActive);
-    }, 150);
-    this.delegationSettles.add(timer);
   }
 
   private selectedDelegationTranscript(offsetMs: number): { transcript: string; conversation: string } {
@@ -859,7 +848,10 @@ export class MatchSession {
     if (decision === 'no_request') {
       this.loanDecisionPending = false;
       this.loanDelegation = null;
-      this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
+      if (direction === 'rival_to_player' && requestsLoan(transcript)) {
+        const line = 'ごめん、もう一度「貸して」って言ってくれる？';
+        this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
+      } else this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
       return;
     }
     const accepted = decision === 'accept_loan';
@@ -874,7 +866,8 @@ export class MatchSession {
     }
     const transfer = transferLoan(this.state, direction);
     if (!transfer) {
-      this.gpt?.requestDelegationThinking(delegationId, 'Do not promise money or explain a rule. Continue the ordinary conversation.');
+      const line = '今はその話はなしで、勝負を続けよう。';
+      this.gpt?.requestDelegationResult(delegationId, `Say only this Japanese line: ${JSON.stringify(line)}`, randomUUID());
       return;
     }
     this.loanOffer = null;
