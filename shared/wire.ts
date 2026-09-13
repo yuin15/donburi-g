@@ -18,7 +18,8 @@ const spin = z.object({
   side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_MATCH_ROUNDS),
   symbols: z.tuple([z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven']), z.enum(['cherry', 'bell', 'seven'])]),
   payout, total: score,
-  upgrades: z.array(upgrade).max(2).optional(),
+  upgrades: z.array(upgrade).max(6).optional(),
+  upgradeSpent: z.number().int().min(0).max(60).optional(),
 });
 const pair = z.object({ player: spin, rival: spin }).refine(v => v.player.side === 'player' && v.rival.side === 'rival' && v.player.round === v.rival.round);
 const lastSpins = z.object({ player: spin.optional(), rival: spin.optional() });
@@ -29,7 +30,8 @@ const snapshot = z.object({
   rounds: z.object({ player: rounds, rival: rounds }),
   scores: z.object({ player: score, rival: score }),
   stats: z.object({ player: sideStats, rival: sideStats }),
-  upgrades: z.object({ player: z.array(upgrade).max(2), rival: z.array(upgrade).max(2) }),
+  upgrades: z.object({ player: z.array(upgrade).max(6), rival: z.array(upgrade).max(2) }),
+  upgradeSpent: z.number().int().min(0).max(60).optional(),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
 }).refine(v => v.round === v.rounds.player)
   .refine(v => v.status !== 'result' || (v.elapsed === MATCH_SECONDS && v.remaining === 0 && v.winner !== undefined))
@@ -37,7 +39,7 @@ const snapshot = z.object({
     const { wins, bestSpin } = v.stats[side];
     const count = wins.cherry + wins.bell + wins.seven;
     const total = wins.cherry * 3 + wins.bell * 6 + wins.seven * 30;
-    const expectedBalance = STARTING_BALANCE - v.rounds[side] * SPIN_COST + total;
+    const expectedBalance = STARTING_BALANCE - v.rounds[side] * SPIN_COST + total - (side === 'player' ? v.upgradeSpent ?? 0 : 0);
     if (expectedBalance !== v.scores[side] || count > v.rounds[side]) return false;
     if (count === 0) return bestSpin === null;
     const highestPayout = wins.seven > 0 ? 30 : wins.bell > 0 ? 6 : 3;
@@ -80,7 +82,8 @@ export function parseServerEnvelope(raw: string): ServerEnvelope | null {
         for (const side of ['player', 'rival'] as const) {
           const last = latest?.[side];
           const count = message.snapshot.rounds[side];
-          if (count === 0 ? !!last : !last || last.side !== side || last.round !== count || last.total !== message.snapshot.scores[side]) return null;
+          const spentSinceSpin = side === 'player' ? (message.snapshot.upgradeSpent ?? 0) - (last?.upgradeSpent ?? 0) : 0;
+          if (spentSinceSpin < 0 || (count === 0 ? !!last : !last || last.side !== side || last.round !== count || last.total - spentSinceSpin !== message.snapshot.scores[side])) return null;
         }
       }
     }

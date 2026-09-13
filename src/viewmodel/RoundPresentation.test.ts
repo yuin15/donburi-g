@@ -15,6 +15,21 @@ function setup() {
   return { presenter, stopped, settled, ended };
 }
 describe('independent spin presentation', () => {
+  it('keeps a purchase deducted when an older spin stops or is recovered', () => {
+    const { presenter, stopped } = setup();
+    presenter.reset({ player: 30, rival: 30 });
+    presenter.spin({ ...spin('player', 1, 32), payout: 3, upgradeSpent: 0 });
+    expect(presenter.scores.player).toBe(29);
+    presenter.syncPurchases(5);
+    expect(presenter.scores.player).toBe(24);
+    stopped[0]();
+    expect(presenter.scores.player).toBe(27);
+    presenter.syncPurchases(5);
+    expect(presenter.scores.player).toBe(27);
+    presenter.spin({ ...spin('player', 2, 26), payout: 0, upgradeSpent: 5 });
+    stopped[1]();
+    expect(presenter.scores.player).toBe(26);
+  });
   it('reveals only the side that stopped, regardless of overlapping start order', () => {
     const { presenter, stopped, settled } = setup();
     const p = spin('player', 4, 480), r = spin('rival', 15, 1320);

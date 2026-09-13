@@ -1,14 +1,16 @@
 import type { SymbolId, UpgradeId } from '../../shared/protocol';
-import { BASE_POOL, UPGRADE_CLOSE_SECONDS, UPGRADE_DEFINITIONS } from '../domain/game';
+import { BASE_POOL, UPGRADE_DEFINITIONS } from '../domain/game';
 import { SYMBOLS } from './ReelMotion';
 
-export const MAX_REEL_STRIP_LENGTH = 21;
+export const MAX_REEL_STRIP_LENGTH = 30;
 
 /** Public composition only; spacing is decorative and never selects an outcome. */
 export function buildReelStrip(upgrades: readonly UpgradeId[]): SymbolId[] {
   const counts: Record<SymbolId, number> = { cherry: 0, bell: 0, seven: 0 };
   for (const symbol of BASE_POOL) counts[symbol] += 1;
-  for (const id of upgrades.slice(0, UPGRADE_CLOSE_SECONDS.length)) {
+  const levels = { steady: 0, jackpot: 0 };
+  for (const id of upgrades.slice(0, 6)) {
+    if (++levels[id] > 3) continue;
     const definition = UPGRADE_DEFINITIONS[id];
     counts[definition.addedSymbol] += definition.addedCount;
   }

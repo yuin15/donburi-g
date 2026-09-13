@@ -24,6 +24,7 @@ export interface SpinView {
   symbols: [SymbolId, SymbolId, SymbolId];
   payout: number;
   total: number;
+  upgradeSpent?: number;
   upgrades?: UpgradeId[];
 }
 
@@ -36,12 +37,14 @@ export interface MatchSnapshot {
   rounds: Record<Side, number>;
   scores: Record<Side, number>;
   stats: MatchStats;
+  upgradeSpent?: number;
   upgrades: Record<Side, UpgradeId[]>;
   winner?: Side | 'draw';
   eventSeq: number;
 }
 
 export type ClientMessage =
+  | { type: 'purchase'; commandId: string; matchId: string; upgradeId: UpgradeId; expectedCount: number }
   | { type: 'start' }
   | { type: 'spin'; commandId: string; matchId: string }
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }

@@ -1,6 +1,7 @@
 import type { MatchSnapshot, MatchStats, Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol.js';
 import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
+import { upgradePrice } from '../../shared/shop.js';
 
 export { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from '../../shared/protocol.js';
 
@@ -19,6 +20,7 @@ export interface MatchState {
   status: MatchStatus;
   spinMode: 'automatic' | 'manual';
   upgradesEnabled: boolean;
+  upgradeSpent: number;
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
@@ -105,7 +107,7 @@ function spinSide(state: MatchState, side: Side): SpinView | null {
   const symbols = [0, 1, 2].map(() => pool[Math.floor(nextRandom(state, side) * pool.length)]) as [SymbolId, SymbolId, SymbolId];
   const payout = symbols[0] === symbols[1] && symbols[1] === symbols[2] ? PAYOUT[symbols[0]] : 0;
   state.scores[side] += payout;
-  const result = { round: state.rounds[side], side, symbols, payout, total: state.scores[side], upgrades: [...state.upgrades[side]] };
+  const result = { round: state.rounds[side], side, symbols, payout, total: state.scores[side], upgrades: [...state.upgrades[side]], upgradeSpent: side === 'player' ? state.upgradeSpent : 0 };
   recordSpin(state.stats, result);
   return result;
 }
@@ -130,6 +132,7 @@ export function createMatch(
     spinMode,
     // Retained only for historical rule/reel verification. Current matches use the base pool.
     upgradesEnabled: legacyOptions.upgrades ?? false,
+    upgradeSpent: 0,
     lastManualSpinAt: null,
     elapsed: 0,
     remaining: MATCH_SECONDS,
@@ -152,6 +155,22 @@ export function createMatch(
 export function startMatch(state: MatchState): void {
   if (state.status !== 'ready') throw new Error('match_not_ready');
   state.status = 'playing';
+}
+
+/** Caller advances the authoritative clock before purchasing. Never alters an existing spin. */
+export function purchaseUpgrade(state: MatchState, id: UpgradeId, expectedCount: number): boolean {
+  if (state.status !== 'playing' || state.elapsed >= MATCH_SECONDS || state.upgradesEnabled) return false;
+  if (id !== 'steady' && id !== 'jackpot') return false;
+  const count = state.upgrades.player.filter(value => value === id).length;
+  const price = upgradePrice(state.upgrades.player, id);
+  if (count !== expectedCount || price === null || state.scores.player < price) return false;
+  state.scores.player -= price;
+  state.upgradeSpent += price;
+  applyUpgrade(state, 'player', id);
+  state.activePools.player = [...state.pools.player];
+  state.lastLeader = currentLeader(state.scores);
+  nextSeq(state);
+  return true;
 }
 
 export function submitUpgrade(
@@ -273,6 +292,7 @@ export function getSnapshot(state: MatchState): MatchSnapshot {
     rounds: { ...state.rounds },
     scores: { ...state.scores },
     stats: cloneMatchStats(state.stats),
+    upgradeSpent: state.upgradeSpent,
     upgrades: { player: [...state.upgrades.player], rival: [...state.upgrades.rival] },
     winner: state.winner,
     eventSeq: state.eventSeq,
