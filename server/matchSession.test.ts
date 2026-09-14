@@ -1245,6 +1245,40 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('settles an English direct player loan and unavailable balance line after its final transcript sets the language', async () => {
+    const first = setup('english-direct-rival-loan', 'manual', 'audio');
+    await first.session.initialize();
+    first.session.handleRaw('{"type":"start"}');
+    const firstState = (first.session as unknown as { state: MatchState }).state;
+    firstState.scores.player = 10;
+    firstState.scores.rival = 20;
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', "I'll lend you $5", { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(provider.language).toHaveBeenLastCalledWith('en');
+    expect(first.messages.find(message => message.type === 'loan_transfer')).toMatchObject({
+      direction: 'player_to_rival',
+      line: 'That helps. I will borrow $5 and make a comeback.',
+    });
+    expect(provider.confirmedLine).toHaveBeenCalledWith('That helps. I will borrow $5 and make a comeback.');
+    await first.session.shutdown('test_finished');
+
+    const second = setup('english-unavailable-rival-loan', 'manual', 'audio');
+    await second.session.initialize();
+    second.session.handleRaw('{"type":"start"}');
+    const secondState = (second.session as unknown as { state: MatchState }).state;
+    secondState.scores.player = 0;
+    secondState.scores.rival = 20;
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', "I'll lend you $5", { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(second.messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('You do not have $5 available to lend. Keep playing with your bankroll.');
+    await second.session.shutdown('test_finished');
+  });
+
   it('settles a direct player loan once when it overlaps the rival offer, a delegation, and an assistant subtitle', async () => {
     const { session, messages } = setup('overlapping-direct-rival-loan', 'manual', 'audio');
     await session.initialize();
@@ -1305,7 +1339,7 @@ describe('live match cleanup', () => {
     provider.events?.onTranscript('user', 'お金を貸す', { startMs: 0, endMs: 100 });
     provider.events?.onUserSpeechEnd();
     await vi.advanceTimersByTimeAsync(100);
-    provider.events?.onTranscript('user', '、やっぱり貸さない', { startMs: 101, endMs: 300 });
+    provider.events?.onTranscript('user', '、お金を貸すのをやめる', { startMs: 101, endMs: 300 });
     await vi.advanceTimersByTimeAsync(250);
     provider.events?.onUserSpeech();
     provider.events?.onUserSpeechEnd();

@@ -54,7 +54,7 @@ export function rejectsLoanOffer(transcript: string): boolean {
 export function offersLoanToRival(transcript: string): boolean {
   const normalized = transcript.normalize('NFKC').trim();
   if (
-    /(?:貸(?:さ|し)(?:ない|ません|たくない|たくありません|る(?:つもり|気)(?:は|が)?ない)|貸す(?:つもり|気)(?:は|が)?(?:ない|ありません)|貸してあげる(?:つもり|気)(?:は|が)?(?:ない|ありません)|貸す(?:のは|のが)?(?:無理|できない)|(?:お金|金|money|cash).{0,16}(?:貸(?:さ|し)(?:ない|ません)|いらない|不要)|\b(?:i\s+)?(?:do\s+not|don't|cannot|can't|won't|will\s+not)\s+(?:lend|loan)\b)/i.test(normalized)
+    /(?:貸(?:さ|し)(?:ない|ません|たくない|たくありません|る(?:つもり|気)(?:は|が)?ない)|貸す(?:つもり|気)(?:は|が)?(?:ない|ありません)|貸してあげる(?:つもり|気)(?:は|が)?(?:ない|ありません)|(?:貸す|貸します|貸してあげる|貸してやる)(?:[、。\s]*(?:のは|のを|の)?[、。\s]*)?(?:やめる|やめた|やめます|やめました)|貸す(?:のは|のが)?(?:無理|できない)|(?:お金|金|money|cash).{0,16}(?:貸(?:さ|し)(?:ない|ません)|いらない|不要)|\b(?:i\s+)?(?:do\s+not|don't|cannot|can't|won't|will\s+not)\s+(?:lend|loan)\b)/i.test(normalized)
     || /[?？]/.test(normalized)
   ) return false;
   return /(?:(?:お金|金|\$?\s*5\s*ドル?)(?:を|は)?\s*(?:貸す|貸します|貸してあげる|貸してやる)(?:よ|ね)?|(?:^|[、。！!\s])貸(?:す|します)(?:よ|ね)?(?:[、。！!\s]|$)|(?:貸してあげる|貸してやる)(?:よ|ね)?|\b(?:i(?:'|’)ll|i\s+will)\s+(?:lend|loan)\s+(?:(?:you\b(?:\s+(?:\$?\s*5|five(?:\s+dollars?)?|some\s+(?:money|cash)|money|cash))?)|(?:\$?\s*5|five(?:\s+dollars?)?|some\s+(?:money|cash)|money|cash)))/i.test(normalized);

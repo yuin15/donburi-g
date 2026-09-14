@@ -173,6 +173,7 @@ export class MatchSession {
   private directLoanDecision: { turn: number; transcriptSequence: number } | null = null;
   private directPlayerLoanOfferSettle: { turn: number; generation: number; userTranscriptSequence: number; timer: NodeJS.Timeout } | null = null;
   private readonly directPlayerLoanOfferTurns = new Set<number>();
+  private directPlayerLoanOfferDecision: { turn: number; userTranscriptSequence: number } | null = null;
   private loanOfferReplySettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private directExtensionRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private readonly directExtensionRequestTurns = new Set<number>();
@@ -1132,6 +1133,7 @@ export class MatchSession {
       || this.extensionNegotiation
       || this.extensionSpeech
       || (this.loanDecisionPending && !pendingRivalLoan)
+      || offersLoanToRival(this.currentUserTurnTranscript())
       || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript(), afterSpeech)
     ) return;
     const pendingLanguage = this.conversationLanguageSettle;
@@ -1201,10 +1203,17 @@ export class MatchSession {
   /** A later transcript delta may withdraw an otherwise complete voluntary offer. */
   private refreshDirectPlayerLoanOffer(generation: number): void {
     const pending = this.directPlayerLoanOfferSettle;
-    if (!pending || pending.turn !== this.userSpeechTurn || pending.userTranscriptSequence === this.currentUserTurnTranscriptSequence()) return;
-    clearTimeout(pending.timer);
-    this.delegationSettles.delete(pending.timer);
-    this.directPlayerLoanOfferSettle = null;
+    if (pending && pending.turn === this.userSpeechTurn && pending.userTranscriptSequence !== this.currentUserTurnTranscriptSequence()) {
+      clearTimeout(pending.timer);
+      this.delegationSettles.delete(pending.timer);
+      this.directPlayerLoanOfferSettle = null;
+      this.queueDirectPlayerLoanOffer(generation);
+      return;
+    }
+    const decision = this.directPlayerLoanOfferDecision;
+    if (!decision || decision.turn !== this.userSpeechTurn || decision.userTranscriptSequence === this.currentUserTurnTranscriptSequence()) return;
+    this.directPlayerLoanOfferDecision = null;
+    this.directPlayerLoanOfferTurns.delete(decision.turn);
     this.queueDirectPlayerLoanOffer(generation);
   }
 
@@ -1219,16 +1228,32 @@ export class MatchSession {
       || this.directPlayerLoanOfferTurns.has(turn)
       || !offersLoanToRival(this.currentUserTurnTranscript())
     ) return;
-    this.tick();
-    if (this.state.status !== 'playing') return;
     this.directPlayerLoanOfferTurns.add(turn);
     if (this.directPlayerLoanOfferTurns.size > 16) this.directPlayerLoanOfferTurns.delete(this.directPlayerLoanOfferTurns.values().next().value!);
-    if (this.state.scores.player < LOAN_AMOUNT) {
-      this.requestLoanDecisionLine(null, PLAYER_LOAN_UNAVAILABLE_LINE);
-      return;
-    }
-    if (!this.completeLoanTransfer('player_to_rival', LOAN_TO_RIVAL_LINE)) return;
-    this.requestLoanDecisionLine(null, LOAN_TO_RIVAL_LINE);
+    const decision = { turn, userTranscriptSequence };
+    this.directPlayerLoanOfferDecision = decision;
+    this.afterCurrentTurnLanguageSettles(generation, () => {
+      if (
+        this.closed
+        || generation !== this.voiceGeneration
+        || this.directPlayerLoanOfferDecision !== decision
+        || decision.turn !== this.userSpeechTurn
+        || decision.userTranscriptSequence !== this.currentUserTurnTranscriptSequence()
+      ) return;
+      this.directPlayerLoanOfferDecision = null;
+      this.tick();
+      if (this.state.status !== 'playing') return;
+      if (this.state.scores.player < LOAN_AMOUNT) {
+        this.requestLoanDecisionLine(null, PLAYER_LOAN_UNAVAILABLE_LINE);
+        return;
+      }
+      if (!this.completeLoanTransfer('player_to_rival', LOAN_TO_RIVAL_LINE)) return;
+      this.requestLoanDecisionLine(null, LOAN_TO_RIVAL_LINE);
+    }, () => {
+      if (this.directPlayerLoanOfferDecision !== decision) return;
+      this.directPlayerLoanOfferDecision = null;
+      this.directPlayerLoanOfferTurns.delete(decision.turn);
+    });
   }
 
   /** A clear borrower request still reaches the existing AI decision without a Live delegation. */
@@ -1363,6 +1388,10 @@ export class MatchSession {
       clearTimeout(this.directPlayerLoanOfferSettle.timer);
       this.delegationSettles.delete(this.directPlayerLoanOfferSettle.timer);
       this.directPlayerLoanOfferSettle = null;
+    }
+    if (this.directPlayerLoanOfferDecision) {
+      this.directPlayerLoanOfferTurns.delete(this.directPlayerLoanOfferDecision.turn);
+      this.directPlayerLoanOfferDecision = null;
     }
     if (this.directLoanDecision) {
       this.directLoanRequestTurns.delete(this.directLoanDecision.turn);
