@@ -73,15 +73,11 @@ describe('time extension choice', () => {
     expect(rejectsTimeExtensionOffer('もう時間ないね')).toBe(false);
   });
 
-  it('passes only bounded current match context and accepts the exact legal token', async () => {
-    request.mockResolvedValue(Response.json({ status: 'completed', output_text: 'accept_extension_10s' }));
+  it('accepts an explicit extension locally without asking the model', async () => {
     const state = snapshot();
     state.elapsed = 52; state.remaining = 8;
     expect(await chooseTimeExtension(state, 'あと10秒ください', 'P:あと10秒ください')).toBe('accept_extension_10s');
-    const body = JSON.parse(request.mock.calls[0][1].body);
-    expect(body.store).toBe(false);
-    expect(JSON.parse(body.input)).toMatchObject({ legalChoices: ['accept_extension_10s', 'reject_extension', 'no_request'], remaining: 8, playerScore: 30, rivalScore: 30, rivalExtensionOfferActive: false });
-    expect(body.input).not.toMatch(/rngState|seed|pending|activePools/);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it.each(['accept it', 'accept_extension_10s please', ''])('fails closed for non-exact model output: %s', async (output_text) => {
@@ -89,11 +85,9 @@ describe('time extension choice', () => {
     expect(await chooseTimeExtension(snapshot(), 'more time', '')).toBe('no_request');
   });
 
-  it('passes an active rival offer separately from untrusted conversation text', async () => {
-    request.mockResolvedValue(Response.json({ status: 'completed', output_text: 'accept_extension_10s' }));
+  it('accepts an affirmative reply to an active rival offer locally', async () => {
     expect(await chooseTimeExtension(snapshot(), 'うん', 'P:うん', undefined, true)).toBe('accept_extension_10s');
-    const body = JSON.parse(request.mock.calls[0][1].body);
-    expect(JSON.parse(body.input)).toMatchObject({ rivalExtensionOfferActive: true });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('rejects if the provider does not respond inside the existing 2.5 second budget', async () => {
@@ -113,7 +107,7 @@ describe('loan choice', () => {
     expect(classifyPlayerLoanIntent(transcript, false)).toBe('no_request');
   });
 
-  it.each(['お金ちょうだい', 'お金が欲しい', 'もう一回お願い'])('keeps natural borrower wording out of local auto-approval: %s', transcript => {
+  it.each(['お金ちょうだい', 'お金が欲しい', 'もう一回お願い'])('keeps vague borrower wording out of the strict local classifier: %s', transcript => {
     expect(classifyPlayerLoanIntent(transcript, false)).toBe('no_request');
   });
 
@@ -124,12 +118,17 @@ describe('loan choice', () => {
     expect(requestsLoan(transcript)).toBe(true);
   });
 
-  it.each(['うん', '延長して', '今どっちが上？', 'お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない', "I can't borrow $5", "I don't want to borrow cash"])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
+  it.each(['うん', '延長して', '今どっちが上？', 'お金', 'お金ない', 'お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない', "I can't borrow $5", "I don't want to borrow cash"])('does not route an unrelated or negated response as a borrower request: %s', transcript => {
     expect(requestsLoan(transcript)).toBe(false);
   });
 
   it.each(['お金を貸してほしい', 'お金を貸してくれない？', 'お金を借りられない？', '貸して', '5ドル貸して', 'Can you lend me $5?', 'Can I borrow $5?', 'Could I borrow some cash?'])('recognizes only a clear direct borrower request: %s', transcript => {
     expect(requestsDirectLoan(transcript)).toBe(true);
+  });
+
+  it('tolerates the observed 貸して to 化して speech-recognition error', () => {
+    expect(requestsDirectLoan('お金を化してください')).toBe(true);
+    expect(classifyPlayerLoanIntent('お金を化してください', false)).toBe('loan_request');
   });
 
   it.each(['お金貸してほしくない', 'お金貸して欲しくない', 'お金貸してほしくありません', 'お金貸して欲しくありません', 'お金を借りたくない', 'お金を借りたくありません', 'お金を借りたくはない', 'お金を借りない', 'お金を借りません', 'お金を借りる必要ない', 'お金を借りる必要ありません', 'お金を借りる必要はありません', 'お金を借りる必要がない', 'お金を借りるつもりはありません', 'お金を借りる気はない', '借りたくない', '借りない', 'お金はいらない', 'お金', 'もう一回勝負させて', "I can't borrow $5", "I don't want to borrow cash"])('does not directly route a negated, vague, or indirect loan request: %s', transcript => {
@@ -170,15 +169,22 @@ describe('loan choice', () => {
     expect(offersLoanToRival(transcript)).toBe(false);
   });
 
-  it('sends only bounded current context and accepts an exact legal result', async () => {
+  it('sends only bounded current context for the player reply to a rival loan request', async () => {
     request.mockResolvedValue(Response.json({ status: 'completed', output_text: 'accept_loan' }));
     const state = snapshot();
-    state.scores = state.balances = { player: 0, rival: 10 };
-    expect(await chooseLoanDecision(state, 'rival_to_player', 'Please lend me enough for one more spin.', 'P:Please lend me enough for one more spin.')).toBe('accept_loan');
+    state.scores = state.balances = { player: 10, rival: 0 };
+    expect(await chooseLoanDecision(state, 'player_to_rival', 'Sure!', 'R:Can you lend me $5?P:Sure!', undefined, true)).toBe('accept_loan');
     const body = JSON.parse(request.mock.calls[0][1].body);
     expect(body.store).toBe(false);
-    expect(JSON.parse(body.input)).toMatchObject({ legalChoices: ['accept_loan', 'reject_loan', 'no_request'], direction: 'rival_to_player', fixedAmount: 5, playerScore: 0, rivalScore: 10, rivalLoanOfferActive: false });
+    expect(JSON.parse(body.input)).toMatchObject({ legalChoices: ['accept_loan', 'reject_loan', 'no_request'], direction: 'player_to_rival', fixedAmount: 5, playerScore: 10, rivalScore: 0, rivalLoanOfferActive: true });
     expect(body.input).not.toMatch(/rngState|seed|pending|activePools/);
+  });
+
+  it('accepts a direct player borrowing request locally without asking the model', async () => {
+    const state = snapshot();
+    state.scores = state.balances = { player: 30, rival: 0 };
+    expect(await chooseLoanDecision(state, 'rival_to_player', 'お金を貸してください', '')).toBe('accept_loan');
+    expect(request).not.toHaveBeenCalled();
   });
 
   it.each(['accept it', 'accept_loan please', ''])('fails closed for non-exact model output: %s', async output_text => {
