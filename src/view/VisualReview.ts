@@ -14,7 +14,7 @@ interface ReviewPort {
   snapshot: (snapshot: MatchSnapshot) => void;
 }
 
-/** Loaded only by Vite DEV. Fixtures and capture tools are absent from production. */
+/** Loaded only by Vite DEV or the explicit review build, never the normal release. */
 export function mountVisualReview(port: ReviewPort): void {
   const controls = document.createElement('aside');
   controls.id = 'visualReview';
@@ -26,6 +26,10 @@ export function mountVisualReview(port: ReviewPort): void {
     <button id="recordMotion">回転と当たりを録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
     </div><output id="reviewStats" style="display:block;margin:8px 0"></output><details><summary>録画データ</summary><textarea id="recordingData" readonly aria-label="生成した回転動画のデータ"></textarea><video id="reviewVideo" src="/docs/evidence/visual-redesign/downward-reels-1920.webm" preload="metadata" controls muted style="display:block;max-width:400px"></video><button id="slowMotion">1/4速度で再生</button><label>動画時刻（秒）<input id="videoSeek" type="number" min="0" step="0.033" value="0"></label><button id="exportFrame">現在の動画フレームを書き出す</button><textarea id="frameData" readonly aria-label="動画フレームの画像データ"></textarea></details></details>`;
   document.body.append(controls);
+  if (import.meta.env.MODE === 'review') {
+    controls.querySelector('summary')!.textContent = '演出確認ツール（固定表示・再生／Escで表示切替）';
+    controls.querySelector('details')!.open = true;
+  }
   const find = <T extends HTMLElement>(id: string) => controls.querySelector<T>('#' + id)!;
   const stats = find<HTMLOutputElement>('reviewStats');
   find<HTMLSelectElement>('coinStyle').onchange = () => {
