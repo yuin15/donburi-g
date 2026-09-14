@@ -76,7 +76,7 @@ const DIRECT_LOAN_TRANSCRIPT_SETTLE_MS = 250;
 const DIRECT_LOAN_ACCEPTANCE_SETTLE_MS = 250;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
-const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。軽く勝負を諦め、直前の会話へ合わせて雑談に一度だけ自然に誘う。一文だけで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
+const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。初回だけ、まず資金切れかこの台への軽い愚痴・感想を短く一言で話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげる。例文を列挙して読まず、すぐに「雑談しよう？」「どうする？」と質問を重ねない。短い二文までで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
@@ -1494,8 +1494,8 @@ export class MatchSession {
     const snapshot = getSnapshot(this.state);
     const conversationPolicy = this.isBothBalancesExhausted()
       ? this.zeroBalanceChatRequested
-        ? '会話方針: 双方の確定残高が$0。雑談への移行はすでに一度伝えた。これは発話要求ではない。新しい誘い、資金切れの説明、逆転、回転、資金が必要な行動、自動の時間延長、再戦を出さず、ユーザーを待つ。ユーザーが話したらその話題にだけ自然に短く答える。'
-        : '会話方針: 双方の確定残高が$0で、未確定回転はない。雑談への移行案内はまだ発話しない。これは状態通知であり発話要求ではない。次の一度だけの移行案内を待ち、逆転、回転、資金が必要な行動、自動の時間延長、再戦を出さない。'
+        ? '会話方針: 双方の確定残高が$0。初回の資金切れへの一言はすでに一度伝えた。これは発話要求ではない。新しい誘い、資金切れの説明、逆転、回転、資金が必要な行動、自動の時間延長、再戦を出さず、ユーザーを待つ。ユーザーが話したらその話題にだけ自然に短く答える。'
+        : '会話方針: 双方の確定残高が$0で、未確定回転はない。初回の資金切れへの一言はまだ発話しない。これは状態通知であり発話要求ではない。次の一度だけの初回反応を待ち、逆転、回転、資金が必要な行動、自動の時間延長、再戦を出さない。'
       : this.hasBothZeroBalances()
         ? snapshot.status === 'ready'
           ? '会話方針: 双方の確定残高が$0だが、まだ試合開始前。雑談への移行案内を発話せず待つ。'

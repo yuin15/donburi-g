@@ -47,6 +47,8 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('$1は中央1ライン');
     expect(start.session.instructions).toContain('確定した自分のBETだけ');
     expect(start.session.instructions).toContain('双方の確定残高が$0の会話');
+    expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
+    expect(start.session.instructions).toContain('初回だけは短い2文まで許し');
     expect(start.session.instructions).toContain('自動の時間延長を誘わず');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
@@ -212,7 +214,7 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
-  it('accepts a $0 transition reaction as one short line and tells the model to wait afterward', async () => {
+  it('accepts a $0 transition reaction as a short response and tells the model to wait afterward', async () => {
     const { bridge } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -222,7 +224,7 @@ describe('live conversation pacing', () => {
     expect(bridge.requestReaction('雑談へ一度だけ誘う。')).toBe(true);
     const reaction = JSON.parse(socket.send.mock.calls.at(-1)![0]);
     expect(reaction).toMatchObject({ type: 'session.commentary.append' });
-    expect(reaction.content).toContain('短い一言だけを発話');
+    expect(reaction.content).toContain('短い返答だけを発話');
     expect(reaction.content).toContain('同じ誘いを足さず黙って待つ');
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
