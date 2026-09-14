@@ -2,10 +2,12 @@ import type { MatchSnapshot, SpinView } from '../../shared/protocol';
 import type { ReelScene } from './ReelScene';
 import { cloneMatchStats, createMatchStats, recordSpin } from '../domain/matchStats';
 import { evaluateGrid, gridFromStops } from '../domain/game';
+import { VICTORY_DURATION } from '../viewmodel/RewardPresentation';
 
 export type ReviewExample = 'final-seconds' | 'extension-offered' | 'extension-accepted' | 'extension-rejected' | 'loan-rival-to-player' | 'loan-player-to-rival' | 'distraction-started' | 'distraction-recovered' | 'session-best' | 'mic-live' | 'mic-reply' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'diagonal' | 'bell-cherry' | 'cherry-bell' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
 interface ReviewPort {
   scene: ReelScene;
+  unlockSound: () => Promise<void>;
   preview: (example: ReviewExample) => void;
   reset: () => void;
   spin: (player: SpinView, rival: SpinView) => void;
@@ -18,15 +20,44 @@ export function mountVisualReview(port: ReviewPort): void {
   controls.id = 'visualReview';
   controls.style.cssText = 'position:fixed;z-index:80;left:8px;bottom:8px;max-width:96vw;padding:8px;background:#080b14ed;border:1px solid #cba768;color:white;font:12px system-ui';
   controls.innerHTML = `<details><summary>ローカル検収ツール（本番には含まれません）</summary><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-    <button data-example="normal">通常</button><button data-example="final-seconds">残り8秒</button><button data-example="extension-offered">延長を提案</button><button data-example="extension-accepted">延長受諾</button><button data-example="extension-rejected">延長拒否</button><button data-example="loan-rival-to-player">貸借 RIVAL → YOU</button><button data-example="loan-player-to-rival">貸借 YOU → RIVAL</button><button data-example="distraction-started">注意逸らし・停止</button><button data-example="distraction-recovered">注意逸らし・復帰</button><button data-example="session-best">自己ベスト・3連勝</button><button data-example="small">小当たり</button><button data-example="diagonal">斜め7</button><button data-example="bell-cherry">ベル／チェリー</button><button data-example="cherry-bell">チェリー／ベル</button><button data-example="jackpot">7揃い・逆転</button><button data-example="rival-jackpot">相手が7揃い</button><button data-example="both-jackpot">両者7揃い</button><button data-example="quiet">両者はずれ</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button>
+    <label>コイン比較 <select id="coinStyle"><option value="fountain">A 噴水 → 回収／金の雨（採用）</option><option value="rain">B 金の雨 → 回収</option></select></label><button data-example="normal">通常</button><button data-example="final-seconds">残り8秒</button><button data-example="extension-offered">延長を提案</button><button data-example="extension-accepted">延長受諾</button><button data-example="extension-rejected">延長拒否</button><button data-example="loan-rival-to-player">貸借 RIVAL → YOU</button><button data-example="loan-player-to-rival">貸借 YOU → RIVAL</button><button data-example="distraction-started">注意逸らし・停止</button><button data-example="distraction-recovered">注意逸らし・復帰</button><button data-example="session-best">自己ベスト・3連勝</button><button data-example="small">小当たり</button><button data-example="diagonal">斜め7</button><button data-example="bell-cherry">ベル／チェリー</button><button data-example="cherry-bell">チェリー／ベル</button><button data-example="jackpot">7揃い・逆転</button><button data-example="rival-jackpot">相手が7揃い</button><button data-example="both-jackpot">両者7揃い</button><button data-example="quiet">両者はずれ</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button>
     <button data-example="defeat">敗北</button><button data-example="live-caption">Live字幕の保持</button><button data-example="live-result-error">結果音声の接続失敗</button><button data-example="live-result-closed">結果音声の正常終了</button><button data-example="rematch-ready">Live再戦の準備</button>
     <button data-example="mic-live">聞き取り中</button><button data-example="mic-reply">ライバルの返事</button><button data-example="mic-quiet">マイク待機</button><button data-example="mic-muted">マイクミュート</button>
-    <button id="recordMotion">8秒の回転を録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
+    <button id="recordMotion">回転と当たりを録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
     </div><output id="reviewStats" style="display:block;margin:8px 0"></output><details><summary>録画データ</summary><textarea id="recordingData" readonly aria-label="生成した回転動画のデータ"></textarea><video id="reviewVideo" src="/docs/evidence/visual-redesign/downward-reels-1920.webm" preload="metadata" controls muted style="display:block;max-width:400px"></video><button id="slowMotion">1/4速度で再生</button><label>動画時刻（秒）<input id="videoSeek" type="number" min="0" step="0.033" value="0"></label><button id="exportFrame">現在の動画フレームを書き出す</button><textarea id="frameData" readonly aria-label="動画フレームの画像データ"></textarea></details></details>`;
   document.body.append(controls);
   const find = <T extends HTMLElement>(id: string) => controls.querySelector<T>('#' + id)!;
   const stats = find<HTMLOutputElement>('reviewStats');
-  controls.querySelectorAll<HTMLButtonElement>('[data-example]').forEach(button => { button.onclick = () => port.preview(button.dataset.example as ReviewExample); });
+  find<HTMLSelectElement>('coinStyle').onchange = () => {
+    port.scene.setCoinStyle(find<HTMLSelectElement>('coinStyle').value === 'rain' ? 'rain' : 'fountain');
+    port.preview('jackpot');
+  };
+  const victoryMeasure = document.createElement('button');
+  victoryMeasure.textContent = '勝利3秒を計測';
+  find('measureMotion').after(victoryMeasure);
+  victoryMeasure.onclick = async () => {
+    await port.unlockSound();
+    victoryMeasure.disabled = true;
+    port.preview('session-best');
+    const started = performance.now();
+    let previous = started, peakCalls = 0, peakTriangles = 0;
+    const timings: number[] = [];
+    const measure = (now: number) => {
+      timings.push(now - previous);
+      previous = now;
+      const current = port.scene.stats();
+      peakCalls = Math.max(peakCalls, current.calls);
+      peakTriangles = Math.max(peakTriangles, current.triangles);
+      if (now - started < VICTORY_DURATION) requestAnimationFrame(measure);
+      else {
+        timings.sort((a, b) => a - b);
+        stats.textContent = JSON.stringify({ scope: 'victory', samples: timings.length, medianFrameMs: timings[Math.floor(timings.length * .5)], p95FrameMs: timings[Math.floor(timings.length * .95)], peakCalls, peakTriangles });
+        victoryMeasure.disabled = false;
+      }
+    };
+    requestAnimationFrame(measure);
+  };
+  controls.querySelectorAll<HTMLButtonElement>('[data-example]').forEach(button => { button.onclick = async () => { await port.unlockSound(); port.preview(button.dataset.example as ReviewExample); }; });
   find('cleanFrame').onclick = () => { controls.hidden = true; };
   addEventListener('keydown', event => { if (event.key === 'Escape') controls.hidden = !controls.hidden; });
   find('idleStats').onclick = () => {
@@ -55,11 +86,16 @@ export function mountVisualReview(port: ReviewPort): void {
   };
 
   const run = async (record: boolean) => {
+    await port.unlockSound();
     const button = find<HTMLButtonElement>('recordMotion');
     button.disabled = true;
     port.reset();
     const canvas = document.querySelector<HTMLCanvasElement>('#stageArt canvas')!;
-    const stream = record ? canvas.captureStream(60) : null;
+    const effects = document.querySelector<HTMLCanvasElement>('#stageEffects canvas');
+    const composite = record ? document.createElement('canvas') : null;
+    if (composite) { composite.width = canvas.width; composite.height = canvas.height; }
+    const context = composite?.getContext('2d');
+    const stream = composite ? composite.captureStream(60) : null;
     const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8'].find(type => MediaRecorder.isTypeSupported(type)) ?? 'video/webm';
     const recorder = stream ? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 3000000 }) : null;
     const chunks: Blob[] = [];
@@ -78,6 +114,10 @@ export function mountVisualReview(port: ReviewPort): void {
       const current = port.scene.stats();
       peakCalls = Math.max(peakCalls, current.calls);
       peakTriangles = Math.max(peakTriangles, current.triangles);
+      if (context) {
+        context.drawImage(canvas, 0, 0);
+        if (effects) context.drawImage(effects, 0, 0);
+      }
       requestAnimationFrame(measure);
     };
     requestAnimationFrame(measure);
@@ -104,7 +144,7 @@ export function mountVisualReview(port: ReviewPort): void {
       recordSpin(matchStats, rival);
       port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, balances: { player: total, rival: rivalTotal }, bets: { player: examples[i].bet, rival: rivalBet }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
       port.spin(player, rival);
-      await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 2400 : 2000));
+      await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 3000 : 2000));
     }
     active = false;
     recorder?.stop();
@@ -130,6 +170,6 @@ export function mountVisualReview(port: ReviewPort): void {
   // Reproducible material comparisons use the same existing review fixtures.
   const exampleButton = [...controls.querySelectorAll<HTMLButtonElement>('[data-example]')]
     .find(button => button.dataset.example === example);
-  if (exampleButton) exampleButton.click();
+  if (exampleButton) port.preview(exampleButton.dataset.example as ReviewExample);
   if (parameters.has('clean-frame')) controls.hidden = true;
 }

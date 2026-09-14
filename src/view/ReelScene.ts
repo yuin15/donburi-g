@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
 import { PAYOUT } from '../domain/game';
+import { rewardDuration } from '../viewmodel/RewardPresentation';
+import type { CoinStyle } from './CoinCelebration';
 import { CabinetArt } from './CabinetArt';
 import { planTravel, planTravelToStop, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
 import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
@@ -289,6 +291,8 @@ export class ReelScene {
     }
     this.requestRender();
   }
+  setCoinStyle(style: CoinStyle): void { this.cabinet.setCoinStyle(style); this.requestRender(); }
+
   setResult(winner: Side | 'draw' | null): void {
     if (this.cabinet.setResult(winner)) this.requestRender();
   }
@@ -382,7 +386,7 @@ export class ReelScene {
     const cells = side === 'player' ? allCells : allCells.filter(cell => cell.row === 1);
     const winningSymbol = allCells.reduce<SymbolId | null>((best, cell) => !best || PAYOUT[cell.symbol] > PAYOUT[best] ? cell.symbol : best, null);
     const jackpot = winningSymbol === 'seven' || payout >= PAYOUT.seven;
-    const duration = this.motionPreference.matches ? 180 : jackpot ? 1200 : 650;
+    const duration = this.motionPreference.matches ? 180 : rewardDuration(payout, winningSymbol);
     const until = payout > 0 ? still ? Infinity : now + duration : 0;
     if (payout > 0) this.cabinet.flash(payout, now, duration, still, side, cells, winningSymbol);
     if (side === 'player') {

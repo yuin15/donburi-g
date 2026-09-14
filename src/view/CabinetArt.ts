@@ -8,12 +8,14 @@ import type { WinSymbol } from './SymbolModels';
 import { CabinetModel } from './CabinetModel';
 import { CasinoStage } from './CasinoStage';
 import { SculptedType } from './SculptedType';
+import { CoinCelebration, type CoinStyle } from './CoinCelebration';
+import { VICTORY_DURATION } from '../viewmodel/RewardPresentation';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; cells: WinningCell[]; payout: number; reels: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
 const sides: Side[] = ['player', 'rival'];
 
-/** Two independent win lanes, sharing one renderer and 24 reusable 3D coins. */
+/** Cabinet and rewards share the existing scene; coins use bounded GPU pools. */
 export class CabinetArt {
   readonly group = new THREE.Group();
   readonly playerGroup = new THREE.Group();
@@ -32,7 +34,7 @@ export class CabinetArt {
   private stage = new CasinoStage(this.coinEnvironment);
   private bulbGeometry = new THREE.SphereGeometry(4.2, 8, 6);
   private coinMaterials: Record<Side, THREE.MeshStandardMaterial>;
-  private coins: THREE.Mesh[];
+  private coins: CoinCelebration;
   private bursts: Record<Side, Burst> = { player: emptyBurst(), rival: emptyBurst() };
   private glows: Record<Side, THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>>;
   private bulbs: Record<Side, THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>>;
@@ -64,20 +66,18 @@ export class CabinetArt {
       player: createGoldCoinMaterial(this.coinEnvironment),
       rival: createGoldCoinMaterial(this.coinEnvironment),
     };
-    this.coins = Array.from({ length: 24 }, (_, index) => {
-      const mesh = new THREE.Mesh(this.coinGeometry, this.coinMaterials[index < 12 ? 'player' : 'rival']);
-      mesh.visible = false; mesh.name = 'win-coin';
-      return mesh;
-    });
+    this.coins = new CoinCelebration(this.coinGeometry, this.coinMaterials);
     this.glows = { player: this.makeGlow('player'), rival: this.makeGlow('rival') };
     this.bulbs = { player: this.makeBulbs('player'), rival: this.makeBulbs('rival') };
     this.sparkles = { player: this.makeSparkles('player'), rival: this.makeSparkles('rival') };
     this.scoreGlints = { player: this.makeScoreGlint('player'), rival: this.makeScoreGlint('rival') };
     this.timerLights = this.makeTimerLights();
     this.finalGlow = this.makeFinalGlow();
-    this.group.add(this.timerLights, this.finalGlow, this.glows.rival, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...Object.values(this.scoreGlints), ...this.coins);
+    this.group.add(this.timerLights, this.finalGlow, this.glows.rival, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...Object.values(this.scoreGlints), this.coins.group);
     this.playerGroup.add(this.glows.player, this.bulbs.player);
   }
+
+  setCoinStyle(style: CoinStyle): void { this.coins.setStyle(style); }
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
   press(now: number): void { this.body.press(now); this.pressedAt = now; }
@@ -85,7 +85,7 @@ export class CabinetArt {
   reelInkHidden(side: Side, column: number): [number, number, number] { return this.winSymbols.reelInkHidden(side, column); }
   setEffectsLayer(layer: number): void {
     this.winSymbols.setEffectsLayer(layer);
-    [...this.coins, ...Object.values(this.glows), ...Object.values(this.bulbs), ...Object.values(this.sparkles), ...Object.values(this.scoreGlints)]
+    [this.coins.group, ...Object.values(this.glows), ...Object.values(this.bulbs), ...Object.values(this.sparkles), ...Object.values(this.scoreGlints)]
       .forEach(effect => effect.traverse(node => node.layers.set(layer)));
     // The moving light must illuminate the cabinet (layer 0) as well as rewards.
     this.sweep.layers.enable(layer);
@@ -228,15 +228,18 @@ export class CabinetArt {
       payout,
       reels: true,
     };
+    if (payout > 0) this.coins.burst(side, this.bursts[side].symbol, this.bursts[side].jackpot, now, duration, still);
   }
 
   celebrateResult(now: number): void {
     this.stop();
     this.resultStarted = now;
-    this.resultUntil = now + 2200;
+    this.resultUntil = now + VICTORY_DURATION;
+    this.coins.celebrate(now);
   }
 
   stop(side?: Side): void {
+    this.coins.stop(side);
     for (const target of side ? [side] : sides) this.bursts[target] = emptyBurst();
     if (!side || side === 'player') { this.body.stop(); this.pressedAt = -Infinity; }
     if (!side) this.resultUntil = 0;
@@ -256,13 +259,19 @@ export class CabinetArt {
       }
       if (this.timerLights.instanceColor) this.timerLights.instanceColor.needsUpdate = true;
     }
-    let animating = this.body.update(now, reducedMotion) || result || finale && !reducedMotion;
+    const coinsMoving = this.coins.update(now, reducedMotion);
+    let animating = this.body.update(now, reducedMotion) || coinsMoving || result || finale && !reducedMotion;
     this.sweep.intensity = 0;
     this.body.setSweep(0, 0);
     const buttonDepth = reducedMotion ? 0 : Math.sin(Math.min(1, (now - this.pressedAt) / 180) * Math.PI) * 4.5;
     this.buttonText.position.z = 164 - buttonDepth;
     this.buttonText.position.y = STAGE_HEIGHT - 780 + buttonDepth * .2;
     this.machine.rotation.set(0, .095, 0);
+    if (this.resultText) {
+      const entrance = result ? Math.min(1, (now - this.resultStarted) / 430) : 1;
+      this.resultText.scale.setScalar(1 + Math.sin(entrance * Math.PI) * .12);
+      this.resultText.rotation.y = -.1 - Math.sin(entrance * Math.PI) * .13;
+    }
     for (const side of sides) {
       const burst = this.bursts[side];
       const time = burst.still ? burst.started + (burst.until - burst.started) * .36 : now;
@@ -281,7 +290,6 @@ export class CabinetArt {
         }
         if (lamps.instanceColor) lamps.instanceColor.needsUpdate = true;
       }
-      this.coinMaterials[side].opacity = result ? Math.min(1, (this.resultUntil - now) / 450) : 1;
       animating ||= winning && !burst.still;
       const duration = burst.until - burst.started;
       const progress = duration > 0 ? Math.max(0, (time - burst.started) / duration) : 1;
@@ -297,6 +305,13 @@ export class CabinetArt {
         this.body.setSweep(progress, shine * (burst.jackpot ? 2.7 : burst.symbol === 'bell' ? 1.3 : .6));
       }
       this.glows[side].material.uniforms.progress.value = progress;
+      if (result && side === 'player') {
+        const celebrationProgress = (now - this.resultStarted) / VICTORY_DURATION;
+        this.glows.player.material.uniforms.strength.value = Math.sin(celebrationProgress * Math.PI) * 1.8;
+        this.glows.player.material.uniforms.jackpot.value = 1;
+        this.glows.player.material.uniforms.progress.value = celebrationProgress;
+        this.body.setSweep(celebrationProgress, Math.sin(celebrationProgress * Math.PI) * 1.8);
+      }
       const sparkle = this.sparkles[side];
       sparkle.visible = winning && !reducedMotion;
       sparkle.material.uniforms.opacity.value = fade;
@@ -318,48 +333,9 @@ export class CabinetArt {
         }
         sparkle.instanceMatrix.needsUpdate = true;
       }
-      let arrivalPulse = 0;
-      for (let i = 0; i < 12; i++) {
-        const coin = this.coins[i + (side === 'player' ? 0 : 12)];
-        coin.visible = !reducedMotion && (result || winning && i < (burst.jackpot ? 12 : burst.symbol === 'bell' ? 6 : 0));
-        if (!coin.visible) continue;
-        if (result) {
-          const index = this.coins.indexOf(coin);
-          const elapsed = (now - this.resultStarted) / 1000;
-          const p = Math.min(1, elapsed / 2.2);
-          const angle = index / 24 * Math.PI * 2;
-          const x = Math.cos(angle), y = Math.sin(angle);
-          const edge = 1 / Math.max(Math.abs(x), Math.abs(y));
-          const spread = 1 - (1 - p) ** 3;
-          coin.position.set(530 + x * edge * (438 + spread * 35), STAGE_HEIGHT - 405 + y * edge * (265 + spread * 25) - p ** 2 * 55, 40 + index);
-          coin.rotation.set(.18 * Math.sin(index + elapsed), index * .47 + elapsed * 3.6, angle + elapsed * .7);
-          coin.scale.setScalar(.7 + (index % 5) * .16);
-          continue;
-        }
-        // First fan out around the reels/portrait, then accelerate into the
-        // actual balance text. All coins arrive before this bounded burst ends.
-        const right = i % 2 === 1;
-        const player = side === 'player';
-        const startX = player ? right ? 825 : 245 : right ? 1500 : 1028;
-        const midX = player ? right ? 900 : 105 : right ? 1620 : 985;
-        const controlX = player ? right ? 965 + i % 3 * 8 : 65 - i % 3 * 8 : right ? 1638 : 965;
-        const startY = (player ? 630 : 748) + i % 6 * 13;
-        const delay = i % 6 * .026;
-        const t = THREE.MathUtils.clamp((progress - delay) / .83, 0, 1);
-        const arrival = THREE.MathUtils.clamp((progress - (.83 + delay) + .035) / .085, 0, 1);
-        arrivalPulse = Math.max(arrivalPulse, Math.sin(arrival * Math.PI));
-        const fan = Math.min(1, t / .76), u = 1 - fan;
-        const collect = Math.max(0, (t - .76) / .24) ** 1.4;
-        const [endX, endY] = this.scoreTarget(side);
-        const x = THREE.MathUtils.lerp(u * u * startX + 2 * u * fan * controlX + fan * fan * midX, endX, collect);
-        const y = THREE.MathUtils.lerp(u * u * startY + 2 * u * fan * 290 + fan * fan * 145, endY, collect);
-        coin.position.set(x, STAGE_HEIGHT - y, 105 + Math.sin(t * Math.PI) * (100 + i * 9));
-        coin.rotation.set(.32 + Math.sin(i + t * 4) * .18, i * .62 + t * 5.6, (right ? 1 : -1) * (.3 + t));
-        coin.scale.setScalar(((player && burst.jackpot ? 1.35 : .85) + (i % 3) * .23) * (1 - collect * .9));
-        coin.visible = t < 1;
-      }
+      const arrivalPulse = this.coins.arrivals[side];
       const glint = this.scoreGlints[side];
-      glint.visible = !result && winning && !burst.still && !reducedMotion && arrivalPulse > .001;
+      glint.visible = !result && !reducedMotion && arrivalPulse > .001;
       glint.material.uniforms.opacity.value = arrivalPulse * .82;
       glint.scale.setScalar(34 + arrivalPulse * 36);
       glint.rotation.z = progress * .7;
@@ -369,6 +345,7 @@ export class CabinetArt {
 
   dispose(): void {
     this.stop();
+    this.coins.dispose();
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
     this.lettering.dispose();

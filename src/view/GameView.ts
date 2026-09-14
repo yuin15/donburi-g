@@ -3,6 +3,7 @@ import { ACTIVE_LINES, PAYOUT } from '../domain/game';
 import { upgradePrice } from '../../shared/shop';
 import type { GameCommands, GamePresentation, GameSound, GameViewState } from '../viewmodel/GameViewState';
 import { GameAudio } from './GameAudio';
+import { ResultCountUp } from './ResultCountUp';
 import { mountGameTemplate } from './GameTemplate';
 import { ReelScene } from './ReelScene';
 import { OVERLAYS, STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
@@ -12,6 +13,7 @@ export class GameView implements GamePresentation {
   readonly scene: ReelScene;
   readonly video: HTMLVideoElement;
   private readonly audio = new GameAudio();
+  private readonly resultCount = new ResultCountUp();
   private readonly elements = new Map<string, HTMLElement>();
   private events = new AbortController();
   private current: GameViewState | null = null;
@@ -285,7 +287,7 @@ export class GameView implements GamePresentation {
     this.text('#recordStreak', record.streak ? '× ' + record.streak : '—');
     this.text('#recordLabel', record.newBest ? 'NEW PERSONAL BEST' : 'SESSION BEST');
     this.q('#resultRecords').dataset.record = String(record.newBest);
-    this.renderResult(state.result);
+    this.renderResult(state.gate.visible ? null : state.result);
     this.scene.setResult(state.result ? state.result.winner ?? 'draw' : null);
     this.q('#countdown').hidden = state.countdown === null;
     if (state.countdown !== null) {
@@ -304,6 +306,7 @@ export class GameView implements GamePresentation {
     const panel = this.q('#result');
     panel.hidden = !snapshot;
     if (!snapshot) {
+      this.resultCount.stop();
       if (this.resultKey) {
         this.q<HTMLDetailsElement>('#resultDetails').open = false;
         this.q('#resultStats').replaceChildren();
@@ -313,6 +316,7 @@ export class GameView implements GamePresentation {
     }
     const key = `${snapshot.matchId}:${snapshot.rounds.player}:${snapshot.rounds.rival}:${snapshot.scores.player}:${snapshot.scores.rival}`;
     if (key === this.resultKey) return;
+    this.resultCount.stop();
     this.resultKey = key;
     panel.dataset.outcome = snapshot.winner ?? 'draw';
     this.text('#resultRounds', '60 SECOND DUEL');
@@ -321,6 +325,9 @@ export class GameView implements GamePresentation {
     this.text('#resultTitle', snapshot.winner === 'player' ? 'YOU WIN!' : snapshot.winner === 'rival' ? 'RIVAL WINS' : 'DRAW');
     this.text('#resultPlayer', `$${snapshot.scores.player.toLocaleString()}`);
     this.text('#resultRival', `$${snapshot.scores.rival.toLocaleString()}`);
+    this.q('#resultPlayer').removeAttribute('aria-label');
+    this.q('#resultRival').removeAttribute('aria-label');
+    if (snapshot.winner === 'player') this.resultCount.start(this.q('#resultPlayer'), this.q('#resultRival'), snapshot.scores);
     const margin = Math.abs(snapshot.scores.player - snapshot.scores.rival).toLocaleString();
     this.text('#resultGap', snapshot.winner === 'player' ? `You won by $${margin}.` : snapshot.winner === 'rival' ? `$${margin} behind. Go again?` : 'Same cash. One more round to settle it.');
     this.text('#resultAgain', snapshot.winner === 'player' ? 'Keep the streak going. One more round?' : 'Beat your best. Your next spin could change everything.');
@@ -361,6 +368,7 @@ export class GameView implements GamePresentation {
     this.scene.playSide(spin, stopped);
   }
   resetScene(): void {
+    this.resultCount.stop();
     this.scene.stop();
     this.scene.setRivalDistracted(false);
     this.scene.setUpgrades([], []);
@@ -370,6 +378,7 @@ export class GameView implements GamePresentation {
   stopScene(): void { this.scene.stop(); }
   celebrateResult(winner: 'player' | 'rival' | 'draw'): void { this.scene.celebrateResult(winner); }
   playSound(cue: GameSound): void { this.audio.play(cue); }
+  unlockSound(): Promise<void> { return this.audio.unlock(); }
   stopSound(): void { this.audio.stop(); }
   setEffectsMuted(muted: boolean): void { this.audio.setMuted(muted); }
   focus(target: 'start' | 'gate'): void {
@@ -380,6 +389,7 @@ export class GameView implements GamePresentation {
     if (this.disposed) return;
     this.disposed = true;
     this.events.abort();
+    this.resultCount.dispose();
     this.audio.dispose();
     this.scene.dispose();
     this.elements.clear();

@@ -4,7 +4,7 @@ import type { AiConnectionState } from '../client/AiStatus';
 
 export type GameMode = 'idle' | 'practice' | 'live';
 export type GameExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
-export type GameSound = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result';
+export type GameSound = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result' | 'bellWin' | 'victory' | 'defeat' | 'draw';
 export type RoundPair = { player: SpinView; rival: SpinView };
 
 export interface GameViewState {
