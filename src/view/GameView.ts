@@ -18,7 +18,6 @@ export class GameView implements GamePresentation {
   private current: GameViewState | null = null;
   private resultKey = '';
   private disposed = false;
-  private betAnimations: Animation[] = [];
   private playerReelsSpinning = false;
 
   constructor(private readonly app: HTMLElement) {
@@ -62,6 +61,7 @@ export class GameView implements GamePresentation {
     }
     const chooseBet = (bet: Bet) => {
       void this.audio.unlock().then(() => this.audio.betClick());
+      this.scene.pressBet(bet);
       commands.setBet(bet);
     };
     this.q('#practice').addEventListener('click', () => { unlock(); void commands.startCpu(); }, options);
@@ -92,7 +92,12 @@ export class GameView implements GamePresentation {
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
     this.q('#effects').addEventListener('click', () => { unlock(); commands.toggleEffectsMuted(); }, options);
     this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
-      button.addEventListener('click', () => chooseBet(Number(button.dataset.bet) as Bet), options);
+      const bet = Number(button.dataset.bet) as Bet;
+      button.addEventListener('click', () => chooseBet(bet), options);
+      button.addEventListener('pointerenter', () => this.scene.hoverBet(bet), options);
+      button.addEventListener('pointerleave', () => this.scene.hoverBet(null), options);
+      button.addEventListener('focus', () => this.scene.hoverBet(bet), options);
+      button.addEventListener('blur', () => this.scene.hoverBet(null), options);
     });
     addEventListener('keydown', event => {
       const state = this.current;
@@ -227,23 +232,16 @@ export class GameView implements GamePresentation {
       indicator.dataset.active = String(activeLines.includes(line));
       indicator.dataset.winning = String(winningLines.includes(line));
     });
+    this.scene.setBetControls({ bet: selectedBet, balance: state.balances.player, enabled: state.mode !== 'idle', showLines: showLineIndicators, winningLines });
     const previewAvailable = showLineIndicators && !state.gate.visible && state.countdown === null
       && !this.playerReelsSpinning && !state.payout?.player;
-    this.q('#betLinePreview').hidden = !previewAvailable;
     const betChanged = previous && previous.snapshot.matchId === snapshot.matchId && previous.bets.player !== selectedBet;
     if (!previewAvailable || betChanged) this.cancelBetPreview();
     if (betChanged && previewAvailable && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
       const previewLines = selectedBet < previous.bets.player
         ? activeLines
         : activeLines.filter(line => !ACTIVE_LINES[previous.bets.player].includes(line));
-      previewLines.forEach((line, index) => {
-        const path = this.app.querySelector<SVGPathElement>(`#betLinePreview [data-preview-line="${line}"]`)!;
-        this.betAnimations.push(path.animate([
-          { strokeDasharray: '1', strokeDashoffset: '1', opacity: 1 },
-          { strokeDasharray: '1', strokeDashoffset: '0', opacity: 1, offset: .65 },
-          { strokeDasharray: '1', strokeDashoffset: '0', opacity: 0 },
-        ], { duration: 650, delay: index * 80, easing: 'ease-out' }));
-      });
+      this.scene.previewBetLines(previewLines);
     }
     this.text('#rivalMood', state.rivalDistraction?.active ? 'DISTRACTED...' : state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
@@ -405,7 +403,6 @@ export class GameView implements GamePresentation {
     if (spin.side === 'player') {
       this.playerReelsSpinning = true;
       this.cancelBetPreview();
-      this.q('#betLinePreview').hidden = true;
     }
     this.scene.playSide(spin, celebrate => {
       if (spin.side === 'player') this.playerReelsSpinning = false;
@@ -413,8 +410,7 @@ export class GameView implements GamePresentation {
     });
   }
   private cancelBetPreview(): void {
-    for (const animation of this.betAnimations) animation.cancel();
-    this.betAnimations = [];
+    this.scene.cancelBetPreview();
   }
   resetScene(): void {
     this.playerReelsSpinning = false;

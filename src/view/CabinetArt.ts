@@ -8,6 +8,7 @@ import type { WinSymbol } from './SymbolModels';
 import { CabinetModel } from './CabinetModel';
 import { CasinoStage } from './CasinoStage';
 import { SculptedType } from './SculptedType';
+import { BetControls3D } from './BetControls3D';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; cells: WinningCell[]; payout: number; reels: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
@@ -20,6 +21,7 @@ export class CabinetArt {
   private readonly machine = new THREE.Group();
   private coinGeometry = createGoldCoinGeometry();
   private coinEnvironment = createGoldCoinEnvironment();
+  readonly betControls = new BetControls3D(this.coinEnvironment);
   private winSymbols = new WinSymbols(this.coinEnvironment);
   private readonly lettering = new SculptedType(this.coinEnvironment);
   private buttonText = this.lettering.make('PLAY', 37, 200, 3);
@@ -57,6 +59,9 @@ export class CabinetArt {
     this.playerGroup.position.set(-530, -(STAGE_HEIGHT - 500), 0);
     this.machine.add(this.playerGroup);
     this.playerGroup.add(this.body.group, this.stage.playerGroup, this.winSymbols.playerGroup, this.buttonText);
+    // Compensate for the cabinet's resting yaw at the raised controls' depth.
+    this.betControls.group.position.x = -20;
+    this.playerGroup.add(this.betControls.group);
     this.buttonText.position.set(525, STAGE_HEIGHT - 780, 164);
     this.buttonText.rotation.x = -.2;
     this.group.add(this.machine, this.stage.group, this.winSymbols.rivalGroup, this.sweep);
@@ -238,11 +243,12 @@ export class CabinetArt {
 
   stop(side?: Side): void {
     for (const target of side ? [side] : sides) this.bursts[target] = emptyBurst();
-    if (!side || side === 'player') { this.body.stop(); this.pressedAt = -Infinity; }
+    if (!side || side === 'player') { this.body.stop(); this.betControls.stop(); this.pressedAt = -Infinity; }
     if (!side) this.resultUntil = 0;
   }
 
   update(now: number, reducedMotion: boolean): boolean {
+    const betAnimating = this.betControls.update(now, reducedMotion);
     if (reducedMotion) this.resultUntil = 0;
     const result = now < this.resultUntil;
     const finale = this.finalSeconds > 0;
@@ -256,7 +262,7 @@ export class CabinetArt {
       }
       if (this.timerLights.instanceColor) this.timerLights.instanceColor.needsUpdate = true;
     }
-    let animating = this.body.update(now, reducedMotion) || result || finale && !reducedMotion;
+    let animating = this.body.update(now, reducedMotion) || betAnimating || result || finale && !reducedMotion;
     this.sweep.intensity = 0;
     this.body.setSweep(0, 0);
     const buttonDepth = reducedMotion ? 0 : Math.sin(Math.min(1, (now - this.pressedAt) / 180) * Math.PI) * 4.5;
@@ -372,6 +378,7 @@ export class CabinetArt {
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
     this.lettering.dispose();
+    this.betControls.dispose();
     this.body.dispose();
     this.stage.dispose();
     this.coinEnvironment.dispose();

@@ -24,7 +24,6 @@ export const OVERLAYS: Record<string, Rect> = {
   upgradeShop: { x: 716, y: 726, w: 139, h: 94 },
   betControls: { x: 241, y: 650, w: 572, h: 74 },
   lineIndicators: { x: 154, y: 273, w: 94, h: 371 },
-  betLinePreview: { x: 154, y: 273, w: 650, h: 371 },
   roundStatus: { x: 1052, y: 872, w: 484, h: 22 },
   duelRules: { x: 1030, y: 797, w: 500, h: 83 },
   voicePanel: { x: 1030, y: 807, w: 500, h: 76 },

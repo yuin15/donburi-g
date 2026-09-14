@@ -1,4 +1,4 @@
-Slotchan Display: uppercase and numeric subset of Three.js Optimer Bold.
+Slotchan Display: selected uppercase, numeric, punctuation, and currency-symbol subset of Three.js Optimer Bold.
 
 Copyright (c) 2004 by MAGENTA Ltd. All Rights Reserved.
 
