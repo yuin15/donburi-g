@@ -25,7 +25,23 @@ Observed through normal game controls:
 
 ![Actual CPU gameplay, 1280×720](evidence/submission-2026-09-14/gameplay-1280.webp)
 
-The README image is an actual **1280×720** browser capture from that second round at **0:07 remaining**, showing **$17 versus $32**, the selected $3 bet, and the purchased cherry upgrade. It is not a generated mockup, development fixture, live microphone transcript, or proof of the deployed source revision. The CPU caption is a built-in game line.
+This earlier CPU gameplay image is an actual **1280×720** browser capture from that second round at **0:07 remaining**, showing **$17 versus $32**, the selected $3 bet, and the purchased cherry upgrade. It is not a generated mockup, development fixture, live microphone transcript, or proof of the deployed source revision. The CPU caption is a built-in game line. It remains here as playthrough evidence; the README now features the 3D win gallery below.
+
+## README 3D gallery
+
+The README's three new images were captured on **September 14, 2026**, from a local checkout of [`5ed1d69`](https://github.com/yuin15/donburi-g/commit/5ed1d69cb34e419dfef7aefe5d6ebceede22a60a) (PR #163). This is the same game implementation as the submission source above, with the subsequent documentation updates included.
+
+These are **actual Chrome captures of the game's Three.js rendering and DOM interface**, at **1920×1080**, exported directly as WebP. Existing development review controls reproduce the outcomes and hide the review panel. The seven and bell scenes hold their celebration poses; the victory image captures the running title animation. The default coin style is used. No compositing, generated replacement screen, model change, API call, or microphone session was used to make this gallery.
+
+| Image | Local review example | Visible scene |
+| --- | --- | --- |
+| [Seven win](evidence/readme-3d-2026-09-14/seven-win-1920.webp) | `jackpot` | Raised red-and-gold sevens, +30 payout text, coins in front of and behind the cabinet; $54 versus $18, 0:21 remaining. |
+| [Bell win](evidence/readme-3d-2026-09-14/bell-win-1920.webp) | `bell-cherry` | Player's raised bells and +6 payout, rival's raised cherries and +3 payout; $30 versus $23, 0:38 remaining. |
+| [Match victory](evidence/readme-3d-2026-09-14/victory-1920.webp) | `session-best` | The large 3D YOU WIN title during its entrance, light rays and coins; final balances $42 versus $24. |
+
+To reproduce, run the local development server and open `/?visual-review&example=jackpot&clean-frame`, substituting the example name from the table. For the animated victory, use the review panel's **自己ベスト・3連勝** button, press **Escape** to hide the panel, and capture during the first three seconds. These review scenes are development-only and do not run on the hosted production build.
+
+All three selected captures were visually inspected for complete framing, symbol depth, payout/title visibility, and absence of the review tools. Fixed scene balances and CPU captions illustrate the presentation; they are not evidence of random match outcomes or live voice responses. The README identifies the images as local review captures and links to this record.
 
 ## Automated and document checks
 
