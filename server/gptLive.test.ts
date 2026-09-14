@@ -16,9 +16,9 @@ vi.mock('ws', async () => {
     constructor() { super(); sockets.push(this); }
   } };
 });
-function setup(openingContext = '') {
+function setup(openingContext = '', language: 'ja' | 'en' = 'ja') {
   const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
-  return { bridge: new GptLiveBridge(events, openingContext), events };
+  return { bridge: new GptLiveBridge(events, openingContext, language), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
 afterEach(() => vi.useRealTimers());
@@ -46,6 +46,10 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('両者は$30で開始');
     expect(start.session.instructions).toContain('$1は中央1ライン');
     expect(start.session.instructions).toContain('確定した自分のBETだけ');
+    expect(start.session.instructions).toContain('双方の確定残高が$0の会話');
+    expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
+    expect(start.session.instructions).toContain('初回だけは短い2文まで許し');
+    expect(start.session.instructions).toContain('自動の時間延長を誘わず');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -210,6 +214,23 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('accepts a $0 transition reaction as a short response and tells the model to wait afterward', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    expect(bridge.requestReaction('雑談へ一度だけ誘う。')).toBe(true);
+    const reaction = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(reaction).toMatchObject({ type: 'session.commentary.append' });
+    expect(reaction.content).toContain('短い返答だけを発話');
+    expect(reaction.content).toContain('同じ誘いを足さず黙って待つ');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('drops a normal reply until its quiet boundary, then queues the confirmed line on the supported commentary path', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
@@ -259,6 +280,22 @@ describe('live conversation pacing', () => {
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'loan-offer-speech');
     for (let i = 0; i < 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('loan-offer-speech');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('uses the settled English state for confirmed and delegated fixed lines', async () => {
+    const { bridge } = setup('', 'en');
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.requestConfirmedLine({ ja: '日本語の確定台詞', en: 'Confirmed English line.' });
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).content).toContain('Confirmed English line.');
+    bridge.requestDelegationResult('english-turn', { ja: '日本語の委任台詞', en: 'Delegated English line.' }, 'english-speech');
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ delegation_id: 'english-turn', content: expect.stringContaining('Delegated English line.') });
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;

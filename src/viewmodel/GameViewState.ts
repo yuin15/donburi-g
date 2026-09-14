@@ -6,6 +6,16 @@ export type GameMode = 'idle' | 'practice' | 'live';
 export type GameExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
 export type GameSound = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result' | 'bellWin' | 'victory' | 'defeat' | 'draw';
 export type RoundPair = { player: SpinView; rival: SpinView };
+export type TextChoice = {
+  readonly token: number;
+  /** Absolute client-clock deadline. Commands reject it even if a timer is delayed. */
+  readonly expiresAt: number;
+  readonly kind: 'borrow' | 'lend' | 'extend';
+  readonly question: string;
+  readonly detail: string;
+  readonly acceptLabel: string;
+  readonly declineLabel: string;
+};
 
 export interface GameViewState {
   readonly mode: GameMode;
@@ -33,6 +43,8 @@ export interface GameViewState {
   readonly timeExtension: { readonly decision: 'accepted' | 'rejected'; readonly before: number; readonly after: number } | null;
   /** A confirmed server-side transfer; it is presentation only, never a control. */
   readonly loanTransfer: { readonly direction: 'rival_to_player' | 'player_to_rival'; readonly amount: 5 } | null;
+  /** A short, local CPU-only decision card. Live negotiations remain voice-only. */
+  readonly textChoice: TextChoice | null;
   /** The server temporarily skipped rival turns; player input and the clock continue. */
   readonly rivalDistraction: { readonly active: boolean; readonly seconds: 2 | 4 } | null;
   readonly expression: GameExpression;
@@ -82,6 +94,7 @@ export interface GameCommands {
   start(): Promise<void>;
   connectLive(inviteCode: string, video?: boolean): Promise<void>;
   requestSpin(): void;
+  respondTextChoice(token: number, accepted: boolean): void;
   purchaseUpgrade(id: UpgradeId): void;
   setBet(bet: Bet): void;
   leave(): void;

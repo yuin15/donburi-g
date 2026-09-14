@@ -17,6 +17,7 @@
     "analyze:balance": "node --experimental-strip-types scripts/analyze-balance.mjs"
   },
   "dependencies": {
+    "eld": "^2.1.0",
     "express": "^5.1.0",
     "livekit-client": "^2.15.5",
     "three": "^0.180.0",

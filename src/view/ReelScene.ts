@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
+import type { Bet, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol';
+import type { BetControlsState } from './BetControls3D';
 import { PAYOUT } from '../domain/game';
 import { rewardDuration } from '../viewmodel/RewardPresentation';
 import type { CoinStyle } from './CoinCelebration';
@@ -201,6 +202,32 @@ export class ReelScene {
 
   private place(mesh: THREE.Mesh, rect: Rect, z: number): void {
     mesh.position.set(rect.x + rect.w / 2, STAGE_HEIGHT - rect.y - rect.h / 2, z);
+  }
+
+  setBetControls(state: BetControlsState): void {
+    if (!this.disposed && this.cabinet.betControls.setState(state, performance.now())) this.requestRender();
+  }
+
+  hoverBet(bet: Bet | null): void {
+    if (!this.disposed && this.cabinet.betControls.hover(bet, performance.now())) this.requestRender();
+  }
+
+  pressBet(bet: Bet): void {
+    if (this.disposed) return;
+    this.cabinet.betControls.press(bet, performance.now());
+    this.requestRender();
+  }
+
+  previewBetLines(lines: readonly WinningLine[]): void {
+    if (this.disposed) return;
+    this.cabinet.betControls.preview(lines, performance.now());
+    this.requestRender();
+  }
+
+  cancelBetPreview(): void {
+    if (this.disposed) return;
+    this.cabinet.betControls.cancelPreview();
+    this.requestRender();
   }
 
   /** Confirmed upgrades are staged until the next spin or explicit still view. */

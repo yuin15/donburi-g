@@ -1,5 +1,6 @@
-import { PAYOUT } from '../domain/game';
+import { BETS, PAYOUT } from '../domain/game';
 
+const betButtons = BETS.map(bet => `<button type="button" data-bet="${bet}" aria-pressed="false" aria-label="Bet $${bet}, ${bet} ${bet === 1 ? 'line' : 'lines'} per spin"><span>$${bet} · ${bet} ${bet === 1 ? 'LINE' : 'LINES'}</span></button>`).join('');
 /** PC stage markup. Game rules and state transitions live outside this view. */
 export function mountGameTemplate(app: HTMLElement): void {
 app.innerHTML = `
@@ -25,13 +26,13 @@ app.innerHTML = `
     <div class="event-cue" id="eventCue" role="status" hidden></div>
     <div class="loan-transfer" id="loanTransfer" role="status" aria-live="assertive" hidden><small>LOAN</small><strong id="loanDirection"></strong><b id="loanAmount"></b></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
-    <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small><button data-bet="1">$1 <em>1 LINE</em></button><button data-bet="3">$3 <em>3 LINES</em></button><button data-bet="5">$5 <em>5 LINES</em></button></div>
-    <div id="lineIndicators" role="status" aria-label="Winning lines">
-      <svg class="line-indicator diagonal-down" data-line="diagonalDown" viewBox="0 0 100 40" aria-label="$5 diagonal down"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
-      <svg class="line-indicator top" data-line="top" viewBox="0 0 100 40" aria-label="$3 top row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
-      <svg class="line-indicator middle" data-line="middle" viewBox="0 0 100 40" aria-label="$1 middle row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$1</text></svg>
-      <svg class="line-indicator bottom" data-line="bottom" viewBox="0 0 100 40" aria-label="$3 bottom row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
-      <svg class="line-indicator diagonal-up" data-line="diagonalUp" viewBox="0 0 100 40" aria-label="$5 diagonal up"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
+    <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small>${betButtons}</div>
+    <span id="betStatus" class="sr-only" role="status" aria-live="polite"></span>
+    <div id="lineIndicators" role="group" aria-label="Active lines for the next spin">
+      ${([
+        ['diagonalDown', '$5 diagonal down'], ['top', '$3 top row'], ['middle', '$1 middle row'],
+        ['bottom', '$3 bottom row'], ['diagonalUp', '$5 diagonal up'],
+      ] as const).map(([line, label]) => `<span data-line="${line}" role="img" aria-label="${label}"></span>`).join('')}
     </div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>
     <div id="machineTrim">CHOOSE BET · ACTIVE LINES PAY</div>
@@ -40,6 +41,7 @@ app.innerHTML = `
     <span class="sr-only" id="mockFace">CPU rival</span>
     <video id="avatar" autoplay playsinline></video>
     <span id="rivalMood">60 seconds. Let's play.</span><p id="line">Think you can beat me?</p><small id="heard"></small>
+    <section id="textChoice" aria-live="assertive" aria-label="CPU decision" hidden><small id="textChoiceKind"></small><strong id="textChoiceQuestion"></strong><span id="textChoiceDetail"></span><small class="text-choice-expiry">REPLY WITHIN 5 SEC</small><div><button id="textChoiceAccept"></button><button id="textChoiceDecline"></button></div></section>
     <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS · BET $1</span><strong id="rivalPay" hidden></strong></div>
     <strong class="sr-only" id="rivalReels">Cherry, Bell, Seven</strong>
     <div id="duelRules"><strong>MOST CASH WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>
@@ -56,8 +58,8 @@ app.innerHTML = `
   <footer>
     <section id="upgradeShop" aria-label="Upgrade your machine">
       <h2>UPGRADE</h2>
-      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $5</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
-      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $5</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $10</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $10</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
       <span class="sr-only" id="purchaseNotice" role="status">BUY → BOOST YOUR NEXT SPIN</span>
       <i id="purchaseSymbol" aria-hidden="true"></i>
     </section>
@@ -82,14 +84,15 @@ app.innerHTML = `
     <p>Click or press SPACE after the reels stop.<br>Your rival spins automatically.<br>Finish with more cash in 60 seconds.</p>
     <p class="gate-strategy">Start with $30. Pick $1, $3, or $5.<br>More BET unlocks more lines.<br>Every spin could turn the game.</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>Pick your risk.<br>No queued spins.</span></div>
-    <button id="practice" class="primary">PLAY NOW <span>→</span></button>
-    <small>Free · No mic needed · Desktop 1280×720 or larger</small>
-    <details class="voice-options"><summary>ADD AI VOICE · OPTIONAL</summary>
+    <section class="voice-options" aria-labelledby="voiceOptionsTitle">
+      <h3 id="voiceOptionsTitle">ADD AI VOICE · OPTIONAL</h3>
       <p>Talk to your rival while you play. Microphone audio is sent to OpenAI. An invite is required. Connections close after the match; conversations are not stored.</p>
       <label>Invite code<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
-      <label class="voice-video-option"><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
-      <button id="liveConnect">CONNECT AI VOICE</button>
-    </details>
+      <label class="voice-video-option" hidden><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
+      <button id="liveConnect" class="primary">CONNECT AI VOICE <span>→</span></button>
+    </section>
+    <button id="practice" class="secondary">PLAY NOW <span>→</span></button>
+    <small>Free · No mic needed · Desktop 1280×720 or larger</small>
     <small id="gateMessage" role="status">CPU play needs no external AI service.</small>
   </div>
 </div>

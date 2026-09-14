@@ -7,6 +7,7 @@ import { ResultCountUp } from './ResultCountUp';
 import { mountGameTemplate } from './GameTemplate';
 import { ReelScene } from './ReelScene';
 import { OVERLAYS, STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
+import './BetControls.css';
 
 /** DOM, focus and Three.js presentation. All match transitions arrive as state. */
 export class GameView implements GamePresentation {
@@ -19,6 +20,7 @@ export class GameView implements GamePresentation {
   private current: GameViewState | null = null;
   private resultKey = '';
   private disposed = false;
+  private playerReelsSpinning = false;
 
   constructor(private readonly app: HTMLElement) {
     mountGameTemplate(app);
@@ -61,6 +63,7 @@ export class GameView implements GamePresentation {
     }
     const chooseBet = (bet: Bet) => {
       void this.audio.unlock().then(() => this.audio.betClick());
+      this.scene.pressBet(bet);
       commands.setBet(bet);
     };
     this.q('#practice').addEventListener('click', () => { unlock(); void commands.startCpu(); }, options);
@@ -76,6 +79,14 @@ export class GameView implements GamePresentation {
       void commands.connectLive(code, this.q<HTMLInputElement>('#avatarVideo').checked).then(() => { if (!this.current?.gate.visible) input.value = ''; });
     }, options);
     this.q('#leave').addEventListener('click', () => commands.leave(), options);
+    for (const [selector, accepted] of [['#textChoiceAccept', true], ['#textChoiceDecline', false]] as const) {
+      this.q<HTMLButtonElement>(selector).addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const choice = this.current?.textChoice;
+        if (choice) commands.respondTextChoice(choice.token, accepted);
+      }, options);
+    }
     this.q('#mic').addEventListener('click', event => {
       commands.toggleMicMuted();
       if (event.detail > 0 && this.current?.snapshot.status === 'playing') this.q('#start').focus({ preventScroll: true });
@@ -83,7 +94,12 @@ export class GameView implements GamePresentation {
     this.q('#sound').addEventListener('click', () => commands.toggleVoiceMuted(), options);
     this.q('#effects').addEventListener('click', () => { unlock(); commands.toggleEffectsMuted(); }, options);
     this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
-      button.addEventListener('click', () => chooseBet(Number(button.dataset.bet) as Bet), options);
+      const bet = Number(button.dataset.bet) as Bet;
+      button.addEventListener('click', () => chooseBet(bet), options);
+      button.addEventListener('pointerenter', () => this.scene.hoverBet(bet), options);
+      button.addEventListener('pointerleave', () => this.scene.hoverBet(null), options);
+      button.addEventListener('focus', () => this.scene.hoverBet(bet), options);
+      button.addEventListener('blur', () => this.scene.hoverBet(null), options);
     });
     addEventListener('keydown', event => {
       const state = this.current;
@@ -205,16 +221,30 @@ export class GameView implements GamePresentation {
     this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
       const bet = Number(button.dataset.bet) as Bet;
       button.dataset.active = String(bet === selectedBet);
+      button.setAttribute('aria-pressed', String(bet === selectedBet));
       button.disabled = state.mode === 'idle' || state.balances.player < bet;
     });
     const showLineIndicators = state.mode !== 'idle' && !state.result;
     const activeLines = showLineIndicators ? ACTIVE_LINES[selectedBet] : [];
+    this.q('#lineIndicators').hidden = !showLineIndicators;
+    this.text('#betStatus', showLineIndicators ? `Bet $${selectedBet} per spin. ${selectedBet} ${selectedBet === 1 ? 'line' : 'lines'} active for the next spin.` : '');
     const winningLines = state.payout?.player && showLineIndicators ? state.lastSpin?.player?.winningLines ?? [] : [];
     this.q('#lineIndicators').querySelectorAll<HTMLElement>('[data-line]').forEach(indicator => {
       const line = indicator.dataset.line as WinningLine;
       indicator.dataset.active = String(activeLines.includes(line));
       indicator.dataset.winning = String(winningLines.includes(line));
     });
+    this.scene.setBetControls({ bet: selectedBet, balance: state.balances.player, enabled: state.mode !== 'idle', showLines: showLineIndicators, winningLines });
+    const previewAvailable = showLineIndicators && !state.gate.visible && state.countdown === null
+      && !this.playerReelsSpinning && !state.payout?.player;
+    const betChanged = previous && previous.snapshot.matchId === snapshot.matchId && previous.bets.player !== selectedBet;
+    if (!previewAvailable || betChanged) this.cancelBetPreview();
+    if (betChanged && previewAvailable && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const previewLines = selectedBet < previous.bets.player
+        ? activeLines
+        : activeLines.filter(line => !ACTIVE_LINES[previous.bets.player].includes(line));
+      this.scene.previewBetLines(previewLines);
+    }
     this.text('#rivalMood', state.rivalDistraction?.active ? 'DISTRACTED...' : state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
     this.q('#line').dataset.conversation = state.conversation;
@@ -267,6 +297,18 @@ export class GameView implements GamePresentation {
       this.text('#loanDirection', loan.direction === 'rival_to_player' ? 'RIVAL → YOU' : 'YOU → RIVAL');
       this.text('#loanAmount', loan.direction === 'rival_to_player' ? `+$${loan.amount}` : `−$${loan.amount}`);
       this.q('#loanTransfer').dataset.direction = loan.direction;
+    }
+    const choice = state.textChoice;
+    this.q('#textChoice').hidden = !choice;
+    this.q('#line').hidden = !!choice;
+    this.q('#heard').hidden = !!choice;
+    this.q('#miniLabel').hidden = !!choice;
+    if (choice) {
+      this.text('#textChoiceKind', choice.kind === 'extend' ? 'LAST CALL' : 'CASH CALL');
+      this.text('#textChoiceQuestion', choice.question);
+      this.text('#textChoiceDetail', choice.detail);
+      this.text('#textChoiceAccept', choice.acceptLabel);
+      this.text('#textChoiceDecline', choice.declineLabel);
     }
     const start = this.q<HTMLButtonElement>('#start');
     start.disabled = state.startControl.disabled;
@@ -365,24 +407,36 @@ export class GameView implements GamePresentation {
   }
 
   playSpin(spin: SpinView, stopped: (celebrate?: boolean) => void): void {
-    this.scene.playSide(spin, stopped);
+    if (spin.side === 'player') {
+      this.playerReelsSpinning = true;
+      this.cancelBetPreview();
+    }
+    this.scene.playSide(spin, celebrate => {
+      if (spin.side === 'player') this.playerReelsSpinning = false;
+      stopped(celebrate);
+    });
+  }
+  private cancelBetPreview(): void {
+    this.scene.cancelBetPreview();
   }
   resetScene(): void {
     this.resultCount.stop();
+    this.playerReelsSpinning = false;
+    this.cancelBetPreview();
     this.scene.stop();
     this.scene.setRivalDistracted(false);
     this.scene.setUpgrades([], []);
     this.scene.setExpression('neutral');
     this.scene.show(['cherry', 'bell', 'seven']);
   }
-  stopScene(): void { this.scene.stop(); }
+  stopScene(): void { this.playerReelsSpinning = false; this.cancelBetPreview(); this.scene.stop(); }
   celebrateResult(winner: 'player' | 'rival' | 'draw'): void { this.scene.celebrateResult(winner); }
   playSound(cue: GameSound): void { this.audio.play(cue); }
   unlockSound(): Promise<void> { return this.audio.unlock(); }
   stopSound(): void { this.audio.stop(); }
   setEffectsMuted(muted: boolean): void { this.audio.setMuted(muted); }
   focus(target: 'start' | 'gate'): void {
-    if (target === 'gate') this.q('#practice').focus();
+    if (target === 'gate') this.q('#invite').focus();
     else (this.q<HTMLButtonElement>('#start').disabled ? this.q('#leave') : this.q('#start')).focus();
   }
   dispose(): void {
@@ -390,6 +444,7 @@ export class GameView implements GamePresentation {
     this.disposed = true;
     this.events.abort();
     this.resultCount.dispose();
+    this.cancelBetPreview();
     this.audio.dispose();
     this.scene.dispose();
     this.elements.clear();

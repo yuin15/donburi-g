@@ -128,6 +128,48 @@ afterEach(() => {
 });
 
 describe('stage rendering and cleanup', () => {
+  it('replaces added 3D lines with the remaining lines on a bet decrease and settles rendering', () => {
+    const { view } = setup();
+    const base = { balance: 30, enabled: true, showLines: true, winningLines: [] };
+    view.setBetControls({ ...base, bet: 5 });
+    view.previewBetLines(['diagonalDown', 'diagonalUp']);
+    frame(150);
+    const controls = scene().getObjectByName('physical-bet-controls')!;
+    const trace = (line: string) => controls.getObjectByName(`bet-trace-${line}`)!;
+    expect(trace('diagonalDown').visible).toBe(true);
+    view.setBetControls({ ...base, bet: 3 });
+    view.previewBetLines(['top', 'middle', 'bottom']);
+    frame(200);
+    expect(['top', 'middle', 'bottom'].map(line => trace(line).visible)).toEqual([true, true, true]);
+    expect(['diagonalDown', 'diagonalUp'].map(line => trace(line).visible)).toEqual([false, false]);
+    frame(1000);
+    expect(controls.children.filter(child => child.name.startsWith('bet-trace-')).every(child => !child.visible)).toBe(true);
+    expect(frames.size).toBe(0);
+  });
+
+  it('cancels 3D bet traces on stop and reduced motion without reviving old lines', () => {
+    const { view } = setup();
+    view.previewBetLines(['middle']);
+    frame(100);
+    const trace = scene().getObjectByName('bet-trace-middle')!;
+    expect(trace.visible).toBe(true);
+    view.stop();
+    frame();
+    expect(trace.visible).toBe(false);
+    expect(frames.size).toBe(0);
+    view.previewBetLines(['middle']);
+    frame(100);
+    motion.matches = true;
+    motion.dispatchEvent(new Event('change'));
+    frame();
+    expect(trace.visible).toBe(false);
+    motion.matches = false;
+    motion.dispatchEvent(new Event('change'));
+    frame();
+    expect(trace.visible).toBe(false);
+    expect(frames.size).toBe(0);
+  });
+
   it('loads shared artwork and paints idle only once', () => {
     const { view, host } = setup();
     frame();

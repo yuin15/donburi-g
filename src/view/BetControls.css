@@ -1,0 +1,18 @@
+/* The visible controls are meshes; these elements preserve native input and accessibility. */
+#betControls {
+  display: flex; align-items: center; gap: .4785cqw;
+  padding: .4187cqw .5383cqw; z-index: 2;
+  border: 0; background: none; box-shadow: none;
+}
+#betControls > small { display: none; }
+#betControls button {
+  flex: 1; min-width: 0; height: 100%; padding: 0;
+  border: 0; border-radius: 999px; background: transparent;
+  color: transparent; text-shadow: none; box-shadow: none; transform: none;
+}
+#betControls button:hover:not(:disabled), #betControls button:active:not(:disabled), #betControls button:disabled {
+  background: transparent; color: transparent; box-shadow: none; transform: none; opacity: 1;
+}
+#betControls button > span { opacity: 0; }
+#betControls button:focus-visible { outline: 2px solid #fff1a7; outline-offset: 2px; }
+#lineIndicators { opacity: 0; pointer-events: none; }
