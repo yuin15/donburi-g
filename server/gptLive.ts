@@ -401,6 +401,7 @@ export class GptLiveBridge {
   }
 
   private flushConfirmedLine(): void {
+    if (!this.pendingConfirmedLine) return;
     if (this.hasPendingPlayback() || Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
     const pending = this.pendingConfirmedLine;
     this.pendingConfirmedLine = null;
@@ -412,6 +413,7 @@ export class GptLiveBridge {
   }
 
   private flushDelegationResult(): void {
+    if (!this.pendingDelegationResult) return;
     if (this.hasPendingPlayback() || Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
     const result = this.pendingDelegationResult;
     this.pendingDelegationResult = null;
@@ -495,24 +497,28 @@ export class GptLiveBridge {
   }
 
   private schedulePendingSpeech(): void {
+    if (!this.pendingConfirmedLine && !this.pendingDelegationResult) return;
     if (this.hasActivePlayback()) return;
     const delay = this.playbackQuietUntil - Date.now();
-    if (delay <= 0) {
-      // A confirmed rule result wins over a buffered, unprompted reply. It is
-      // already old by the time the previous audible line and its quiet gap end.
-      if (this.pendingConfirmedLine || this.pendingDelegationResult) this.discardBufferedNormalSpeech();
-      this.flushConfirmedLine();
-      this.flushDelegationResult();
-      return;
-    }
+    if (delay <= 0) { this.releasePendingSpeech(); return; }
     if (this.pendingSpeechTimer) clearTimeout(this.pendingSpeechTimer);
     this.pendingSpeechTimer = setTimeout(() => {
       this.pendingSpeechTimer = null;
-      if (this.hasActivePlayback()) return;
-      if (this.pendingConfirmedLine || this.pendingDelegationResult) this.discardBufferedNormalSpeech();
-      this.flushConfirmedLine();
-      this.flushDelegationResult();
+      this.releasePendingSpeech();
     }, delay);
+  }
+
+  /** Send a pending authoritative line once actual playback and its quiet gap end. */
+  private releasePendingSpeech(): void {
+    if (!this.pendingConfirmedLine && !this.pendingDelegationResult) return;
+    if (this.hasActivePlayback()) return;
+    if (Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
+    // A confirmed rule result wins over an unprompted utterance even when the
+    // model is still collecting it. Clearing the collection prevents a
+    // synchronous flush/schedule loop with no playback ACK to await.
+    this.discardBufferedNormalSpeech();
+    this.flushConfirmedLine();
+    this.flushDelegationResult();
   }
   private finishDelegationSpeech(): void {
     const speech = this.activeDelegationSpeech;

@@ -356,6 +356,69 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('does not recurse when a suppressed normal playback is released while the next utterance is collecting', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-1', 'normal');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(() => bridge.discardNormalPlayback('normal-1')).not.toThrow();
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-2', 'normal');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('replaces a still-collected normal utterance with a confirmed line without recursive scheduling', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(() => bridge.requestConfirmedLine('確定した延長台詞。', 'confirmed-during-normal')).not.toThrow();
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
+      type: 'session.commentary.append',
+      content: expect.stringContaining('確定した延長台詞。'),
+    });
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('replaces a still-collected normal utterance with a delegated result without recursive scheduling', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(() => bridge.requestDelegationResult('extension-delegation', '確定した委任結果。', 'delegated-during-normal')).not.toThrow();
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
+      type: 'session.commentary.append',
+      delegation_id: 'extension-delegation',
+      content: expect.stringContaining('確定した委任結果。'),
+    });
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('uses the settled English state for confirmed and delegated fixed lines', async () => {
     const { bridge } = setup('', 'en');
     const connecting = bridge.connect();
