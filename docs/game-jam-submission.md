@@ -12,59 +12,59 @@ Copy the answer body under each heading into the corresponding form field. Each 
 
 ## 1. Project description
 
-*Word count: 139 / 200.*
+*Word count: 141 / 200.*
 
-Slot-chan is a desktop browser game that turns a 60-second slot duel into a rivalry with personality. Both players start with $30 in fictional currency. Choose $1, $3, or $5 bets, spin manually, and decide whether to preserve your balance or buy upgrades that change your reel composition. Your opponent keeps spinning independently, and the higher final balance wins.
+Slot-chan is a desktop browser game where you talk with your AI rival while playing a 60-second slot duel. Keep spinning, choose your bets, and speak to the opponent as the match unfolds. OpenAI voice brings banter, reactions, and spoken requests into the same experience as the game. The appeal is competing with someone you can converse with throughout the round.
 
-An ornate 3D cabinet, cherries, bells, sevens, sculpted reward text, and showers of coins make each win tangible. The rival responds visually through 18 expressions. Optional OpenAI voice conversation adds banter and spoken requests during the match, while the complete CPU game remains playable without a microphone or API access.
+Both sides start with $30 in fictional currency. The player spins manually, chooses $1, $3, or $5 bets, and can buy reel upgrades. The rival spins independently; the higher final balance wins. A custom 3D cabinet, expressive character, and coin celebrations make the changing fortunes visible.
 
-Built by team donburi with TypeScript, Three.js, and custom 3D assets, Slot-chan combines a short, replayable game with an expressive opponent. All currency is simulated, with no deposits or cash-outs.
+Built by team donburi, Slot-chan combines conversation, risk, and a short replayable match. Voice uses an invite and microphone; CPU play remains available without them. All currency is simulated, with no deposits or cash-outs.
 
 ## 2. Meaningful use of OpenAI tools — 30%
 
-*Word count: 141 / 200.*
+*Word count: 143 / 200.*
 
-OpenAI supports both the playable rival and the development of the game's 3D world.
+OpenAI voice enables Slot-chan's central experience: playing a game while conversing with the opponent.
 
-GPT-Live receives current match context and streams conversational speech and transcripts. Players can talk while spinning, with interruption handling and English/Japanese language support. Spoken requests can reach validated game actions; a Responses API path classifies replies to a bounded loan offer. Game code retains control of money, time, and reel outcomes.
+GPT-Live streams microphone input, rival speech, and transcripts during active play. Current balances, time, and confirmed outcomes provide context for the conversation. Players can react to a win, challenge the rival, or continue a conversation while their hands operate the controls. The implementation supports interruptions and English/Japanese conversation, so interaction can follow the player's response as well as the match.
 
-Codex assisted 3D model development for the cabinet, cherries, bell, seven, and coin. It supported production scripts, mesh corrections, export optimization, and Three.js integration. Feedback from the actual game screen guided improvements to shapes, materials, lighting, and animation. Included generation scripts and exported meshes support further iteration.
+Spoken requests for fictional money or extra time can reach validated game actions. A bounded Responses API path classifies replies to a loan offer; game code retains control of money, time, and reel outcomes.
 
-Codex also assisted implementation, refactoring, and debugging. OpenAI image generation contributed artwork and expression variants. Voice is optional, keeping the underlying game accessible when an AI connection is unavailable.
+Codex supported voice integration, implementation, debugging, and 3D model development through production scripts, mesh corrections, and Three.js integration. OpenAI image generation contributed artwork and expression variants. These development tools support the shared conversational game experience.
 
 ## 3. Originality — 25%
 
-*Word count: 143 / 200.*
+*Word count: 136 / 200.*
 
-Slot-chan makes a familiar slot machine feel like a face-to-face rivalry. The player controls when to spin and how much to risk, while an opponent continues independently. Upgrades compete with bets for the same limited balance, creating a decision between improving future chances and protecting the money needed to win.
+Slot-chan combines the immediacy of a slot duel with the social feeling of talking to someone across the table. Conversation happens while the player spins, chooses bets, and watches the rival's progress. A lucky result can become something to celebrate aloud; a losing position can prompt a challenge or a request for more time.
 
-The rival is also a character: changing expressions, reacting to momentum, and optionally speaking with the player. Small social moments, such as requests for fictional money or extra time, sit inside the match rather than in a separate chat screen.
+The same opponent both competes and converses, giving the interaction a shared subject and visible stakes. Its independent spins keep the round moving, while voice and changing expressions give the rivalry personality.
 
-The presentation combines lavish arcade energy with recognizable cherries, bells, sevens, and English controls. Custom procedural models support physical celebrations: symbols emerge from the reels, the cabinet moves, and coins travel through the scene. The result is a compact duel where both a payout and an opponent's reaction can become the memorable moment.
+Betting and upgrades draw from one limited balance, adding a choice between immediate risk and future chances. Recognizable cherries, bells, and sevens make the rules approachable, while custom 3D celebrations amplify the drama. The memorable moment can be the win, what the rival says about it, or the player's reply.
 
 ## 4. Playability / usefulness — 25%
 
-*Word count: 151 / 200.*
+*Word count: 147 / 200.*
 
-Players can open the browser demo and select PLAY NOW without signing in, providing credentials, or granting microphone access. A normal round lasts 60 seconds, making it easy to understand, demonstrate, and replay at a game jam.
+The conversational demo lets players keep using the mouse and keyboard for the game while speaking through the microphone. They can respond to the rival without typing or opening another screen. A normal round lasts 60 seconds, making the combination of conversation and competition easy to demonstrate and replay.
 
-Mouse and keyboard controls support manual spins and three bet sizes. Active paylines, visible balances, and an upgrade shop expose the important choices. The rival's independent spins sustain pressure even when the player pauses. Round statistics and immediate rematches support experimentation with timing, bets, and upgrades.
+To try voice, enter the organizer-provided invite, connect AI voice, allow the microphone, and start. Separate microphone, rival voice, and effects controls help manage the experience. CPU play is also available through PLAY NOW without credentials or microphone access.
 
-AI voice can be added through an invite, but CPU play is a complete experience on its own. Separate microphone, voice, and effects controls help players manage the presentation. Reduced-motion support limits intense effects.
+Manual spins, three bet sizes, visible paylines, and an upgrade shop expose the choices. The rival spins independently, and round statistics and rematches encourage experimentation. Reduced-motion support limits intense effects.
 
-The demo targets desktop screens of at least 1280×720. It is designed for short, expressive play sessions, not mobile use or real-money gambling. Current verification and remaining microphone evaluation are documented alongside the submission.
+The demo targets desktop screens of at least 1280×720. Voice depends on configured API access; current verification and remaining human microphone evaluation are documented. All game currency is fictional.
 
 ## 5. Execution and technical quality — 20%
 
-*Word count: 145 / 200.*
+*Word count: 148 / 200.*
 
-Slot-chan is implemented in TypeScript with Vite and Three.js. MVVM separates game rules, interaction state, and presentation, allowing visual changes without rewriting payout logic. CPU play and live sessions use shared game rules, while live actions are validated by the server.
+Slot-chan connects a continuously running game to streaming voice. Its browser microphone and audio playback, server voice connection, transcripts, and current match context work together so conversation can accompany play. Interruption handling manages speech and subtitle state, while server validation bounds changes requested through conversation. API credentials stay server-side and voice sessions have bounded lifetimes.
 
-3D production uses Blender and Houdini. Codex supported modeling, production scripts, mesh corrections, export optimization, and runtime integration. Shared geometry, materials, and an atlas rendered from the symbol models reduce repeated work; actual meshes animate during wins. Layered coin effects, sculpted text, lighting, and sound reinforce the outcome.
+TypeScript, Vite, Three.js, and MVVM separate game rules, interaction state, and presentation. CPU play and live sessions share the game rules. Blender and Houdini support 3D production, with Codex assisting model scripts, mesh corrections, and integration. Shared geometry and symbol atlases support animated wins and coin effects.
 
-The repository includes source assets, architecture notes, setup instructions, and visual evidence. Existing GitHub Actions checks cover types, lint, tests, server runtime, and production builds. API credentials remain server-side, and voice connections have bounded lifetimes.
+Source assets, setup instructions, architecture notes, and visual evidence are included. Existing GitHub Actions checks cover types, lint, tests, server runtime, and production builds.
 
-The submission prioritizes a playable, visually expressive demo. Provider-dependent conversation latency and the latest human microphone evaluation remain explicitly documented limitations.
+The submission prioritizes the experience of talking and playing together. Provider-dependent conversation latency and the latest human microphone evaluation remain documented limitations.
 
 ## 6. Existing code, open source, datasets, and third-party tools
 
