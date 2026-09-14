@@ -87,7 +87,7 @@ app.innerHTML = `
     <details class="voice-options"><summary>ADD AI VOICE · OPTIONAL</summary>
       <p>Talk to your rival while you play. Microphone audio is sent to OpenAI. An invite is required. Connections close after the match; conversations are not stored.</p>
       <label>Invite code<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
-      <label class="voice-video-option"><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
+      <label class="voice-video-option" hidden><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
       <button id="liveConnect">CONNECT AI VOICE</button>
     </details>
     <small id="gateMessage" role="status">CPU play needs no external AI service.</small>
