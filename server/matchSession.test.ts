@@ -1983,6 +1983,120 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('switches once to a $0 chat policy, suppresses the automatic extension offer, and restores normal context after a confirmed payout', async () => {
+    const { session } = setup('zero-balance-chat', 'manual', 'audio', () => 0);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 52;
+    state.remaining = 8;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('初回の資金切れへの一言はまだ発話しない'));
+    expect(provider.confirmedLine).not.toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
+    expect(provider.reaction).toHaveBeenCalledWith(expect.stringContaining('まず資金切れかこの台への軽い愚痴・感想'));
+    expect(provider.reaction).toHaveBeenCalledWith(expect.stringContaining('短い二文までで終え'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('初回の資金切れへの一言はすでに一度伝えた'));
+    (session as unknown as { startedAt: number }).startedAt = Date.now() - 53_000;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('これは発話要求ではない'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.not.stringContaining('初回反応を待ち'));
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
+    state.scores.player = 4;
+    state.scores.rival = 2;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('会話方針: 通常のゲーム会話。'));
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps a $0 ready lobby silent until the match starts', async () => {
+    const { session } = setup('zero-balance-ready', 'manual', 'audio');
+    await session.initialize();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    const context = (session as unknown as { gameContext(): string }).gameContext();
+    expect(context).toContain('まだ試合開始前。雑談への移行案内を発話せず待つ');
+    expect(context).not.toContain('初回の資金切れへの一言はすでに一度伝えた');
+    await session.shutdown('test_finished');
+  });
+
+  it('retries the $0 transition after the AI response cooldown rejects its first request', async () => {
+    const { session } = setup('zero-balance-bridge-cooldown', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(100);
+    provider.reaction.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    await vi.advanceTimersByTimeAsync(3000);
+    const zeroReactionCount = () => provider.reaction.mock.calls.filter(call => String(call[0]).includes('双方の確定残高が$0で未確定回転はない')).length;
+    expect(zeroReactionCount()).toBe(1);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('初回の資金切れへの一言はまだ発話しない'));
+    await vi.advanceTimersByTimeAsync(250);
+    expect(zeroReactionCount()).toBe(2);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('初回の資金切れへの一言はすでに一度伝えた'));
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(zeroReactionCount()).toBe(2);
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps the $0 chat invitation through an ordinary reaction cooldown and a long user turn', async () => {
+    const { session } = setup('zero-balance-user-priority', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.reaction).toHaveBeenCalledWith('対戦が今始まる。短く挑発して。');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(provider.reaction.mock.calls.some(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toBe(false);
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(3999);
+    expect(provider.reaction.mock.calls.some(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps an explicit time-extension request available when both balances are $0', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('reject_extension');
+    const { session } = setup('zero-balance-explicit-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 52;
+    state.remaining = 8;
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'zero-balance-extension', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 0 }, remaining: 8 }), '延長して', expect.any(String), expect.any(AbortSignal), false);
+    await session.shutdown('test_finished');
+  });
+
+  it('uses the $0 policy for the final line instead of inviting a rematch', async () => {
+    const { session } = setup('zero-balance-result', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 59;
+    state.remaining = 1;
+    (session as unknown as { startedAt: number }).startedAt = Date.now() - 60_000;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.openingContexts.at(-1)).toContain('会話方針: 双方の確定残高が$0で試合は終了済み。雑談への移行案内や再戦を誘わず');
+    expect(provider.reaction).toHaveBeenCalledWith(expect.stringContaining('逆転、再戦、追加の回転は誘わず'));
+    await session.shutdown('test_finished');
+  });
+
   it('keeps the clock moving and rejects a delayed decision after the match ends', async () => {
     const late = deferred<'accept_extension_10s'>();
     vi.mocked(chooseTimeExtension).mockReturnValueOnce(late.promise);

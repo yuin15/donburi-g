@@ -46,6 +46,10 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('両者は$30で開始');
     expect(start.session.instructions).toContain('$1は中央1ライン');
     expect(start.session.instructions).toContain('確定した自分のBETだけ');
+    expect(start.session.instructions).toContain('双方の確定残高が$0の会話');
+    expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
+    expect(start.session.instructions).toContain('初回だけは短い2文まで許し');
+    expect(start.session.instructions).toContain('自動の時間延長を誘わず');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -205,6 +209,23 @@ describe('live conversation pacing', () => {
     bridge.updateGameContext('score 29');
     socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: latest.event_id }));
     expect(socket.send).toHaveBeenCalledTimes(2);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('accepts a $0 transition reaction as a short response and tells the model to wait afterward', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    expect(bridge.requestReaction('雑談へ一度だけ誘う。')).toBe(true);
+    const reaction = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(reaction).toMatchObject({ type: 'session.commentary.append' });
+    expect(reaction.content).toContain('短い返答だけを発話');
+    expect(reaction.content).toContain('同じ誘いを足さず黙って待つ');
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
