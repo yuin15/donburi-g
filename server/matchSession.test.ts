@@ -1054,6 +1054,27 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('retries a required win after it is rejected before playback starts', async () => {
+    const { session } = setup('required-rejected', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.rounds.player = 1;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    provider.events?.onCommandRejected?.({ kind: 'commentary', speechId: 'extension-speech-id' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.requiredReaction).toHaveBeenCalledTimes(2);
+    await session.shutdown('test_finished');
+  });
+
   it('carries an unspoken final win into the result context', async () => {
     const { session } = setup('required-result', 'manual', 'audio');
     await session.initialize();

@@ -20,6 +20,7 @@ const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のA
 
 const LOAN_SPEECH_GUARD = '自分から借入を提案しない。確定指示以外では、借りた・受け取った・ありがとう等を言わない。';
 const CONVERSATION_GUARD = 'プレイヤーの発言をそのまま繰り返したり要約だけで終えず、質問には答え、雑談にはライバル自身の短い反応を返す。聞き取れない時だけ短く聞き返す。';
+const REQUIRED_REACTION_START_TIMEOUT_MS = 5_000;
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
@@ -37,6 +38,7 @@ export class GptLiveBridge {
   private conversationUntil = 0;
   private appendSequence = 0;
   private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
+  private readonly timedOutRequiredCommands = new Set<string>();
   private contextInFlight: string | null = null;
   private latestContext = '';
   private sentContext = '';
@@ -177,6 +179,7 @@ export class GptLiveBridge {
           const id = typeof error?.client_event_id === 'string' ? error.client_event_id
             : typeof error?.event_id === 'string' ? error.event_id
               : typeof event.client_event_id === 'string' ? event.client_event_id : null;
+          if (id && this.timedOutRequiredCommands.delete(id)) return;
           const pending = id ? this.pendingCommands.get(id) : undefined;
           const providerType = typeof error?.type === 'string' ? error.type : '';
           // A provider rejection is recoverable only for one of our pending
@@ -304,7 +307,8 @@ export class GptLiveBridge {
       'For the player\'s small hit, sound surprised or disappointed; for your own, pleased or lightly boastful; for both, competitive. Make a seven a bigger reaction. Avoid repeating stock phrases.',
     ].join(' '), null, speechId);
     if (!commandId) return false;
-    this.activeDelegationSpeech = { speechId, commandId, started: false, holdUntilPlayback: true, ended: false, quietMs: 0, timer: null };
+    const timer = setTimeout(() => this.rejectUnstartedRequiredSpeech(speechId), REQUIRED_REACTION_START_TIMEOUT_MS);
+    this.activeDelegationSpeech = { speechId, commandId, started: false, holdUntilPlayback: true, ended: false, quietMs: 0, timer };
     return true;
   }
 
@@ -354,6 +358,7 @@ export class GptLiveBridge {
     this.pendingConfirmedLine = null;
     this.pendingDelegationResult = null;
     for (const id of this.pendingCommands.keys()) this.clearPendingCommand(id);
+    this.timedOutRequiredCommands.clear();
     if (this.activeDelegationSpeech?.timer) clearTimeout(this.activeDelegationSpeech.timer);
     this.activeDelegationSpeech = null;
     this.suppressAfterTaggedSpeech = false;
@@ -438,6 +443,16 @@ export class GptLiveBridge {
       this.suppressAfterTaggedSpeech = false;
       this.suppressOutput();
     }
+  }
+
+  /** A required reaction without PCM cannot wait for an ACK that will never arrive. */
+  private rejectUnstartedRequiredSpeech(speechId: string): void {
+    const speech = this.activeDelegationSpeech;
+    if (!speech || speech.speechId !== speechId || !speech.holdUntilPlayback || speech.started) return;
+    this.activeDelegationSpeech = null;
+    this.timedOutRequiredCommands.add(speech.commandId);
+    this.clearPendingCommand(speech.commandId);
+    this.events.onCommandRejected?.({ kind: 'commentary', speechId });
   }
 
   private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null, speechId?: string): string | null {

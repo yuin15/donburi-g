@@ -350,6 +350,29 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('releases an unstarted required hit so its owner can retry', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    expect(bridge.requestRequiredReaction('確定当たり情報: プレイヤー: ベル', 'required-timeout')).toBe(true);
+    const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(events.onCommandRejected).toHaveBeenCalledExactlyOnceWith({ kind: 'commentary', speechId: 'required-timeout' });
+    socket.emit('message', JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', client_event_id: request.event_id } }));
+    expect(events.onError).not.toHaveBeenCalled();
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice);
+    await vi.advanceTimersByTimeAsync(1_201);
+    expect(bridge.requestRequiredReaction('確定当たり情報: 私: ベル', 'required-retry')).toBe(true);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('uses the settled English state for confirmed and delegated fixed lines', async () => {
     const { bridge } = setup('', 'en');
     const connecting = bridge.connect();
