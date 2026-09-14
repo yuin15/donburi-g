@@ -677,6 +677,7 @@ export class MatchSession {
       return;
     }
     if (event.type === 'match_end') {
+      this.settleConversationLanguageAtMatchEnd();
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
       const direction: LocalizedLine = event.snapshot.winner === 'player'
@@ -943,13 +944,27 @@ export class MatchSession {
       this.delegationSettles.delete(timer);
       if (this.conversationLanguageSettle?.timer !== timer) return;
       this.conversationLanguageSettle = null;
-      if (this.closed || generation !== this.voiceGeneration || turn !== this.userSpeechTurn || this.userSpeaking) return;
-      if (this.conversationLanguage === 'ja' && isClearlyEnglishTurn(this.currentUserTurnTranscript())) this.conversationLanguage = 'en';
-      this.gpt?.setConversationLanguage(this.conversationLanguage);
-      this.pushContext();
+      this.settleConversationLanguage(turn, generation);
     }, USER_TRANSCRIPT_SETTLE_MS);
     this.conversationLanguageSettle = { turn, generation, timer };
     this.delegationSettles.add(timer);
+  }
+
+  /** Resolve a completed final turn before replacing the match voice bridge. */
+  private settleConversationLanguageAtMatchEnd(): void {
+    const pending = this.conversationLanguageSettle;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.delegationSettles.delete(pending.timer);
+    this.conversationLanguageSettle = null;
+    this.settleConversationLanguage(pending.turn, pending.generation);
+  }
+
+  private settleConversationLanguage(turn: number, generation: number): void {
+    if (this.closed || generation !== this.voiceGeneration || turn !== this.userSpeechTurn || this.userSpeaking) return;
+    if (this.conversationLanguage === 'ja' && isClearlyEnglishTurn(this.currentUserTurnTranscript())) this.conversationLanguage = 'en';
+    this.gpt?.setConversationLanguage(this.conversationLanguage);
+    this.pushContext();
   }
 
   /** A live, clear reply to the rival's own offer transfers without AI delay. */

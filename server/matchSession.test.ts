@@ -147,6 +147,24 @@ describe('provider status lifecycle', () => {
     await session.shutdown('test_finished');
   });
 
+  it.each([
+    ['Hello', 'en', '今すぐEnglishで'],
+    ['これは ABC の話', 'ja', '今すぐJapaneseで'],
+  ] as const)('settles a delayed completed %s turn before the result bridge starts', async (transcript, language, resultLanguage) => {
+    const { session } = setup(`final-language-${language}`, 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(59_800);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onTranscript('user', transcript, { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.bridgeLanguages.at(-1)).toBe(language);
+    expect(provider.openingContexts.at(-1)).toContain(resultLanguage);
+    await session.shutdown('test_finished');
+  });
+
   it('uses English fixed lines for loans, extensions, and the result bridge after an English turn', async () => {
     vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
     vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
