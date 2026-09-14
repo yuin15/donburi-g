@@ -15,6 +15,15 @@ import { BetControls3D } from './BetControls3D';
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; cells: WinningCell[]; payout: number; reels: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
 const sides: Side[] = ['player', 'rival'];
+const REST_YAW = .095;
+// Pull back, turn into the light, push forward and hold, then settle home.
+const JACKPOT_POSES = [
+  { at: 0, x: 0, y: 0, z: 0, yaw: REST_YAW, pitch: 0, scale: 1 },
+  { at: .16, x: -10, y: -10, z: -45, yaw: -.04, pitch: .018, scale: .94 },
+  { at: .36, x: -20, y: -6, z: 65, yaw: -.32, pitch: -.025, scale: 1.035 },
+  { at: .52, x: -20, y: -6, z: 65, yaw: -.32, pitch: -.025, scale: 1.035 },
+  { at: .88, x: 0, y: 0, z: 0, yaw: REST_YAW, pitch: 0, scale: 1 },
+] as const;
 
 /** Cabinet and rewards share the existing scene; coins use bounded GPU pools. */
 export class CabinetArt {
@@ -51,6 +60,7 @@ export class CabinetArt {
   private finalGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private resultStarted = 0;
   private resultUntil = 0;
+  posing = false;
 
   constructor() {
     this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
@@ -119,6 +129,27 @@ export class CabinetArt {
     return true;
   }
   createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget { return this.winSymbols.createReelAtlas(renderer); }
+
+  /** Project a resting screen position on the cabinet's surface into its current pose. */
+  projectOverlay(x: number, y: number, depth: number, target: THREE.Vector3): THREE.Vector3 {
+    const localX = 530 + (x - 530 - Math.sin(REST_YAW) * depth) / Math.cos(REST_YAW);
+    target.set(localX, STAGE_HEIGHT - y, depth).applyMatrix4(this.playerGroup.matrixWorld);
+    target.y = STAGE_HEIGHT - target.y;
+    return target;
+  }
+
+  private poseJackpot(progress: number): void {
+    if (progress <= 0 || progress >= JACKPOT_POSES[JACKPOT_POSES.length - 1].at) return;
+    const next = JACKPOT_POSES.findIndex(pose => pose.at >= progress);
+    const from = JACKPOT_POSES[next - 1], to = JACKPOT_POSES[next];
+    const t = THREE.MathUtils.smoothstep(progress, from.at, to.at);
+    const mix = (a: number, b: number) => THREE.MathUtils.lerp(a, b, t);
+    this.machine.position.set(530 + mix(from.x, to.x), STAGE_HEIGHT - 500 + mix(from.y, to.y), mix(from.z, to.z));
+    this.machine.rotation.set(mix(from.pitch, to.pitch), mix(from.yaw, to.yaw), 0);
+    // The game uses an orthographic camera, so scale supplies the visible dolly.
+    this.machine.scale.setScalar(mix(from.scale, to.scale));
+    this.posing = true;
+  }
 
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
     const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
@@ -272,7 +303,10 @@ export class CabinetArt {
     const buttonDepth = reducedMotion ? 0 : Math.sin(Math.min(1, (now - this.pressedAt) / 180) * Math.PI) * 4.5;
     this.buttonText.position.z = 164 - buttonDepth;
     this.buttonText.position.y = STAGE_HEIGHT - 780 + buttonDepth * .2;
-    this.machine.rotation.set(0, .095, 0);
+    this.posing = false;
+    this.machine.position.set(530, STAGE_HEIGHT - 500, 0);
+    this.machine.rotation.set(0, REST_YAW, 0);
+    this.machine.scale.setScalar(1);
     if (this.resultText) {
       const entrance = result ? Math.min(1, (now - this.resultStarted) / 430) : 1;
       this.resultText.scale.setScalar(1 + Math.sin(entrance * Math.PI) * .12);
@@ -302,11 +336,19 @@ export class CabinetArt {
       this.winSymbols.update(side, winning ? burst.cells : [], winning ? burst.symbol : null, burst.payout, progress, reducedMotion, burst.reels);
       if (side === 'player' && winning && !reducedMotion) {
         const recoil = Math.sin(progress * Math.PI * 3) * Math.exp(-progress * 5) * (burst.jackpot ? 1 : .45);
-        this.machine.rotation.x = recoil * .012;
-        this.machine.rotation.y += recoil * .018;
-        this.machine.rotation.z = recoil * -.008;
+        // Finish before the next possible result, even during fast consecutive spins.
+        if (burst.jackpot) this.poseJackpot(burst.still ? .44 : (time - burst.started) / 1100);
+        else {
+          this.machine.rotation.x = recoil * .012;
+          this.machine.rotation.y += recoil * .018;
+          this.machine.rotation.z = recoil * -.008;
+        }
         const shine = Math.sin(Math.min(1, progress / .85) * Math.PI);
         this.sweep.position.set(180 + progress * 730, STAGE_HEIGHT - (290 + progress * 320), 180);
+        if (this.posing) {
+          this.playerGroup.updateWorldMatrix(true, false);
+          this.sweep.position.applyMatrix4(this.playerGroup.matrixWorld);
+        }
         this.sweep.intensity = shine * (burst.jackpot ? 270 : 110);
         this.body.setSweep(progress, shine * (burst.jackpot ? 2.7 : burst.symbol === 'bell' ? 1.3 : .6));
       }

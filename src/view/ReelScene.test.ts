@@ -435,9 +435,14 @@ describe('stage rendering and cleanup', () => {
   });
   it('clears reel highlights on the next play while the previous collection finishes on schedule', () => {
     const { view, host } = setup();
+    const overlay = { offsetLeft: 319, offsetTop: 568, style: { transform: '', transformOrigin: '' } };
+    view.bindCabinetOverlays([{ element: overlay as unknown as HTMLElement, depth: 164 }]);
     view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), side: 'rival' }, vi.fn());
     frame(1060);
     frame(50);
+    const cabinet = scene().getObjectByName('physical-cabinet-rig')!;
+    expect(cabinet.rotation.y).toBeLessThan(.095);
+    expect(overlay.style.transform).toMatch(/^matrix\(/);
     view.play(spin(2), { ...spin(2), side: 'rival' }, vi.fn());
     frame(16);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
@@ -446,6 +451,9 @@ describe('stage rendering and cleanup', () => {
     expect(burstPools.map(coin => coin.userData.side)).toEqual(['player', 'rival']);
     expect(burstPools.reduce((total, coin) => total + coin.count, 0)).toBe(324);
     frame(1044); // The following miss stops while the previous burst is collecting.
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(cabinet.scale.x).toBe(1);
+    expect(overlay.style.transform).toBe('');
     expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
     expect(coins().some(coin => coin.visible)).toBe(true);
     frame(589); // The jackpot reaches its 1.7 second endpoint one millisecond later.
@@ -478,10 +486,14 @@ describe('stage rendering and cleanup', () => {
     expect(frames.size).toBe(0);
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven, ['bell', 'cherry', 'seven'], true);
     frame();
+    expect(cabinet.rotation.y).toBeLessThan(-.2);
+    expect(overlay.style.transform).not.toBe('');
     expect(backgroundRain().visible).toBe(true);
     expect(frames.size).toBe(0);
     view.play(spin(3), { ...spin(3), side: 'rival' }, vi.fn());
     frame();
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(overlay.style.transform).toBe('');
     expect(coins().every(coin => !coin.visible)).toBe(true);
     expect(backgroundRain().visible).toBe(false);
   });

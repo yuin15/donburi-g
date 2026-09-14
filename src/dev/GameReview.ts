@@ -227,8 +227,8 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       view.scene.show(['seven', 'seven', 'seven']);
       showResult(snapshot);
     }
-    if (['small', 'diagonal', 'bell-cherry', 'cherry-bell', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
-      const jackpot = example === 'jackpot' || example === 'both-jackpot';
+    if (['small', 'diagonal', 'bell-cherry', 'cherry-bell', 'jackpot', 'cabinet-pose', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
+      const jackpot = example === 'jackpot' || example === 'both-jackpot' || example === 'cabinet-pose';
       // These stops are deliberately central-line-only wins: [0] is cherry,
       // [1] is bell, and [8] is seven. Multi-line fixtures use separate labels.
       let player = fixtureSpin('player', 20, jackpot ? [8, 8, 8] : [0, 0, 0], 1, 25);
@@ -244,8 +244,9 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       if (jackpot) { snapshot.remaining = 21; snapshot.elapsed = 39; }
       if (example === 'rival-jackpot') { snapshot.remaining = 12; snapshot.elapsed = 48; }
       showSnapshot(snapshot);
-      view.scene.showSpins(player, rival, true);
-      settle(player, rival, true, true);
+      const still = example !== 'cabinet-pose';
+      view.scene.showSpins(player, rival, still);
+      settle(player, rival, true, still);
     }
     if (example === 'draw' || example === 'defeat') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 };
