@@ -9,7 +9,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[], bridgeLanguages: [] as Array<'ja' | 'en'>,
-  context: vi.fn(), reaction: vi.fn(), requiredReaction: vi.fn(), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), completeConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), prepareRequiredReaction: vi.fn(), requiredReaction: vi.fn(), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), completeConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
@@ -38,6 +38,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   close = provider.gptClose;
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
+  prepareRequiredReaction = provider.prepareRequiredReaction;
   requestRequiredReaction = (line: string | { ja: string; en?: string }) => {
     provider.requiredReaction(typeof line === 'string' ? line : line[this.language] ?? line.ja);
     return provider.requiredReaction.mock.results.at(-1)?.value !== false;
@@ -119,6 +120,7 @@ beforeEach(() => {
   provider.stop.mockResolvedValue(undefined);
   provider.mediaStart.mockResolvedValue(true);
   provider.interruptWait.mockResolvedValue(true);
+  provider.prepareRequiredReaction.mockReturnValue(true);
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
   vi.mocked(chooseTimeExtension).mockResolvedValue('reject_extension');
@@ -1054,7 +1056,7 @@ describe('live match cleanup', () => {
   });
 
   it('sends a required win immediately while the user is speaking', async () => {
-    const { session } = setup('required-fresh', 'manual', 'audio');
+    const { session, messages } = setup('required-fresh', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
@@ -1068,7 +1070,37 @@ describe('live match cleanup', () => {
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     state.elapsed = 1;
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    expect(provider.prepareRequiredReaction).toHaveBeenCalledOnce();
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_interrupt' }));
     expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    await session.shutdown('test_finished');
+  });
+
+  it('waits for an avatar interruption before asking for a fresh required hit', async () => {
+    const { session } = setup('required-avatar-interrupt', 'manual', 'avatar');
+    const cleared = deferred<boolean>();
+    provider.interruptWait.mockReturnValueOnce(cleared.promise);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    const runtime = session as unknown as { assistantOutputUntil: number };
+    runtime.assistantOutputUntil = Date.now() + 1_000;
+    const state = (session as unknown as { state: MatchState }).state;
+    state.rounds.player = state.elapsed = 1;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    expect(provider.interruptWait).toHaveBeenCalledOnce();
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
+    state.rounds.player = state.elapsed = 2;
+    handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 39 } });
+    cleared.resolve(true);
+    await Promise.resolve();
+    expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('チェリー'));
     await session.shutdown('test_finished');
   });
 

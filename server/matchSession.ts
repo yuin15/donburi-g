@@ -122,6 +122,7 @@ export class MatchSession {
     return reactionRequested;
   });
   private readonly requiredWinKeys = new Set<string>();
+  private requiredWinReactionSequence = 0;
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
@@ -1924,9 +1925,26 @@ export class MatchSession {
       for (const symbol of winningSymbols(spin)) wins[spin.side][symbol] += 1;
     }
     if (!Object.values(wins.player).some(Boolean) && !Object.values(wins.rival).some(Boolean)) return;
+    if (!this.requiredWinReactionIsFresh(eventAt)) return;
+    const sequence = ++this.requiredWinReactionSequence;
+    if (!this.gpt?.prepareRequiredReaction?.()) return;
+    const line = this.requiredWinLine(wins);
+    const interruptPlayback = this.activeOutputSpeechId !== null || Date.now() < this.assistantOutputUntil;
+    this.emit({ type: 'voice_interrupt' });
+    if (this.outputRoute !== 'avatar' || !this.media || !interruptPlayback) {
+      this.gpt.requestRequiredReaction?.(line);
+      return;
+    }
+    const bridge = this.gpt;
+    void this.media.interruptAndWait().then(cleared => {
+      if (!cleared || sequence !== this.requiredWinReactionSequence || bridge !== this.gpt || !this.requiredWinReactionIsFresh(eventAt)) return;
+      bridge.requestRequiredReaction?.(line);
+    });
+  }
+
+  private requiredWinReactionIsFresh(eventAt: number): boolean {
     const ageMs = Math.max(0, this.state.elapsed - eventAt) * 1000;
-    if (ageMs >= REQUIRED_WIN_REACTION_TTL_MS || !this.voiceReady || this.closed || this.voiceDisabled || this.state.status !== 'playing') return;
-    this.gpt?.requestRequiredReaction?.(this.requiredWinLine(wins));
+    return ageMs < REQUIRED_WIN_REACTION_TTL_MS && this.voiceReady && !this.closed && !this.voiceDisabled && this.state.status === 'playing';
   }
 
   private requiredWinLine(wins: RequiredWins): LocalizedLine {

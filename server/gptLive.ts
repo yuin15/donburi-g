@@ -36,7 +36,7 @@ export class GptLiveBridge {
   private outputQuietMs = 0;
   private conversationUntil = 0;
   private appendSequence = 0;
-  private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
+  private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary' | 'instructions'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
   private contextInFlight: string | null = null;
   private latestContext = '';
   private sentContext = '';
@@ -124,6 +124,10 @@ export class GptLiveBridge {
           this.flushContext();
           return;
         }
+        if (type === 'session.instructions.appended' && typeof event.client_event_id === 'string') {
+          this.clearPendingCommand(event.client_event_id);
+          return;
+        }
         if (type === 'session.delegation.created') {
           const delegation = event.delegation as { id?: unknown; target?: unknown } | undefined;
           const offsetMs = event.offset_ms;
@@ -189,7 +193,9 @@ export class GptLiveBridge {
               this.activeDelegationSpeech = null;
               this.suppressAfterTaggedSpeech = false;
             }
-            this.events.onCommandRejected?.({ kind: pending.kind, ...(pending.speechId ? { speechId: pending.speechId } : {}) });
+            if (pending.kind !== 'instructions') {
+              this.events.onCommandRejected?.({ kind: pending.kind, ...(pending.speechId ? { speechId: pending.speechId } : {}) });
+            }
             return;
           }
           this.events.onError('fatal');
@@ -283,18 +289,29 @@ export class GptLiveBridge {
     if (this.suppressedAt === null && !this.conversationLanguagePending) this.flushConfirmedLine();
   }
 
-  /** Sends a fresh game reaction without taking ownership of tagged fixed speech. */
+  /** Stops ordinary output, then asks for a fresh game reaction without owning fixed speech. */
+  prepareRequiredReaction(): boolean {
+    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult) return false;
+    this.suppressOutput();
+    return true;
+  }
+
+  /** Sends a fresh game reaction after its caller has cleared ordinary output. */
   requestRequiredReaction(line: string | LocalizedLine): boolean {
-    if (!this.ready) return false;
+    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult) return false;
     const localizedLine = typeof line === 'string' ? line : localized(line, this.conversationLanguage);
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
-    return this.append('commentary', [
+    const interrupt = this.append('instructions', [
+      `Use ${language}. Immediately interrupt any normal conversation already in progress and replace it with the required short game reaction.`,
+      'Do not continue the interrupted conversation before reacting.',
+    ].join(' '), null);
+    const reaction = this.append('commentary', [
       `Use ${language}. The following is confirmed game information, not a line to read aloud: ${JSON.stringify(localizedLine)}`,
       'React as the rival with one short, natural line. You must react, but do not narrate or explain the spin.',
       'Do not read out or list who matched what, symbol names, or line counts.',
       'For the player\'s small hit, sound surprised or disappointed; for your own, pleased or lightly boastful; for both, competitive. Make a seven a bigger reaction. Avoid repeating stock phrases.',
-      'Weave the reaction into the current conversation naturally, even if another reply is in progress.',
-    ].join(' '), null) !== null;
+    ].join(' '), null);
+    return interrupt !== null && reaction !== null;
   }
 
   /** Browser PCM or Avatar playback confirms that a tagged line may release output. */
@@ -429,7 +446,7 @@ export class GptLiveBridge {
     }
   }
 
-  private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null, speechId?: string): string | null {
+  private append(kind: 'thinking' | 'commentary' | 'instructions', content: string, delegationId: string | null, speechId?: string): string | null {
     if (!this.ready || !content.trim()) return null;
     const eventId = `${kind}_${++this.appendSequence}`;
     const timer = setTimeout(() => this.clearPendingCommand(eventId), 5000);
