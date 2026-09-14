@@ -11,6 +11,7 @@ import { SculptedType } from './SculptedType';
 import { CoinCelebration, type CoinStyle } from './CoinCelebration';
 import { VICTORY_DURATION } from '../viewmodel/RewardPresentation';
 import { BetControls3D } from './BetControls3D';
+import { VictoryTitle } from './VictoryTitle';
 
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; cells: WinningCell[]; payout: number; reels: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
@@ -26,6 +27,7 @@ export class CabinetArt {
   readonly betControls = new BetControls3D(this.coinEnvironment);
   private winSymbols = new WinSymbols(this.coinEnvironment);
   private readonly lettering = new SculptedType(this.coinEnvironment);
+  private readonly victoryTitle = new VictoryTitle(this.lettering);
   private buttonText = this.lettering.make('PLAY', 37, 200, 3);
   private buttonCaption = 'PLAY';
   private resultCaption: Side | 'draw' | null = null;
@@ -66,7 +68,7 @@ export class CabinetArt {
     this.playerGroup.add(this.betControls.group);
     this.buttonText.position.set(525, STAGE_HEIGHT - 780, 164);
     this.buttonText.rotation.x = -.2;
-    this.group.add(this.machine, this.stage.group, this.winSymbols.rivalGroup, this.sweep);
+    this.group.add(this.machine, this.stage.group, this.winSymbols.rivalGroup, this.sweep, this.victoryTitle.group);
     this.coinMaterials = {
       player: createGoldCoinMaterial(this.coinEnvironment),
       rival: createGoldCoinMaterial(this.coinEnvironment),
@@ -83,6 +85,7 @@ export class CabinetArt {
   }
 
   setCoinStyle(style: CoinStyle): void { this.coins.setStyle(style); }
+  get celebratingResult(): boolean { return this.victoryTitle.group.visible; }
 
   setFinalSeconds(seconds: number): void { this.finalSeconds = seconds; }
   press(now: number): void { this.body.press(now); this.pressedAt = now; }
@@ -90,7 +93,7 @@ export class CabinetArt {
   reelInkHidden(side: Side, column: number): [number, number, number] { return this.winSymbols.reelInkHidden(side, column); }
   setEffectsLayer(layer: number): void {
     this.winSymbols.setEffectsLayer(layer);
-    [this.coins.group, ...Object.values(this.glows), ...Object.values(this.bulbs), ...Object.values(this.sparkles), ...Object.values(this.scoreGlints)]
+    [this.coins.group, this.victoryTitle.group, ...Object.values(this.glows), ...Object.values(this.bulbs), ...Object.values(this.sparkles), ...Object.values(this.scoreGlints)]
       .forEach(effect => effect.traverse(node => node.layers.set(layer)));
     // The moving light must illuminate the cabinet (layer 0) as well as rewards.
     this.sweep.layers.enable(layer);
@@ -108,9 +111,12 @@ export class CabinetArt {
   }
   setResult(winner: Side | 'draw' | null): boolean {
     if (winner === this.resultCaption) return false;
+    this.victoryTitle.stop();
+    this.resultUntil = 0;
     this.resultCaption = winner;
     if (this.resultText) this.playerGroup.remove(this.resultText);
-    this.resultText = winner ? this.lettering.make(winner === 'player' ? 'YOU WIN!' : winner === 'rival' ? 'RIVAL WINS' : 'DRAW', 89, 570, 22) : null;
+    this.resultText = winner === 'player' ? this.victoryTitle.makeHeading()
+      : winner ? this.lettering.make(winner === 'rival' ? 'RIVAL WINS' : 'DRAW', 89, 570, 22) : null;
     if (this.resultText) {
       this.resultText.position.set(530, STAGE_HEIGHT - 346, 280);
       this.resultText.rotation.set(-.14, -.1, .025);
@@ -247,7 +253,11 @@ export class CabinetArt {
     this.coins.stop(side);
     for (const target of side ? [side] : sides) this.bursts[target] = emptyBurst();
     if (!side || side === 'player') { this.body.stop(); this.betControls.stop(); this.pressedAt = -Infinity; }
-    if (!side) this.resultUntil = 0;
+    if (!side) {
+      this.resultUntil = 0;
+      this.victoryTitle.stop();
+      if (this.resultText) this.resultText.visible = true;
+    }
   }
 
   update(now: number, reducedMotion: boolean): boolean {
@@ -273,10 +283,11 @@ export class CabinetArt {
     this.buttonText.position.z = 164 - buttonDepth;
     this.buttonText.position.y = STAGE_HEIGHT - 780 + buttonDepth * .2;
     this.machine.rotation.set(0, .095, 0);
+    this.victoryTitle.stop();
     if (this.resultText) {
-      const entrance = result ? Math.min(1, (now - this.resultStarted) / 430) : 1;
-      this.resultText.scale.setScalar(1 + Math.sin(entrance * Math.PI) * .12);
-      this.resultText.rotation.y = -.1 - Math.sin(entrance * Math.PI) * .13;
+      const hero = result && this.resultCaption === 'player';
+      this.resultText.visible = !hero;
+      if (hero) this.victoryTitle.update((now - this.resultStarted) / VICTORY_DURATION, this.resultText);
     }
     for (const side of sides) {
       const burst = this.bursts[side];
@@ -354,6 +365,7 @@ export class CabinetArt {
     this.coins.dispose();
     this.coinGeometry.dispose();
     this.winSymbols.dispose();
+    this.victoryTitle.dispose();
     this.lettering.dispose();
     this.betControls.dispose();
     this.body.dispose();

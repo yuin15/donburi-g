@@ -19,6 +19,7 @@ Live mode uses a single authenticated WebSocket at `/api/ws` for one match. The 
 - `upgrade` — retained for historical fixtures; current matches reject it without applying a choice or calling the AI.
 - `purchase` — `{matchId, commandId, upgradeId, expectedCount}` buys a player upgrade. The server advances the clock, deduplicates command IDs, checks the current product count, funds and match status, then emits a snapshot. Prices are $5/$10/$15 per product, capped at three purchases. A stale expected count never buys a second level accidentally.
 - `mic` — base64 PCM16/24kHz audio. Size limited.
+- `voice_route_ready` — `{transitionId}`. Acknowledges browser PCM preparation after avatar audio was stopped.
 - `voice_close` — release optional media while preserving the match.
 - `snapshot` — request latest safe match snapshot.
 - `close` — end the whole session.
@@ -32,6 +33,7 @@ The connection closes above 120 messages or 192,000 audio base64 characters per 
 - `avatar` — video mode only; LiveKit URL/client token, never provider API keys.
 - `voice_audio` — audio mode only; base64 PCM16, mono 24kHz, at most 64,000 base64 characters per message. Consumed by the browser audio adapter without entering ViewModel state.
 - `voice_interrupt` — stop and discard scheduled browser PCM sources before accepting new speech.
+- `voice_route` — `{route: "audio", transitionId}`. The browser mutes/detaches LiveKit audio, prepares PCM playback, then ACKs the matching ID; stale ACKs are ignored.
 - `voice_status`
 - `snapshot`
 - `side_spin` — `{spin: SpinView}` for only the side that drew. Each side owns its round number.
@@ -63,3 +65,7 @@ The MVP intentionally does not resume a disconnected live match. WebSocket loss 
 Pending live reaction candidates are scoped to one MatchSession, deduplicated by event/round, checked again against current state and expired after 1.8 seconds. A same-round jackpot outranks a lead change. At most five spontaneous in-match requests are sent, with a three-second interval. The final result clears pending commentary and invalidates that GPT connection's audio/transcript callbacks. After its transport closes and the output buffer is cleared (matching LiveAvatar acknowledgment for video, ordered `voice_interrupt` for browser audio), a second GPT connection receives the final state and a short, explicitly untrusted user quote in its startup context and one final reaction request. Failure skips the reaction. No third connection is attempted.
 
 On a result snapshot or match_ended, the client immediately stops microphone capture/sends, including while recovering a sequence gap. The selected output route remains available for result playback. The server supplies real-time PCM16 24kHz mono silence during this final phase. Its output and timer use the earlier of result+8 seconds or the original session deadline. Stopping voice or the whole session clears timers/candidates. The first UI result transition clears the old caption accumulator; duplicate result messages retain the new caption. The browser PCM queue keeps a 40ms scheduling cushion and discards a queued burst above 750ms; interrupt, stream gaps and cleanup clear its sources. Audio and video never play simultaneously. Actual audible interruption/latency still require user listening checks under #3/#8.
+
+## Voice fallback diagnostics
+
+Inspect only aggregated `voice_diagnostic` records: audio milliseconds, average PCM wait, microphone send interval, and route or interrupt acknowledgement timing. Provider errors use a fixed safe category; never log provider payloads, identifiers, or conversation text. A matching `voice_route` acknowledgement releases queued PCM and its completion fence. Listening remains a manual check.

@@ -11,6 +11,7 @@ export class LiveAudioPlayer {
 
   async prepare(): Promise<void> {
     if (this.closed) throw new Error('audio_cancelled');
+    if (this.context?.state === 'running' && this.gain) return;
     const context = new AudioContext({ sampleRate: 24000, latencyHint: 'interactive' });
     this.context = context;
     this.gain = context.createGain();
@@ -20,7 +21,7 @@ export class LiveAudioPlayer {
     if (this.closed || context.state !== 'running') throw new Error('audio_unavailable');
   }
 
-  play(audio: string, speechId?: string): void {
+  play(audio: string, speechId?: string): number | undefined {
     const context = this.context, gain = this.gain;
     if (this.closed || !context || !gain) return;
     const binary = atob(audio);
@@ -56,6 +57,7 @@ export class LiveAudioPlayer {
     const at = Math.max(context.currentTime + 0.04, this.nextAt);
     source.start(at);
     this.nextAt = at + buffer.duration;
+    return (at - context.currentTime) * 1000;
   }
 
   speechEnded(speechId: string): Promise<void> {

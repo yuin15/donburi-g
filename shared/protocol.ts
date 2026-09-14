@@ -75,6 +75,7 @@ export type ClientMessage =
   | { type: 'upgrade'; commandId: string; upgradeId: UpgradeId; offerIndex: UpgradeOfferIndex; matchId?: string }
   | { type: 'mic'; audio: string }
   | { type: 'voice_speech_done'; speechId: string }
+  | { type: 'voice_route_ready'; transitionId: string }
   | { type: 'voice_close' }
   | { type: 'snapshot' }
   | { type: 'close' };
@@ -84,6 +85,8 @@ export type ServerMessage =
   | { type: 'voice_audio'; audio: string; speechId?: string }
   | { type: 'voice_speech_end'; speechId: string }
   | { type: 'voice_interrupt' }
+  /** Server has stopped avatar audio; browser ACKs after PCM playback is ready. */
+  | { type: 'voice_route'; route: 'audio'; transitionId: string }
   | { type: 'avatar'; livekitUrl: string; livekitToken: string }
   | { type: 'provider_status'; provider: AiProvider; state: AiProviderState }
   | { type: 'voice_status'; status: 'connecting' | 'ready' | 'closed' | 'error'; message?: string }
