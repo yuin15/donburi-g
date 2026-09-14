@@ -738,7 +738,13 @@ export class GptLiveBridge {
     if (!hasCompleteTiming(timing)) return null;
     const matches = speeches.filter(speech => speech.audioStartMs !== null && speech.audibleEndMs !== null
       && timing.startMs <= speech.audibleEndMs && timing.endMs >= speech.audioStartMs);
-    return matches.length === 1 ? matches[0] : null;
+    if (matches.length === 1) return matches[0];
+    // Primary GPT-Live WebSockets omit audio timestamps, while output
+    // transcripts are timestamped. In that documented transport shape, the
+    // sole collected normal speech is the only safe owner. Keep timed matching
+    // mandatory whenever reflected/sideband audio ranges exist or two normal
+    // speeches could plausibly own the subtitle.
+    return !this.hasTimedNormalAudioRange() && speeches.length === 1 ? speeches[0] : null;
   }
 
   private hasTimedNormalAudioRange(): boolean {
