@@ -1,8 +1,8 @@
 # Slot-chan
 
-**60 seconds. Pick your bet. Beat a rival you can talk to.**
+**Talk to your AI rival while you play a 60-second slot duel.**
 
-A desktop slot duel by **team donburi**, built for a game jam. Spin an ornate 3D machine, spend your winnings on reel upgrades, and compete against a rival who keeps playing independently. Optional OpenAI voice conversation gives the rivalry a personality.
+A desktop game by **team donburi** where conversation and competition happen together. Keep spinning, change your bet, and talk with your opponent about the match as it unfolds. OpenAI voice gives the rival a conversational presence: banter, reactions, and spoken requests become part of playing together. An ornate 3D machine and expressive character bring that rivalry to the screen.
 
 **[Play the demo](https://slot-chan.vercel.app/) · [Submission answers](docs/game-jam-submission.md) · [3D models and source](art-source/houdini/) · [日本語](#日本語)**
 
@@ -11,6 +11,12 @@ Desktop only: **1280×720 or larger**, mouse and keyboard. English game UI. All 
 ![Slot-chan: 3D cabinet, selectable bets, upgrade shop, and expressive rival](docs/evidence/submission-2026-09-14/gameplay-1280.webp)
 
 *Actual local gameplay from the submission source snapshot, captured on September 14, 2026. [Capture and verification notes](docs/submission-verification.md).*
+
+## Talk while you play
+
+Use your mouse or keyboard to play while speaking to the rival through your microphone. React to a win, ask about the opponent's chances, or request ten more seconds: the conversation takes place during the duel. The rival receives current match context, so replies can relate to the changing situation. The voice implementation supports interruptions and English/Japanese conversation.
+
+For the full conversational demo, enter the organizer-provided invite under **ADD AI VOICE · OPTIONAL**, select **CONNECT AI VOICE**, allow the microphone, then start the round. Voice access depends on the host's API configuration and allowance. **PLAY NOW** also provides a CPU round without an invite or microphone.
 
 ## Play a round
 
@@ -30,13 +36,14 @@ Three matching cherries pay **$3**, bells **$6**, and sevens **$30** per active 
 
 CPU rounds can offer on-screen choices to borrow or lend $5, or extend a close finish. Voice mode also supports spoken requests, subject to the server's game rules. These are fictional in-game events.
 
-## What OpenAI adds
+## How OpenAI enables the experience
 
-- **A conversational rival:** OpenAI GPT-Live streams speech and transcripts using current match context. The implementation supports spoken replies, interruptions, and English/Japanese conversation. The server validates changes to money and time; the voice model does not choose reel outcomes.
-- **Development support for real 3D objects:** Codex assisted model development for the cherries, bell, seven, coin, and cabinet, from production scripts and mesh corrections to export and Three.js integration. The work covered shapes, materials, lighting, and animation, with improvements guided by the actual game screen. Included scripts and exported models support further iteration.
+- **Conversation during active play:** OpenAI GPT-Live streams microphone input, rival speech, and transcripts while the game continues. Current balances, remaining time, and confirmed outcomes provide context for replies. Players can speak while operating the controls, respond to the rival, and interrupt its speech. This shared conversation is central to the game's appeal.
+- **Spoken interaction with the match:** Requests for fictional money or extra time can reach server-validated game actions. A bounded Responses API path classifies a reply to a loan offer. The game code retains control of balances, time, and reel outcomes.
+- **Development support:** Codex assisted the voice integration, implementation, refactoring, and debugging, as well as 3D model scripts, mesh corrections, export, and Three.js integration. Included scripts and models support further visual iteration.
 - **Creative assets:** OpenAI image generation supplied project artwork and the rival's expression variants. The current rival has **18 expressions**. [Artwork provenance](docs/visual-assets.md) and [expression details](docs/rival-expressions.md) record their sources.
 
-The game remains playable with the CPU rival when voice is unavailable. Codex also assisted with implementation, refactoring, browser checks, and fixes throughout development. See the [six submission answers](docs/game-jam-submission.md) for the judging criteria.
+The game remains playable with the CPU rival when voice is unavailable. See the [six submission answers](docs/game-jam-submission.md) for the judging criteria and [voice evidence](docs/voice-spike.md) for the distinction between implementation, earlier provider checks, and remaining microphone evaluation.
 
 ## Run locally
 
@@ -51,7 +58,7 @@ npm run dev
 
 Open the URL printed by Vite. This starts the game and its local `/api/access` and `/api/ws` routes together. CPU play works immediately; simply starting the server or opening the page does not call an external AI service. No 3D authoring software is needed to run the game because the exported models are included.
 
-### Optional AI voice
+### Voice setup
 
 At the entry screen, enter the organizer-provided invite under **ADD AI VOICE · OPTIONAL**, select **CONNECT AI VOICE**, allow the microphone, then start the round. **MIC**, **VOICE**, and **SOUND** separately control microphone input, rival speech, and game effects. Microphone audio is sent to OpenAI; live sessions consume the host's API usage allowance.
 
@@ -114,13 +121,19 @@ Never commit keys, invites, environment files, personal email addresses, microph
 
 ## 日本語
 
-**60秒。BETを選び、話せるライバルと勝負する。**
+**ライバルと会話しながら遊ぶ、60秒のスロット対戦。**
 
-**チームdonburi**のゲームソン向けPC用スロット対戦ゲームです。立体の筐体を自分で回し、強化に使うお金と勝利に残すお金を考えながら、独立して回転するライバルと競います。任意のOpenAI音声会話で、相手とのやり取りも楽しめます。
+**チームdonburi**の、会話と勝負を一緒に楽しむPC用ゲームです。自分でリールを回し、BETを変えながら、進行中の勝負について相手と話せます。OpenAIの音声で、軽口、当たりへの反応、お願いといったやり取りが遊びの一部になります。立体の筐体と表情豊かなキャラクターが、対戦相手の存在感を支えます。
 
 **[公開デモ](https://slot-chan.vercel.app/) · [提出用の英語回答6項目](docs/game-jam-submission.md) · [3Dモデルと制作元](art-source/houdini/)**
 
 対象は**PC、1280×720以上、マウス・キーボード**。ゲーム画面は英語です。ドル表示はすべてゲーム内の架空通貨で、入金・換金はありません。
+
+### 会話しながら遊ぶ
+
+マウス・キーボードで操作しながら、マイクでライバルに話しかけます。当たりを喜ぶ、相手の勝算を聞く、あと10秒ほしいと頼む。進行中の対戦に会話が重なり、現在の残高や残り時間、確定した出目を踏まえて返答できます。音声の割り込みと英語・日本語の会話に対応する実装を備えています。
+
+会話を含めたデモは、入口の**ADD AI VOICE · OPTIONAL**へ主催者の招待コードを入力し、**CONNECT AI VOICE**、マイク許可、対戦開始の順に進みます。音声の利用にはホスト側のAPI設定と利用枠が必要です。**PLAY NOW**では招待・マイクなしでもCPU対戦を遊べます。
 
 ### 遊び方
 
@@ -134,11 +147,12 @@ Never commit keys, invites, environment files, personal email addresses, microph
 
 ### OpenAIの活用
 
-- **音声で反応するライバル：** GPT-Liveへ対戦状況を渡し、音声と字幕で返答します。割り込みと英語・日本語の会話に対応する実装を備えます。金額・時間の変更はサーバーが検証し、音声モデルがリールの結果を決めることはありません。
-- **3Dオブジェクトの開発支援：** Codexをチェリー・ベル・7・コイン・筐体のモデル開発に活用しました。制作スクリプト、メッシュ修正、書き出し、Three.jsへの統合を支援し、実ゲームを見ながら形状・材質・照明・動きを改善しています。継続して調整できるよう、制作スクリプトと出力モデルを収録しています。
+- **進行中の対戦と会話の両立：** GPT-Liveでマイク入力、相手の声、字幕をストリーミングしながらゲームが進みます。現在の残高、残り時間、確定した出目を会話の文脈として渡し、操作しながら話しかけたり、相手の発言へ返したり、途中で口を挟んだりできます。この「一緒に話しながら遊ぶ」体験が企画の中心です。
+- **会話からゲームへの働きかけ：** ゲーム内のお金や時間延長のお願いを、サーバーが検証する処理へつなぎます。Responses APIは貸し借りの返答を分類する限定的な経路で使い、残高・時間・リールの結果はゲームコードが管理します。
+- **開発支援：** Codexを音声統合、実装、構成整理、不具合修正に活用。3Dでも制作スクリプト、メッシュ修正、書き出し、Three.jsへの統合を支援しています。制作スクリプトと出力モデルを収録し、見た目を継続して改善できるようにしています。
 - **素材制作：** OpenAI画像生成を背景やライバルの表情に使用。現在は**18表情**です。[素材の出所](docs/visual-assets.md)と[表情の仕様](docs/rival-expressions.md)を記録しています。
 
-Codexは実装、MVVMへの整理、ブラウザ確認、不具合修正にも活用しました。音声を使えない場合もCPU対戦を遊べます。
+音声を使えない場合もCPU対戦を遊べます。[提出用の6項目](docs/game-jam-submission.md)と[音声の確認記録](docs/voice-spike.md)に、実装、過去の実API確認、残っている実マイク評価を記載しています。
 
 ### ローカル起動と音声設定
 
