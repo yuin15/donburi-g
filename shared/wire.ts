@@ -1,11 +1,14 @@
 import { z } from 'zod';
 import type { ServerEnvelope } from './protocol.js';
-import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, MAX_MATCH_ROUNDS } from './protocol.js';
+import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS } from './protocol.js';
+
+const MAX_WIRE_MATCH_SECONDS = 10000;
+const MAX_WIRE_MATCH_ROUNDS = Math.ceil(MAX_WIRE_MATCH_SECONDS / MANUAL_SPIN_INTERVAL);
 
 const id = z.string().min(1).max(100);
 const upgrade = z.enum(['steady', 'jackpot']);
 const index = z.union([z.literal(0), z.literal(1)]);
-const score = z.number().int().min(0).max(10000);
+const score = z.number().int().min(-10000).max(10000);
 const symbols = z.enum(['cherry', 'bell', 'seven']);
 const basePool = ['cherry', 'bell', 'seven', 'cherry', 'bell', 'cherry', 'bell', 'cherry', 'seven'] as const;
 const upgradeEntries = {
@@ -15,13 +18,13 @@ const upgradeEntries = {
 const lineRows = { top: [0, 0, 0], middle: [1, 1, 1], bottom: [2, 2, 2], diagonalDown: [0, 1, 2], diagonalUp: [2, 1, 0] } as const;
 const activeLines = { 1: ['middle'], 3: ['top', 'middle', 'bottom'], 5: ['top', 'middle', 'bottom', 'diagonalDown', 'diagonalUp'] } as const;
 const payout = { cherry: 3, bell: 6, seven: 30 } as const;
-const winCount = z.number().int().min(0).max(MAX_MATCH_ROUNDS * 5);
+const winCount = z.number().int().min(0).max(MAX_WIRE_MATCH_ROUNDS * 5);
 const sideStats = z.object({
   wins: z.object({ cherry: winCount, bell: winCount, seven: winCount }),
-  bestSpin: z.object({ round: z.number().int().min(1).max(MAX_MATCH_ROUNDS), payout: z.number().int().min(1).max(150) }).nullable(),
+  bestSpin: z.object({ round: z.number().int().min(1).max(MAX_WIRE_MATCH_ROUNDS), payout: z.number().int().min(1).max(150) }).nullable(),
 });
 const spin = z.object({
-  side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_MATCH_ROUNDS),
+  side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_WIRE_MATCH_ROUNDS),
   symbols: z.tuple([symbols, symbols, symbols]),
   grid: z.tuple([
     z.tuple([symbols, symbols, symbols]),
@@ -53,20 +56,24 @@ const spin = z.object({
 });
 const pair = z.object({ player: spin, rival: spin }).refine(v => v.player.side === 'player' && v.rival.side === 'rival' && v.player.round === v.rival.round);
 const lastSpins = z.object({ player: spin.optional(), rival: spin.optional() });
-const rounds = z.number().int().min(0).max(MAX_MATCH_ROUNDS);
+const rounds = z.number().int().min(0).max(MAX_WIRE_MATCH_ROUNDS);
 const snapshot = z.object({
   matchId: id, status: z.enum(['ready', 'countdown', 'playing', 'result', 'aborted']),
-  elapsed: z.number().min(0).max(MAX_MATCH_SECONDS), remaining: z.number().min(0).max(MAX_MATCH_SECONDS), duration: z.union([z.literal(MATCH_SECONDS), z.literal(MAX_MATCH_SECONDS)]).optional(), round: z.number().int().min(0).max(MAX_MATCH_ROUNDS),
+  elapsed: z.number().min(0).max(MAX_WIRE_MATCH_SECONDS), remaining: z.number().min(0).max(MAX_WIRE_MATCH_SECONDS), duration: z.number().min(MATCH_SECONDS).max(MAX_WIRE_MATCH_SECONDS).optional(), round: z.number().int().min(0).max(MAX_WIRE_MATCH_ROUNDS),
   rounds: z.object({ player: rounds, rival: rounds }),
   balances: z.object({ player: score, rival: score }),
   bets: z.object({ player: z.union([z.literal(1), z.literal(3), z.literal(5)]), rival: z.union([z.literal(1), z.literal(3), z.literal(5)]) }),
   scores: z.object({ player: score, rival: score }),
   stats: z.object({ player: sideStats, rival: sideStats }),
   upgrades: z.object({ player: z.array(upgrade).max(6), rival: z.array(upgrade).max(2) }),
-  rivalDistraction: z.object({ untilElapsed: z.number().min(0).max(MAX_MATCH_SECONDS), seconds: z.union([z.literal(2), z.literal(4)]) }).optional(),
+  rivalDistraction: z.object({ untilElapsed: z.number().min(0).max(MAX_WIRE_MATCH_SECONDS), seconds: z.union([z.literal(2), z.literal(4)]) }).optional(),
   upgradeSpent: z.number().int().min(0).max(90).optional(),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
 }).refine(v => v.round === v.rounds.player)
+  .refine(v => {
+    const maxRoundsForDuration = Math.ceil((v.duration ?? MATCH_SECONDS) / MANUAL_SPIN_INTERVAL);
+    return v.round <= maxRoundsForDuration && v.rounds.player <= maxRoundsForDuration && v.rounds.rival <= maxRoundsForDuration;
+  })
   .refine(v => v.status !== 'result' || (v.elapsed === (v.duration ?? MATCH_SECONDS) && v.remaining === 0 && v.winner !== undefined))
   .refine(v => (['player', 'rival'] as const).every(side => {
     const { wins, bestSpin } = v.stats[side];
@@ -93,7 +100,7 @@ const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('upgrade_offer'), offerIndex: index, closesAtElapsed: z.union([z.literal(24), z.literal(44)]) }),
   z.object({ type: z.literal('upgrade_applied'), offerIndex: index, player: upgrade, rival: upgrade }),
   z.object({ type: z.literal('rival_line'), text: z.string().max(1000), reason: z.string().max(100) }),
-  z.object({ type: z.literal('time_extension'), decision: z.enum(['accepted', 'rejected']), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => v.before.matchId === v.after.matchId && (v.decision === 'accepted' ? v.after.duration === MAX_MATCH_SECONDS && Math.abs(v.after.remaining - (v.before.remaining + 10)) < 1e-6 : JSON.stringify(v.before) === JSON.stringify(v.after))),
+  z.object({ type: z.literal('time_extension'), decision: z.enum(['accepted', 'rejected']), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => v.before.matchId === v.after.matchId && (v.decision === 'accepted' ? v.after.duration === (v.before.duration ?? MATCH_SECONDS) + 10 && Math.abs(v.after.remaining - (v.before.remaining + 10)) < 1e-6 : JSON.stringify(v.before) === JSON.stringify(v.after))),
   z.object({ type: z.literal('loan_transfer'), direction: z.enum(['rival_to_player', 'player_to_rival']), amount: z.literal(5), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => {
     if (v.before.matchId !== v.after.matchId || v.before.status !== 'playing' || v.after.status !== 'playing') return false;
     const lender = v.direction === 'rival_to_player' ? 'rival' : 'player';

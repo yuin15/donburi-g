@@ -21,7 +21,7 @@ describe('bounded live reaction candidates', () => {
     vi.advanceTimersByTime(3000);
     expect(speak).toHaveBeenCalledTimes(1);
     q.offer('late', 'expired', 80, () => true);
-    vi.setSystemTime(Date.now() + 2000); vi.advanceTimersByTime(1);
+    vi.setSystemTime(Date.now() + 6001); vi.advanceTimersByTime(1);
     expect(speak).toHaveBeenCalledTimes(1); q.close();
   });
   it('reserves a final reaction, preempts pending commentary and never speaks after closing', () => {

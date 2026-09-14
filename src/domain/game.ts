@@ -1,5 +1,5 @@
 import type { Bet, MatchSnapshot, MatchStats, ReelGrid, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol.js';
-import { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
+import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, RIVAL_SPIN_INTERVAL, TIME_EXTENSION_SECONDS } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 import { upgradePrice } from '../../shared/shop.js';
 
@@ -27,7 +27,7 @@ export interface MatchState {
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
-  duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
+  duration: number;
   extensionUsed: boolean;
   loanUsed: Record<LoanDirection, boolean>;
   rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
@@ -300,14 +300,9 @@ export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot 
 
 /** The domain is the only place that can turn a model decision into extra time. */
 export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
-  if (
-    state.status !== 'playing'
-    || state.extensionUsed
-    || state.duration !== MATCH_SECONDS
-    || state.remaining > EXTENSION_REQUEST_REMAINING_SECONDS
-  ) return null;
+  if (state.status !== 'playing') return null;
   const before = getSnapshot(state);
-  state.duration = MAX_MATCH_SECONDS;
+  state.duration += TIME_EXTENSION_SECONDS;
   state.remaining = Math.max(0, state.duration - state.elapsed);
   state.extensionUsed = true;
   return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };
@@ -325,8 +320,7 @@ export function transferLoan(state: MatchState, direction: LoanDirection): Extra
     : ['player', 'rival'] as const;
   if (
     state.status !== 'playing'
-    || (direction === 'rival_to_player' && (state.loanUsed[direction] || state.scores[borrower] >= BETS[0]))
-    || state.scores[lender] < LOAN_AMOUNT
+    || (direction === 'player_to_rival' && state.scores[lender] < LOAN_AMOUNT)
   ) return null;
   const before = getSnapshot(state);
   state.scores[lender] -= LOAN_AMOUNT;
