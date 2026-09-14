@@ -311,10 +311,10 @@ describe('stage rendering and cleanup', () => {
     frame();
     const pools = coins();
     expect(pools).toHaveLength(5);
-    expect(pools.map(pool => pool.instanceMatrix.count)).toEqual([54, 54, 18, 18, 96]);
+    expect(pools.map(pool => pool.instanceMatrix.count)).toEqual([270, 270, 54, 54, 480]);
     expect(new Set(pools.map(pool => pool.geometry))).toHaveLength(1);
     expect(pools.filter(pool => pool.visible)).toHaveLength(1);
-    expect(pools.find(pool => pool.visible)!.count).toBe(54);
+    expect(pools.find(pool => pool.visible)!.count).toBe(270);
     frame(1700);
     expect(pools.every(pool => !pool.visible && pool.count === 0)).toBe(true);
     expect(frames.size).toBe(0);
@@ -338,7 +338,7 @@ describe('stage rendering and cleanup', () => {
     frame();
     const victory = coins().find(pool => pool.userData.victory === true)!;
     expect(victory.visible).toBe(true);
-    expect(victory.count).toBe(96);
+    expect(victory.count).toBe(480);
     frame(2983);
     expect(victory.visible).toBe(true);
     frame(1);
@@ -355,8 +355,8 @@ describe('stage rendering and cleanup', () => {
     expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]);
     expect(reelWins()).toEqual([playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0]);
     expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= PAYOUT.seven) });
-    const playerCoinCount = playerPayout >= PAYOUT.seven ? 54 : playerPayout === PAYOUT.bell ? 18 : playerPayout > 0 ? 6 : 0;
-    const rivalCoinCount = rivalPayout >= PAYOUT.seven ? 18 : rivalPayout === PAYOUT.bell ? 9 : rivalPayout > 0 ? 4 : 0;
+    const playerCoinCount = playerPayout >= PAYOUT.seven ? 270 : playerPayout === PAYOUT.bell ? 72 : playerPayout > 0 ? 24 : 0;
+    const rivalCoinCount = rivalPayout >= PAYOUT.seven ? 54 : rivalPayout === PAYOUT.bell ? 27 : rivalPayout > 0 ? 12 : 0;
     expect(coins().filter(coin => coin.visible).reduce((total, coin) => total + coin.count, 0)).toBe(playerCoinCount + rivalCoinCount);
     frame(650);
     if (playerPayout === PAYOUT.cherry) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
@@ -377,7 +377,7 @@ describe('stage rendering and cleanup', () => {
     expect(host.dataset).toMatchObject({ win: 'false', rivalWin: 'false', rivalJackpot: 'false' });
     const burstPools = coins().filter(coin => coin.visible);
     expect(burstPools.map(coin => coin.userData.side)).toEqual(['player', 'rival']);
-    expect(burstPools.reduce((total, coin) => total + coin.count, 0)).toBe(72);
+    expect(burstPools.reduce((total, coin) => total + coin.count, 0)).toBe(324);
     frame(1044); // The following miss stops while the previous burst is collecting.
     expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
     expect(coins().some(coin => coin.visible)).toBe(true);
@@ -422,7 +422,7 @@ describe('stage rendering and cleanup', () => {
     expect(stopped).toHaveBeenCalledTimes(2);
     const overlapping = coins().filter(coin => coin.visible);
     expect(overlapping).toHaveLength(2);
-    expect(overlapping.every(coin => coin.userData.side === 'player' && coin.count === 54)).toBe(true);
+    expect(overlapping.every(coin => coin.userData.side === 'player' && coin.count === 270)).toBe(true);
     frame(640);
     expect(overlapping[0].visible).toBe(false);
     expect(overlapping[1].visible).toBe(true);
@@ -439,7 +439,7 @@ describe('stage rendering and cleanup', () => {
     const active = coins().filter(coin => coin.visible);
     expect(active).toHaveLength(1);
     expect(active[0].userData.side).toBe('rival');
-    expect(active[0].count).toBe(9);
+    expect(active[0].count).toBe(27);
     frame(900);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(frames.size).toBe(0);
@@ -471,7 +471,7 @@ describe('stage rendering and cleanup', () => {
     const active = coins().filter(coin => coin.visible);
     expect(active).toHaveLength(1);
     expect(active[0].userData.side).toBe('rival');
-    expect(active[0].count).toBe(18);
+    expect(active[0].count).toBe(54);
     const before = activeCoinPositions(active[0]);
     frame(400);
     const after = activeCoinPositions(active[0]);
