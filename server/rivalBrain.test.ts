@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain';
+import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, classifyPlayerLoanIntent, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -108,6 +108,18 @@ describe('time extension choice', () => {
 });
 
 describe('loan choice', () => {
+  it.each(['うん', 'お願い', '欲しい'])('recognizes a short borrower reply only after the rival offered money: %s', transcript => {
+    expect(classifyPlayerLoanIntent(transcript, true)).toBe('loan_request');
+    expect(classifyPlayerLoanIntent(transcript, false)).toBe('no_request');
+  });
+
+  it.each(['お金ちょうだい', 'お金が欲しい', 'もう一回お願い'])('keeps natural borrower wording out of local auto-approval: %s', transcript => {
+    expect(classifyPlayerLoanIntent(transcript, false)).toBe('no_request');
+  });
+
+  it.each(['お金ない', 'お金はいらない', 'いや'])('does not classify a status or refusal as a borrower request: %s', transcript => {
+    expect(classifyPlayerLoanIntent(transcript, true)).toBe('no_request');
+  });
   it.each(['少し貸して', 'もう一回だけ勝負させて', 'If you are confident, lend me money.', 'Can I borrow some cash?', 'Come on, just give me enough for one more shot.'])('routes a natural borrower request without approving it: %s', transcript => {
     expect(requestsLoan(transcript)).toBe(true);
   });

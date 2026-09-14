@@ -323,7 +323,7 @@ export function transferLoan(state: MatchState, direction: LoanDirection): Extra
     : ['player', 'rival'] as const;
   if (
     state.status !== 'playing'
-    || state.loanUsed[direction]
+    || (direction === 'player_to_rival' && state.loanUsed[direction])
     || state.scores[borrower] >= BETS[0]
     || state.scores[lender] < LOAN_AMOUNT
   ) return null;
