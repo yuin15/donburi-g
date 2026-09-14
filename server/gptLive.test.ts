@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventEmitter } from 'node:events';
-import { GptLiveBridge } from './gptLive';
+import { GptLiveBridge, type NormalSpeechCandidate } from './gptLive';
 type FakeSocket = EventEmitter & { readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn> };
 const sockets = vi.hoisted(() => [] as FakeSocket[]);
 vi.mock('./env', () => ({ env: { openaiKey: 'test-only-key', gptLiveModel: 'test-model', gptLiveVoice: 'test-voice' } }));
@@ -17,7 +17,7 @@ vi.mock('ws', async () => {
   } };
 });
 function setup(openingContext = '', language: 'ja' | 'en' = 'ja') {
-  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onCommandRejected: vi.fn(), onUsage: vi.fn() };
+  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onNormalSpeechCandidate: vi.fn<(candidate: NormalSpeechCandidate) => Promise<boolean>>(async () => true), onCommandRejected: vi.fn(), onUsage: vi.fn() };
   return { bridge: new GptLiveBridge(events, openingContext, language), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
@@ -50,6 +50,9 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
     expect(start.session.instructions).toContain('質問や訂正には必要な説明');
     expect(start.session.instructions).toContain('自動の時間延長を誘わず');
+    expect(start.session.instructions).toContain('合意ごとに扱う');
+    expect(start.session.instructions).toContain('未確定の通常返答では了承を言わず');
+    expect(start.session.instructions).not.toContain('時間延長が未使用なら');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -190,15 +193,13 @@ describe('live conversation pacing', () => {
     bridge.sendMic(voice);
     expect(events.onUserSpeech).toHaveBeenCalledOnce();
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    expect(events.onAudio).toHaveBeenLastCalledWith(voice, expect.stringMatching(/^normal-/), 'normal');
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'interrupted old reply' }));
-    expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'interrupted old reply', { startMs: null, endMs: null });
     for (let i = 0; i < 3; i++) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'new reply' }));
-    expect(events.onTranscript).toHaveBeenLastCalledWith('assistant', 'new reply', { startMs: null, endMs: null });
-    await vi.advanceTimersByTimeAsync(900);
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, expect.stringMatching(/^normal-/), 'normal');
+    expect(events.onTranscript).toHaveBeenLastCalledWith('assistant', 'new reply', { startMs: null, endMs: null });
     bridge.noteSpeechPlaybackDone(events.onAudio.mock.calls.at(-1)![1]);
     const count = socket.send.mock.calls.length;
     bridge.requestReaction('stale game commentary');
@@ -209,7 +210,27 @@ describe('live conversation pacing', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('keeps ordinary replies audible immediately and after the playback quiet gap', async () => {
+  it('reports bridge input timeline ranges for user VAD boundaries', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    bridge.sendMic(voice);
+    bridge.sendMic(voice);
+    for (let i = 0; i < 5; i += 1) bridge.sendMic(quiet);
+    expect(events.onUserSpeech).toHaveBeenCalledExactlyOnceWith({ startMs: 0, endMs: 200 });
+    expect(events.onUserSpeechEnd).toHaveBeenCalledExactlyOnceWith({ startMs: 0, endMs: 700 });
+    expect(socket.send.mock.calls.filter(([raw]) => JSON.parse(raw).type === 'session.input_audio.append')).toHaveLength(7);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('releases audited ordinary replies after their quiet and playback gaps', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -220,11 +241,14 @@ describe('live conversation pacing', () => {
     bridge.sendMic(voice);
     bridge.sendMic(voice);
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'first ordinary reply' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, expect.stringMatching(/^normal-/), 'normal');
-    await vi.advanceTimersByTimeAsync(900);
     bridge.noteSpeechPlaybackDone(events.onAudio.mock.calls.at(-1)![1]);
     await vi.advanceTimersByTimeAsync(5_001);
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'second ordinary reply' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenCalledTimes(2);
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed' }));
@@ -326,6 +350,97 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('drops a gated normal tail before activating a tagged confirmed line', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const oldVoice = Buffer.alloc(4800, 4).toString('base64');
+    const confirmedVoice = Buffer.alloc(4800, 7).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+
+    bridge.beginUserSpeech();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '古い通常返答' }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    bridge.requestConfirmedLine('確定した延長台詞。', 'gated-confirmed');
+    expect(socket.send).not.toHaveBeenCalled();
+
+    bridge.setConversationLanguage('ja');
+    bridge.finishUserTurnGate(true);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '遅延した通常了承' }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
+      type: 'session.commentary.append', content: expect.stringContaining('確定した延長台詞。'),
+    });
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: confirmedVoice }));
+    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(confirmedVoice, 'gated-confirmed', 'confirmed');
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('drops normal PCM and subtitles through an unavailable gated decision', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const oldVoice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+
+    bridge.beginUserSpeech();
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '判定前の字幕' }));
+    bridge.finishUserTurnGate(true);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '判定後に遅れた字幕' }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('serializes simultaneous tagged confirmed lines instead of replacing the first pending line', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+
+    bridge.beginUserSpeech();
+    bridge.requestConfirmedLine('最初の確定台詞。', 'first-confirmed');
+    bridge.requestConfirmedLine('次の確定台詞。', 'second-confirmed');
+    bridge.setConversationLanguage('ja');
+    bridge.finishUserTurnGate(true);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ content: expect.stringContaining('最初の確定台詞。') });
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    for (let index = 0; index < 9; index += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('first-confirmed');
+    bridge.noteSpeechPlaybackDone('first-confirmed');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ content: expect.stringContaining('次の確定台詞。') });
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('tags a confirmed line with its supplied speech ID through audio and playback completion', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
@@ -356,7 +471,8 @@ describe('live conversation pacing', () => {
     await connecting;
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    await vi.advanceTimersByTimeAsync(900);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'old reply' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-1', 'normal');
     bridge.noteSpeechPlaybackDone('normal-1');
     const sent = socket.send.mock.calls.length;
@@ -375,7 +491,7 @@ describe('live conversation pacing', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('streams normal PCM immediately with one speech ID and ends it only after the quiet boundary', async () => {
+  it('releases approved normal PCM and its transcript together after the quiet boundary', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -385,12 +501,102 @@ describe('live conversation pacing', () => {
     const first = Buffer.alloc(4800, 4).toString('base64');
     const second = Buffer.alloc(4800, 5).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: first }));
-    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(first, 'normal-1', 'normal');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: second }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'まとめて監査する字幕' }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_020);
+    expect(events.onAudio).toHaveBeenCalledWith(first, 'normal-1', 'normal');
     expect(events.onAudio).toHaveBeenLastCalledWith(second, 'normal-1', 'normal');
-    expect(events.onSpeechAudioEnded).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(900);
     expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('normal-1');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('uses the final audible PCM timestamp instead of the provider silent tail for subtitle coverage', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice, start_ms: 0, end_ms: 100 }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '実際の台詞', start_ms: 0, end_ms: 100 }));
+    for (let i = 1; i <= 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet, start_ms: i * 100, end_ms: (i + 1) * 100 }));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(events.onAudio).toHaveBeenCalledWith(voice, 'normal-1', 'normal');
+    expect(events.onTranscript).toHaveBeenCalledWith('assistant', '実際の台詞', { startMs: 0, endMs: 100 });
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('holds a timestamped subtitle that arrives before its normal PCM until the matching audible range arrives', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '字幕が先', start_ms: 0, end_ms: 100 }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice, start_ms: 0, end_ms: 100 }));
+    for (let i = 1; i <= 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet, start_ms: i * 100, end_ms: (i + 1) * 100 }));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(events.onNormalSpeechCandidate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ speechId: 'normal-1', transcript: '字幕が先' }));
+    expect(events.onAudio).toHaveBeenCalledWith(voice, 'normal-1', 'normal');
+    expect(events.onTranscript).toHaveBeenCalledWith('assistant', '字幕が先', { startMs: 0, endMs: 100 });
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('does not attach a late timed subtitle to the next normal speech', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const safe = Buffer.alloc(4800, 4).toString('base64');
+    const dangerous = Buffer.alloc(4800, 5).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: safe, start_ms: 0, end_ms: 100 }));
+    for (let i = 1; i <= 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet, start_ms: i * 100, end_ms: (i + 1) * 100 }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: dangerous, start_ms: 2_000, end_ms: 2_100 }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '前の安全な字幕', start_ms: 0, end_ms: 100 }));
+    await vi.advanceTimersByTimeAsync(120);
+    expect(events.onAudio).toHaveBeenCalledWith(safe, 'normal-1', 'normal');
+    for (let i = 22; i <= 30; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet, start_ms: i * 100, end_ms: (i + 1) * 100 }));
+    bridge.noteSpeechPlaybackDone('normal-1');
+    await vi.advanceTimersByTimeAsync(5_120);
+    expect(events.onAudio).not.toHaveBeenCalledWith(dangerous, 'normal-2', 'normal');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('waits for the full subtitle settle interval before review after a user gate opens', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    bridge.beginUserSpeech();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'settle を待つ' }));
+    for (let i = 0; i < 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    bridge.finishUserTurnGate(false);
+    await vi.advanceTimersByTimeAsync(119);
+    expect(events.onNormalSpeechCandidate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(events.onNormalSpeechCandidate).toHaveBeenCalledOnce();
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
@@ -408,11 +614,182 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: first }));
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '同時に見せる字幕' }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: second }));
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(second, 'normal-1', 'normal');
     expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', '同時に見せる字幕', { startMs: null, endMs: null });
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
+  });
+
+  it('keeps a new normal epoch through a non-authoritative user gate, then reviews it before release', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    bridge.beginUserSpeech();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '普通の返答' }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    expect(events.onNormalSpeechCandidate).not.toHaveBeenCalled();
+    expect(events.onAudio).not.toHaveBeenCalled();
+    bridge.finishUserTurnGate(false);
+    await vi.advanceTimersByTimeAsync(120);
+    expect(events.onNormalSpeechCandidate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ speechId: 'normal-1', transcript: '普通の返答', signal: expect.any(AbortSignal) }));
+    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(voice, 'normal-1', 'normal');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('fails closed for rejected, failed, or subtitle-less normal candidates', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    events.onNormalSpeechCandidate
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('review unavailable'))
+      .mockImplementationOnce(() => { throw new Error('review threw'); });
+    for (const transcript of ['rejected', 'failed', 'threw']) {
+      socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+      socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: transcript }));
+      await vi.advanceTimersByTimeAsync(1_020);
+    }
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    expect(events.onNormalSpeechCandidate).toHaveBeenCalledTimes(3);
+    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onTranscript).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('re-reviews a normal candidate when a later subtitle delta changes its text', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    let resolveFirst!: (allowed: boolean) => void;
+    events.onNormalSpeechCandidate.mockImplementationOnce(() => new Promise<boolean>(resolve => { resolveFirst = resolve; }));
+    events.onNormalSpeechCandidate.mockResolvedValueOnce(true);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '最初の字幕' }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    expect(events.onNormalSpeechCandidate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ speechId: 'normal-1', transcript: '最初の字幕', signal: expect.any(AbortSignal) }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '遅延字幕' }));
+    resolveFirst(true);
+    await Promise.resolve();
+    expect(events.onAudio).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(120);
+    expect(events.onNormalSpeechCandidate).toHaveBeenLastCalledWith(expect.objectContaining({ speechId: 'normal-1', transcript: '最初の字幕遅延字幕', signal: expect.any(AbortSignal) }));
+    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(voice, 'normal-1', 'normal');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('aborts an in-flight normal candidate before a stale audit can commit', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    let resolveAudit!: () => void;
+    let candidateSignal!: AbortSignal;
+    const commit = vi.fn();
+    events.onNormalSpeechCandidate
+      .mockImplementationOnce(async ({ signal }) => {
+        candidateSignal = signal;
+        await new Promise<void>(resolve => { resolveAudit = resolve; });
+        if (signal.aborted) return false;
+        commit();
+        return true;
+      })
+      .mockResolvedValueOnce(false);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '最初の字幕' }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '変更された字幕' }));
+    expect(candidateSignal.aborted).toBe(true);
+    resolveAudit();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(120);
+    expect(commit).not.toHaveBeenCalled();
+    expect(events.onAudio).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('drops a candidate when its timed subtitle does not cover the end of its PCM', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice, start_ms: 100, end_ms: 200 }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '途中まで', start_ms: 100, end_ms: 150 }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    expect(events.onNormalSpeechCandidate).not.toHaveBeenCalled();
+    expect(events.onAudio).not.toHaveBeenCalled();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('never releases a resolved candidate from an older VAD epoch or a closed bridge', async () => {
+    const first = setup();
+    const firstConnecting = first.bridge.connect();
+    const firstSocket = sockets[0];
+    firstSocket.readyState = 1;
+    firstSocket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await firstConnecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    let resolveOld!: (allowed: boolean) => void;
+    first.events.onNormalSpeechCandidate.mockImplementationOnce(() => new Promise<boolean>(resolve => { resolveOld = resolve; }));
+    firstSocket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    firstSocket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '古い候補' }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    first.bridge.beginUserSpeech();
+    resolveOld(true);
+    await Promise.resolve();
+    expect(first.events.onAudio).not.toHaveBeenCalled();
+    const firstClosing = first.bridge.close();
+    firstSocket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await firstClosing;
+
+    const second = setup();
+    const secondConnecting = second.bridge.connect();
+    const secondSocket = sockets[1];
+    secondSocket.readyState = 1;
+    secondSocket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await secondConnecting;
+    let resolveClosed!: (allowed: boolean) => void;
+    second.events.onNormalSpeechCandidate.mockImplementationOnce(() => new Promise<boolean>(resolve => { resolveClosed = resolve; }));
+    secondSocket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    secondSocket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '閉じる候補' }));
+    await vi.advanceTimersByTimeAsync(1_020);
+    const secondClosing = second.bridge.close();
+    resolveClosed(true);
+    await Promise.resolve();
+    expect(second.events.onAudio).not.toHaveBeenCalled();
+    secondSocket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await secondClosing;
   });
 
   it('holds normal PCM and its transcript until the prior playback quiet gap has elapsed', async () => {
@@ -424,9 +801,11 @@ describe('live conversation pacing', () => {
     await connecting;
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    await vi.advanceTimersByTimeAsync(900);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '最初の返事' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     bridge.noteSpeechPlaybackDone('normal-1');
     events.onAudio.mockClear();
+    events.onTranscript.mockClear();
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '次の返事' }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onTranscript).not.toHaveBeenCalled();
@@ -450,7 +829,8 @@ describe('live conversation pacing', () => {
     await connecting;
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    await vi.advanceTimersByTimeAsync(900);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '普通の返事' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-1', 'normal');
     bridge.discardNormalPlayback('normal-1');
     bridge.requestConfirmedLine('抑止後の確定台詞。', 'confirmed-after-suppression');
@@ -472,11 +852,13 @@ describe('live conversation pacing', () => {
     await connecting;
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    await vi.advanceTimersByTimeAsync(900);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '最初の返事' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-1', 'normal');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '次の返事' }));
     expect(() => bridge.discardNormalPlayback('normal-1')).not.toThrow();
-    await vi.advanceTimersByTimeAsync(900);
+    await vi.advanceTimersByTimeAsync(1_020);
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-2', 'normal');
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
@@ -492,9 +874,11 @@ describe('live conversation pacing', () => {
     await connecting;
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    await vi.advanceTimersByTimeAsync(900);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '最初の返事' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     bridge.noteSpeechPlaybackDone('normal-1');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'キューされた返事' }));
     expect(() => bridge.requestConfirmedLine('確定した延長台詞。', 'confirmed-during-normal')).not.toThrow();
     expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('確定した延長台詞。'));
     await vi.advanceTimersByTimeAsync(5_000);
@@ -517,9 +901,11 @@ describe('live conversation pacing', () => {
     await connecting;
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    await vi.advanceTimersByTimeAsync(900);
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '最初の返事' }));
+    await vi.advanceTimersByTimeAsync(1_020);
     bridge.noteSpeechPlaybackDone('normal-1');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'キューされた返事' }));
     expect(() => bridge.requestDelegationResult('extension-delegation', '確定した委任結果。', 'delegated-during-normal')).not.toThrow();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
