@@ -25,6 +25,8 @@ export class LiveClient extends EventTarget {
   private sync = new LiveSync();
   private syncTimeout: ReturnType<typeof setTimeout> | null = null;
   private liveKitState: AiConnectionState = 'idle';
+  private playbackRoute: 'audio' | 'avatar' = 'avatar';
+  private playbackWait = { count: 0, totalMs: 0, timer: null as ReturnType<typeof setTimeout> | null };
 
   constructor(private readonly videoElement: HTMLVideoElement) {
     super();
@@ -40,6 +42,7 @@ export class LiveClient extends EventTarget {
   }
 
   private async prepareConnection(inviteCode: string, voiceMode: VoiceMode): Promise<void> {
+    this.playbackRoute = voiceMode;
     if (this.closed) throw new Error('connection_cancelled');
     await this.mic.prepare();
     if (this.closed) throw new Error('connection_cancelled');
@@ -111,13 +114,33 @@ export class LiveClient extends EventTarget {
           this.dispatchEvent(new CustomEvent('ai-status', { detail: { provider: message.provider, state: message.state } }));
           return;
         }
+        if (message.type === 'voice_route') {
+          if (this.voiceStopped) return;
+          // The server will not send PCM until this ACK. Mute the LiveKit audio
+          // element first so a delayed avatar packet cannot overlap browser PCM.
+          this.playbackRoute = 'audio';
+          this.audioElement.muted = true;
+          this.pcm.interrupt();
+          void this.detachAvatar().then(() => this.pcm.prepare()).then(() => {
+            if (!this.closed && !this.voiceStopped) {
+              this.send({ type: 'voice_route_ready', transitionId: message.transitionId });
+              this.dispatchEvent(new Event('voice-route'));
+            }
+          }, () => {
+            void this.stopVoice();
+            this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
+              detail: { type: 'voice_status', status: 'error', message: 'Voice playback stopped. Your duel continues.' },
+            }));
+          });
+          return;
+        }
         if (message.type === 'snapshot' && this.syncTimeout) { clearTimeout(this.syncTimeout); this.syncTimeout = null; }
         if (message.type === 'voice_audio' || message.type === 'voice_interrupt') {
-          if (!this.voiceStopped && voiceMode === 'audio') {
+          if (!this.voiceStopped && this.playbackRoute === 'audio') {
             try {
               if (message.type === 'voice_interrupt') this.pcm.interrupt();
-              else if (message.speechId) this.pcm.play(message.audio, message.speechId);
-              else this.pcm.play(message.audio);
+              else if (message.speechId) this.recordPlaybackWait(this.pcm.play(message.audio, message.speechId));
+              else this.recordPlaybackWait(this.pcm.play(message.audio));
             } catch {
               void this.stopVoice();
               this.dispatchEvent(new CustomEvent<ServerMessage>('message', {
@@ -130,7 +153,7 @@ export class LiveClient extends EventTarget {
           }
           return;
         }
-        if (message.type === 'voice_speech_end' && voiceMode === 'audio' && !this.voiceStopped) {
+        if (message.type === 'voice_speech_end' && this.playbackRoute === 'audio' && !this.voiceStopped) {
           void this.pcm.speechEnded(message.speechId).then(() => this.send({ type: 'voice_speech_done', speechId: message.speechId }));
           return;
         }
@@ -228,6 +251,8 @@ export class LiveClient extends EventTarget {
   private stopVoice(): Promise<void> {
     if (this.voiceCleanup) return this.voiceCleanup;
     this.voiceStopped = true;
+    if (this.playbackWait.timer) clearTimeout(this.playbackWait.timer);
+    this.playbackWait = { count: 0, totalMs: 0, timer: null };
     this.send({ type: 'voice_close' });
     this.voiceCleanup = Promise.allSettled([this.stopMicrophone(), this.detachAvatar(), this.pcm.close()]).then(() => undefined);
     return this.voiceCleanup;
@@ -241,12 +266,12 @@ export class LiveClient extends EventTarget {
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;
     room.on(RoomEvent.TrackSubscribed, (track) => {
-      if (this.closed || this.voiceStopped || this.room !== room) return;
+      if (this.closed || this.voiceStopped || this.playbackRoute !== 'avatar' || this.room !== room) return;
       if (track.kind === 'video') track.attach(this.videoElement);
       if (track.kind === 'audio') track.attach(this.audioElement);
     });
     room.on(RoomEvent.Disconnected, () => {
-      if (this.closed || this.room !== room) return;
+      if (this.closed || this.playbackRoute !== 'avatar' || this.room !== room) return;
       if (!this.connected) {
         this.setAiStatus('liveKit', 'failed');
         this.rejectConnect?.(new Error('avatar_connect_failed'));
@@ -260,7 +285,7 @@ export class LiveClient extends EventTarget {
       }));
     });
     await room.connect(url, token);
-    if (this.closed || this.room !== room) {
+    if (this.closed || this.playbackRoute !== 'avatar' || this.room !== room) {
       await room.disconnect();
       throw new Error('connection_cancelled');
     }
@@ -272,6 +297,19 @@ export class LiveClient extends EventTarget {
     this.videoElement.srcObject = null;
     this.audioElement.srcObject = null;
     await room?.disconnect();
+  }
+
+  private recordPlaybackWait(waitMs: number | undefined): void {
+    if (waitMs === undefined) return;
+    this.playbackWait.count += 1;
+    this.playbackWait.totalMs += waitMs;
+    if (this.playbackWait.timer) return;
+    this.playbackWait.timer = setTimeout(() => {
+      const metric = this.playbackWait;
+      metric.timer = null;
+      if (metric.count) console.info(JSON.stringify({ event: 'voice_diagnostic', kind: 'playback_window', chunks: metric.count, waitMs: Math.round(metric.totalMs / metric.count) }));
+      metric.count = metric.totalMs = 0;
+    }, 1000);
   }
 
   private setAiStatus(provider: 'liveKit', state: AiConnectionState): void {

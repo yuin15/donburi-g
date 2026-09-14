@@ -70,6 +70,7 @@ export class GameViewModel implements GameCommands {
   private rivalDistraction: GameViewState['rivalDistraction'] = null;
   private line = INITIAL_LINE;
   private videoEnabled = false;
+  private videoActive = false;
   private heard = '';
   private lastHeardAt = 0;
   private assistantText = '';
@@ -715,9 +716,16 @@ export class GameViewModel implements GameCommands {
         aiStatus: event => {
           if (this.isCurrent(current) && session && this.liveSession === session) this.onAiStatus(event);
         },
+        route: () => {
+          if (!this.isCurrent(current) || !session || this.liveSession !== session) return;
+          this.videoActive = false;
+          this.connectionText = 'Live video ended · Voice continues';
+          this.emit();
+        },
       });
       if (!this.isCurrent(current)) { await session.disconnect(); return null; }
       this.liveSession = session;
+      this.videoActive = this.videoEnabled;
       session.setMuted(this.voiceMuted);
       session.setMicMuted(this.micMuted);
       await session.connect(code, this.videoEnabled ? 'avatar' : 'audio');
@@ -922,7 +930,7 @@ export class GameViewModel implements GameCommands {
     return {
       mode: this.mode, snapshot: structuredClone(this.snapshot), scores, balances: { ...this.snapshot.balances }, bets: { ...this.snapshot.bets }, lastSpin: this.lastSpin ? structuredClone(this.lastSpin) : null,
       gate: { visible: this.gateVisible, message: this.gateMessage, connecting: this.connecting },
-      connection: { text: this.connectionText, voiceReady: this.voiceReady, showVideo: this.voiceReady && this.videoEnabled, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
+      connection: { text: this.connectionText, voiceReady: this.voiceReady, showVideo: this.voiceReady && this.videoActive, showVoiceControls: this.mode === 'live' && (!this.gameConnected || this.voiceReady) },
       modeBadge: { text: this.mode === 'idle' ? 'CPU DUEL' : this.voiceReady ? 'LIVE AI' : 'CPU DUEL', tone: this.mode === 'idle' ? 'idle' : this.voiceReady ? 'live' : 'practice' },
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
