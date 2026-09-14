@@ -131,12 +131,14 @@ export class MatchSession {
   private recentUserText = '';
   private conversationLanguage: ConversationLanguage = 'ja';
   private conversationLanguageSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
+  private readonly languageSettledActions: Array<{ turn: number; generation: number; action: () => void; cancel: () => void }> = [];
   /** Holds the just-finished user turn open long enough for its final transcript delta before result voice replaces this bridge. */
   private resultTransition: { direction: LocalizedLine; deadline: number; turn: number; generation: number; acceptsTranscript: boolean } | null = null;
   private extensionOfferConsidered = false;
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
   private loanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number; replyTurn: number | null; transcriptGraceExpiresAt: number | null } | null = null;
+  private rivalLoanLanguagePending: { turn: number; generation: number } | null = null;
   private userSpeaking = false;
   private userSpeechTurn = 0;
   private userSpeechTurnStartedRemaining: number | null = null;
@@ -302,6 +304,8 @@ export class MatchSession {
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
+        for (const pending of this.languageSettledActions) pending.cancel();
+        this.languageSettledActions.length = 0;
         // This is a new, post-result turn. It must not be folded into the
         // final pre-result turn while waiting for its transcript grace.
         if (this.resultTransition) {
@@ -393,6 +397,8 @@ export class MatchSession {
       this.delegationSettles.delete(this.conversationLanguageSettle.timer);
     }
     this.conversationLanguageSettle = null;
+    this.languageSettledActions.length = 0;
+    this.rivalLoanLanguagePending = null;
     this.resultTransition = null;
     if (this.state.status !== 'result') abortMatch(this.state);
     const closeVoice = this.stopVoice();
@@ -470,6 +476,8 @@ export class MatchSession {
     this.voiceGeneration += 1;
     this.resultTransition = null;
     this.conversationLanguageSettle = null;
+    this.languageSettledActions.length = 0;
+    this.rivalLoanLanguagePending = null;
     this.resultSpeechStarted = false;
     if (this.resultSilence) clearInterval(this.resultSilence);
     this.resultSilence = null;
@@ -873,7 +881,7 @@ export class MatchSession {
     const timer = setTimeout(() => {
       this.delegationSettles.delete(timer);
       if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration) return;
-      if (this.loanDecisionPending || this.extensionDecisionPending || this.directLoanRequestTurns.has(this.userSpeechTurn) || this.directExtensionRequestTurns.has(this.userSpeechTurn)) {
+      if (this.loanDecisionPending || this.extensionDecisionPending || this.rivalLoanLanguagePending?.turn === this.userSpeechTurn || this.directLoanRequestTurns.has(this.userSpeechTurn) || this.directExtensionRequestTurns.has(this.userSpeechTurn)) {
         this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
         return;
       }
@@ -973,6 +981,7 @@ export class MatchSession {
       if (this.conversationLanguageSettle?.timer !== timer) return;
       this.conversationLanguageSettle = null;
       this.settleConversationLanguage(turn, generation);
+      this.runLanguageSettledActions(turn, generation);
       this.finishResultTransition(turn, generation);
     }, USER_TRANSCRIPT_SETTLE_MS);
     this.conversationLanguageSettle = { turn, generation, timer };
@@ -1010,6 +1019,33 @@ export class MatchSession {
     this.pushContext();
   }
 
+  /** A first Japanese-language match cannot finalize a localized decision while its current user turn is incomplete. */
+  private afterCurrentTurnLanguageSettles(generation: number, action: () => void, cancel: () => void): void {
+    const pending = this.conversationLanguageSettle;
+    const turn = this.userSpeechTurn;
+    if (
+      turn === 0
+      || this.userSpeechTurnStartedRemaining === null
+      || this.conversationLanguage !== 'ja'
+      || (!this.userSpeaking && (!pending || pending.turn !== turn || pending.generation !== generation))
+    ) {
+      action();
+      return;
+    }
+    this.languageSettledActions.push({ turn, generation, action, cancel });
+  }
+
+  private runLanguageSettledActions(turn: number, generation: number): void {
+    const actions = this.languageSettledActions.filter(item => item.turn === turn && item.generation === generation);
+    this.languageSettledActions.splice(0, this.languageSettledActions.length, ...this.languageSettledActions.filter(item => item.turn !== turn || item.generation !== generation));
+    if (this.closed || generation !== this.voiceGeneration || turn !== this.userSpeechTurn) {
+      for (const pending of actions) pending.cancel();
+      return;
+    }
+    for (const pending of actions) pending.action();
+  }
+
+
   /** A live, clear reply to the rival's own offer transfers without AI delay. */
   private acceptRivalLoanFromCurrentTurn(afterSpeech = false): void {
     const pendingRivalLoan = this.loanDecisionPending && this.loanDelegation?.direction === 'player_to_rival';
@@ -1027,6 +1063,22 @@ export class MatchSession {
       || (this.loanDecisionPending && !pendingRivalLoan)
       || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript(), afterSpeech)
     ) return;
+    const pendingLanguage = this.conversationLanguageSettle;
+    const turn = this.userSpeechTurn;
+    const generation = this.voiceGeneration;
+    if (
+      this.conversationLanguage === 'ja'
+      && (this.userSpeaking || (pendingLanguage?.turn === turn && pendingLanguage.generation === generation))
+    ) {
+      if (this.rivalLoanLanguagePending?.turn === turn && this.rivalLoanLanguagePending.generation === generation) return;
+      this.rivalLoanLanguagePending = { turn, generation };
+      this.afterCurrentTurnLanguageSettles(generation, () => {
+        if (this.rivalLoanLanguagePending?.turn !== turn || this.rivalLoanLanguagePending.generation !== generation) return;
+        this.rivalLoanLanguagePending = null;
+        this.acceptRivalLoanFromCurrentTurn(true);
+      }, () => { this.rivalLoanLanguagePending = null; });
+      return;
+    }
     this.tick();
     if (this.state.status !== 'playing') return;
     if (pendingRivalLoan) {
@@ -1279,44 +1331,59 @@ export class MatchSession {
       || this.loanDelegation?.id !== delegationId
       || (directDecision !== null && (this.directLoanDecision?.turn !== directDecision.turn || this.directLoanDecision.transcriptSequence !== directDecision.transcriptSequence))
     ) return;
-    if (directDecision && decision === 'accept_loan') {
-      const line = direction === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE;
-      this.queueSettledDirectLoanAcceptance(directDecision, generation, direction, line);
-      return;
-    }
-    if (directDecision) this.directLoanDecision = null;
-    this.tick();
-    if (this.state.status !== 'playing') {
-      this.loanDecisionPending = false;
+    const cancel = () => {
+      if (this.loanDelegation?.id === delegationId && (!directDecision || this.directLoanDecision === directDecision)) {
+        this.loanDelegation = null;
+        this.loanDecisionPending = false;
+        if (directDecision) this.directLoanDecision = null;
+      }
+    };
+    this.afterCurrentTurnLanguageSettles(generation, () => {
+      if (
+        this.closed
+        || generation !== this.voiceGeneration
+        || this.loanDelegation?.id !== delegationId
+        || (directDecision !== null && (this.directLoanDecision?.turn !== directDecision.turn || this.directLoanDecision.transcriptSequence !== directDecision.transcriptSequence))
+      ) return;
+      if (directDecision && decision === 'accept_loan') {
+        const line = direction === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE;
+        this.queueSettledDirectLoanAcceptance(directDecision, generation, direction, line);
+        return;
+      }
+      if (directDecision) this.directLoanDecision = null;
+      this.tick();
+      if (this.state.status !== 'playing') {
+        this.loanDecisionPending = false;
+        this.loanDelegation = null;
+        return;
+      }
+      if (decision === 'no_request') {
+        this.loanDecisionPending = false;
+        this.loanDelegation = null;
+        if (direction === 'rival_to_player' && requestsLoan(transcript)) {
+          this.requestLoanDecisionLine(delegationId, LOAN_RETRY_LINE);
+        } else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
+        else this.gpt?.requestConfirmedLine(KEEP_PLAYING_LINE);
+        return;
+      }
+      const accepted = decision === 'accept_loan';
+      const line: LocalizedLine = accepted
+        ? direction === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE
+        : direction === 'rival_to_player'
+          ? { ja: 'だめ。自分の資金で勝負して。', en: 'No. Play with your own bankroll.' }
+          : { ja: 'わかった。自力で続けるよ。', en: 'All right. I will keep going on my own.' };
       this.loanDelegation = null;
-      return;
-    }
-    if (decision === 'no_request') {
       this.loanDecisionPending = false;
-      this.loanDelegation = null;
-      if (direction === 'rival_to_player' && requestsLoan(transcript)) {
-        this.requestLoanDecisionLine(delegationId, LOAN_RETRY_LINE);
-      } else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
-      else this.gpt?.requestConfirmedLine(KEEP_PLAYING_LINE);
-      return;
-    }
-    const accepted = decision === 'accept_loan';
-    const line: LocalizedLine = accepted
-      ? direction === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE
-      : direction === 'rival_to_player'
-        ? { ja: 'だめ。自分の資金で勝負して。', en: 'No. Play with your own bankroll.' }
-        : { ja: 'わかった。自力で続けるよ。', en: 'All right. I will keep going on my own.' };
-    this.loanDelegation = null;
-    this.loanDecisionPending = false;
-    if (!accepted) {
+      if (!accepted) {
+        this.requestLoanDecisionLine(delegationId, line);
+        return;
+      }
+      if (!this.completeLoanTransfer(direction, line)) {
+        this.requestLoanDecisionLine(delegationId, KEEP_PLAYING_LINE);
+        return;
+      }
       this.requestLoanDecisionLine(delegationId, line);
-      return;
-    }
-    if (!this.completeLoanTransfer(direction, line)) {
-      this.requestLoanDecisionLine(delegationId, KEEP_PLAYING_LINE);
-      return;
-    }
-    this.requestLoanDecisionLine(delegationId, line);
+    }, cancel);
   }
 
   /** Commit a direct borrower acceptance after one finite transcript grace. */
@@ -1447,50 +1514,60 @@ export class MatchSession {
       || this.extensionDelegation?.id !== delegationId
       || (directDecision !== null && (this.directExtensionDecision?.turn !== directDecision.turn || this.directExtensionDecision.transcriptSequence !== directDecision.transcriptSequence))
     ) return;
-    // The decision never pauses the game; settle the real arrival time first.
-    this.tick();
-    if (this.state.status !== 'playing') {
-      if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
-      this.extensionDecisionPending = false;
+    const cancel = () => {
+      if (this.extensionDelegation?.id === delegationId && (!directDecision || this.directExtensionDecision === directDecision)) {
+        this.extensionDelegation = null;
+        this.extensionDecisionPending = false;
+        if (directDecision) this.directExtensionDecision = null;
+      }
+    };
+    this.afterCurrentTurnLanguageSettles(generation, () => {
+      if (
+        this.closed
+        || generation !== this.voiceGeneration
+        || this.extensionDelegation?.id !== delegationId
+        || (directDecision !== null && (this.directExtensionDecision?.turn !== directDecision.turn || this.directExtensionDecision.transcriptSequence !== directDecision.transcriptSequence))
+      ) return;
+      // The decision never pauses the game; settle the real arrival time first.
+      this.tick();
+      if (this.state.status !== 'playing') {
+        if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
+        this.extensionDecisionPending = false;
+        this.extensionDelegation = null;
+        return;
+      }
+      if (decision === 'no_request') {
+        if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
+        this.extensionDecisionPending = false;
+        this.extensionDelegation = null;
+        if (requestsTimeExtension(requestTranscript)) this.requestExtensionDecisionLine(delegationId, EXTENSION_RETRY_LINE);
+        else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
+        return;
+      }
+      this.extensionNegotiation = true;
+      const accepted = decision === 'accept_extension_10s';
+      const before = getSnapshot(this.state);
+      const playerAhead = before.scores.player >= before.scores.rival;
+      const line: LocalizedLine = accepted
+        ? { ja: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？', en: 'All right, I will give you 10 more seconds. Do not give up yet.' }
+        : playerAhead
+          ? { ja: '君が勝っているのに？ 時間は増やさないよ。', en: 'You are already ahead. I will not add more time.' }
+          : { ja: 'だめ。時間切れまで、このまま勝負しよう。', en: 'No. Let us play until time runs out.' };
       this.extensionDelegation = null;
-      return;
-    }
-    if (decision === 'no_request') {
-      if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
-      this.extensionDecisionPending = false;
-      this.extensionDelegation = null;
-      if (requestsTimeExtension(requestTranscript)) {
-        this.requestExtensionDecisionLine(delegationId, EXTENSION_RETRY_LINE);
-      } else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
-      return;
-    }
-    this.extensionNegotiation = true;
-    const accepted = decision === 'accept_extension_10s';
-    const before = getSnapshot(this.state);
-    const playerAhead = before.scores.player >= before.scores.rival;
-    const line: LocalizedLine = accepted
-      ? { ja: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？', en: 'All right, I will give you 10 more seconds. Do not give up yet.' }
-      : playerAhead
-        ? { ja: '君が勝っているのに？ 時間は増やさないよ。', en: 'You are already ahead. I will not add more time.' }
-        : { ja: 'だめ。時間切れまで、このまま勝負しよう。', en: 'No. Let us play until time runs out.' };
-    this.extensionDelegation = null;
-    if (!accepted) {
-      if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
-      this.extensionDecisionPending = false;
-      this.pushContext();
-      this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line: localized(line, this.conversationLanguage) });
-      this.emitSnapshot();
-      this.requestExtensionDecisionLine(delegationId, line);
-      return;
-    }
-    const id = randomUUID();
-    // Normal completion is driven by playback acknowledgments. This only
-    // bounds a broken stream after suppression, generation, and avatar delay.
-    const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
-    this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false, directDecision };
-    // Existing commentary is the supported GPT-Live speech path. It is queued
-    // after the suppressed turn so stale speech cannot precede this decision.
-    this.requestExtensionDecisionLine(delegationId, line, id);
+      if (!accepted) {
+        if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
+        this.extensionDecisionPending = false;
+        this.pushContext();
+        this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line: localized(line, this.conversationLanguage) });
+        this.emitSnapshot();
+        this.requestExtensionDecisionLine(delegationId, line);
+        return;
+      }
+      const id = randomUUID();
+      const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
+      this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false, directDecision };
+      this.requestExtensionDecisionLine(delegationId, line, id);
+    }, cancel);
   }
 
   private requestExtensionDecisionLine(delegationId: string | null, line: LocalizedLine, speechId?: string): void {
