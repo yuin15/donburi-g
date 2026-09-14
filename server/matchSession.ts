@@ -1513,12 +1513,15 @@ export class MatchSession {
       if (candidate.signal) signals.push(candidate.signal);
       const audit = await this.agreements.auditAssistantSpeech(getSnapshot(this.state), candidate.transcript, conversation, offers, AbortSignal.any(signals));
       const current = this.assistantAudits.get(candidate.speechId);
-      const stillCausedBySameTurn = turn === null
-        ? !this.userSpeaking
-        : this.finishedAgreementTurns.get(turn) === context && context?.version === version && !this.userSpeaking;
+      // A result bridge deliberately has a newer generation than the final
+      // play turn. Likewise, the bounded context cache may expire during an
+      // otherwise ordinary match. In either case a safe answer may play, but
+      // an uncaused commit or offer must remain fail-closed.
+      const stillCausedBySameTurn = !this.userSpeaking
+        && (context === undefined || (turn !== null && this.finishedAgreementTurns.get(turn) === context && context.version === version));
       if (candidate.signal?.aborted || controller.signal.aborted || this.closed || generation !== this.voiceGeneration || current?.generation !== generation || !stillCausedBySameTurn || audit.state === 'unavailable') return false;
       if (audit.state === 'safe') return true;
-      if (this.state.status !== 'playing' || turn === null) return false;
+      if (this.state.status !== 'playing' || turn === null || context === undefined) return false;
       if (audit.state === 'commit') {
         for (const agreement of audit.agreements) this.applyAgreement(`${this.sessionId}:turn:${turn}`, agreement);
         return false;

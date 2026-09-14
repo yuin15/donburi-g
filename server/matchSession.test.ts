@@ -1332,6 +1332,72 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('plays a safe result reply after a final play-turn context belongs to the old bridge generation', async () => {
+    agreement.resolve.mockResolvedValueOnce({ state: 'none', id: 'result-old-context:turn:1' });
+    const { session, messages } = setup('result-old-context', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+
+    await vi.advanceTimersByTimeAsync(55_000);
+    completeAgreementTurn('final-player-turn', 'synthetic ordinary player turn', 0, 100);
+    await settleAgreement();
+    await vi.advanceTimersByTimeAsync(350);
+    await vi.advanceTimersByTimeAsync(4_300);
+    await vi.waitFor(() => expect(provider.bridges).toHaveLength(2));
+    const internals = session as unknown as {
+      voiceGeneration: number;
+      finishedAgreementTurns: Map<number, { generation: number }>;
+    };
+    const finalPlayContext = internals.finishedAgreementTurns.get(1);
+    expect(finalPlayContext).toBeDefined();
+    expect(finalPlayContext?.generation).not.toBe(internals.voiceGeneration);
+    const resultBridge = provider.bridges.at(-1)! as AgreementEventBridge;
+
+    await expect(resultBridge.onNormalSpeechCandidate!({
+      speechId: 'result-safe-after-player', transcript: 'synthetic final reaction', signal: new AbortController().signal,
+    })).resolves.toBe(true);
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({
+      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }],
+    });
+    await expect(resultBridge.onNormalSpeechCandidate!({
+      speechId: 'result-stale-commit', transcript: 'synthetic stale promise', signal: new AbortController().signal,
+    })).resolves.toBe(false);
+    expect(messages.some(message => message.type === 'loan_transfer' || message.type === 'time_extension')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it('plays a safe ordinary reply after context expiry but rejects uncaused commits and offers', async () => {
+    agreement.resolve.mockResolvedValueOnce({ state: 'none', id: 'expired-context:turn:1' });
+    const { session, messages } = setup('expired-context', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+
+    completeAgreementTurn('ordinary-player-turn', 'synthetic ordinary player turn', 0, 100);
+    await settleAgreement();
+    await vi.advanceTimersByTimeAsync(350);
+    await vi.advanceTimersByTimeAsync(12_001);
+    const bridge = agreementBridge();
+
+    await expect(bridge.onNormalSpeechCandidate!({
+      speechId: 'expired-safe', transcript: 'synthetic ordinary answer', signal: new AbortController().signal,
+    })).resolves.toBe(true);
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({
+      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }],
+    });
+    await expect(bridge.onNormalSpeechCandidate!({
+      speechId: 'expired-commit', transcript: 'synthetic stale commitment', signal: new AbortController().signal,
+    })).resolves.toBe(false);
+    const confirmedBefore = provider.confirmedLine.mock.calls.length;
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'offer', actions: ['time_extension'] });
+    await expect(bridge.onNormalSpeechCandidate!({
+      speechId: 'expired-offer', transcript: 'synthetic stale proposal', signal: new AbortController().signal,
+    })).resolves.toBe(false);
+
+    expect(messages.some(message => message.type === 'loan_transfer' || message.type === 'time_extension')).toBe(false);
+    expect(provider.confirmedLine).toHaveBeenCalledTimes(confirmedBefore);
+    await session.shutdown('test_finished');
+  });
+
   it('replaces an audited free proposal with a server-confirmed offer line, never the model transcript', async () => {
     agreement.resolve.mockResolvedValueOnce({ state: 'none', id: 'audited-offer-line:turn:1' });
     agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'offer', actions: ['time_extension'] });
