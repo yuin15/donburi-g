@@ -225,8 +225,10 @@ export class GameView implements GamePresentation {
     const betChanged = previous && previous.snapshot.matchId === snapshot.matchId && previous.bets.player !== selectedBet;
     if (!previewAvailable || betChanged) this.cancelBetPreview();
     if (betChanged && previewAvailable && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const added = activeLines.filter(line => !ACTIVE_LINES[previous.bets.player].includes(line));
-      added.forEach((line, index) => {
+      const previewLines = selectedBet < previous.bets.player
+        ? activeLines
+        : activeLines.filter(line => !ACTIVE_LINES[previous.bets.player].includes(line));
+      previewLines.forEach((line, index) => {
         const path = this.app.querySelector<SVGPathElement>(`#betLinePreview [data-preview-line="${line}"]`)!;
         this.betAnimations.push(path.animate([
           { strokeDasharray: '1', strokeDashoffset: '1', opacity: 1 },
