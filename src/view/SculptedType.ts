@@ -16,11 +16,11 @@ export class SculptedType {
     this.side = new THREE.MeshStandardMaterial({ color: 0x63191b, metalness: .6, roughness: .3, envMap: environment, envMapIntensity: .8 });
   }
 
-  make(text: string, height: number, maxWidth: number, depth = 12): THREE.Mesh<TextGeometry, THREE.Material[]> {
-    const key = `${text}|${height}|${maxWidth}|${depth}`;
+  make(text: string, height: number, maxWidth: number, depth = 12, bevel = .022): THREE.Mesh<TextGeometry, THREE.Material[]> {
+    const key = `${text}|${height}|${maxWidth}|${depth}|${bevel}`;
     let geometry = this.geometries.get(key);
     if (!geometry) {
-      geometry = new TextGeometry(text, { font, size: height, depth, curveSegments: 5, bevelEnabled: true, bevelThickness: height * .026, bevelSize: height * .022, bevelSegments: 3, steps: 1 });
+      geometry = new TextGeometry(text, { font, size: height, depth, curveSegments: 5, bevelEnabled: true, bevelThickness: height * bevel * (.026 / .022), bevelSize: height * bevel, bevelSegments: 3, steps: 1 });
       geometry.computeBoundingBox();
       const bounds = geometry.boundingBox!;
       const scale = Math.min(1, maxWidth / (bounds.max.x - bounds.min.x));

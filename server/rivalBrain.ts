@@ -50,6 +50,16 @@ export function rejectsLoanOffer(transcript: string): boolean {
   return /^(?:いや|いいえ|だめ|no|nope)(?:[、。！？!?])?$/i.test(transcript.normalize('NFKC').trim());
 }
 
+// A transfer is irreversible within a turn, so this intentionally accepts only
+// a complete, unconditional, money-specific offer rather than a phrase inside
+// a longer sentence, quotation, condition, or metaphor.
+const DIRECT_PLAYER_LOAN_OFFER = /^(?:(?:(?:お金|金|\$?\s*5\s*ドル?)(?:を|は)?\s*)?(?:貸す|貸します|貸してあげる|貸してやる)(?:よ|ね)?|\b(?:i(?:'|’)ll|i\s+will)\s+(?:lend|loan)\s+(?:you\s+)?(?:\$?\s*5|five(?:\s+dollars?)?|(?:some\s+)?(?:money|cash)))[、。！!.\s]*$/i;
+
+/** A voluntary player loan is explicit, directed at the rival, and never inferred by the model. */
+export function offersLoanToRival(transcript: string): boolean {
+  return DIRECT_PLAYER_LOAN_OFFER.test(transcript.normalize('NFKC').trim());
+}
+
 const EXTENSION_NEGATION = /(?:時間(?:を|の)?|タイム)?延長(?:を)?して(?:ほしく|欲しく)(?:ない|ありません)|(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:時間)?伸ば\s*(?:は|を)?\s*(?:いらない|不要|さない|さなくて|やめ(?:て)?|結構)|(?:時間)?延長して[、。！？!?\s]*(?:やっぱり[、。！？!?\s]*)?(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て|る)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;
 const EXTENSION_REQUEST = /(?:時間(?:を|の)?|タイム)?延長(?:を)?(?:して|してください|下さい|できる[？?]?|お願い(?:します)?|頼む|してほしい|して欲しい|してくれ|してちょうだい)|(?:時間(?:を|の)?|タイム)?(?:伸ば|増や|足)(?:して|してください|下さい|せる[？?]?|ほしい|欲しい|くれ|ちょうだい)|(?:もっと|もう少し|あとちょっと(?:だけ)?)(?:時間)?\s*(?:を)?\s*(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して|できる[？?]?)?|(?:伸ば|増や|足)(?:して|せる[？?]?)?|ほしい|欲しい|お願い)|(?:(?:あと|もう|さらに|追加で)\s*(?:(?:10|十)\s*秒?)?(?:だけ|ほど|ちょっと)?|(?:10|十)\s*秒(?:だけ|ほど)?)\s*(?:を)?\s*(?:ください|下さい|ちょうだい|くれ|追加(?:して)?|延長(?:して|できる[？?]?)?|(?:伸ば|増や|足)(?:して|せる[？?]?)?|ほしい|欲しい|お願い)|\b(?:give|grant|add|extend)\s+(?:me\s+)?(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:can i have|i need|let me have)\s+(?:another\s+)?(?:ten|10)\s+(?:more\s+)?seconds?\b|\b(?:give|grant|allow)\s+(?:me\s+)?(?:more|extra)\s+time\b|\bextend\s+(?:the\s+)?time\b/i;
 

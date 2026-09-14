@@ -595,6 +595,7 @@ export class ReelScene {
     const portraitMoving = this.posePortrait(now);
     const animating = this.cabinet.update(now, this.motionPreference.matches) || portraitMoving;
     this.updateCabinetOverlays();
+    if (this.effectsHost) this.effectsHost.dataset.victory = String(this.cabinet.celebratingResult);
     this.materials.forEach((material, i) => {
       const rows = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival', i % 3);
       material.uniforms.liftedRows.value.set(rows[0], rows[1], rows[2]);
