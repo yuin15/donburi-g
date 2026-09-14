@@ -47,7 +47,7 @@ function setup() {
 }
 function setupWithEffects() {
   const host = { clientWidth: 1280, clientHeight: 720, dataset: {}, append: vi.fn(), replaceChildren: vi.fn() };
-  const effectsHost = { append: vi.fn() };
+  const effectsHost = { append: vi.fn(), dataset: {} };
   const view = new ReelScene(host as unknown as HTMLElement, undefined, effectsHost as unknown as HTMLElement);
   views.push(view);
   return { view, host, effectsHost };
@@ -387,26 +387,54 @@ describe('stage rendering and cleanup', () => {
   });
 
   it('shows the player victory shower for three seconds and skips it for rival or draw results', () => {
-    const { view } = setup();
+    const { view, effectsHost } = setupWithEffects();
+    view.setResult('rival');
     view.celebrateResult('rival');
     frame();
     expect(coins().every(pool => !pool.visible)).toBe(true);
     expect(backgroundRain().visible).toBe(false);
+    expect(effectsHost.dataset).toMatchObject({ victory: 'false' });
+    view.setResult('draw');
     view.celebrateResult('draw');
     frame();
     expect(coins().every(pool => !pool.visible)).toBe(true);
+    view.setResult('player');
     view.celebrateResult('player');
     frame();
     const victory = coins().find(pool => pool.userData.victory === true)!;
     expect(victory.visible).toBe(true);
     expect(victory.count).toBe(480);
     expect(backgroundRain().count).toBe(600);
+    const title = scene().getObjectByName('victory-title-celebration')!;
+    const heading = scene().getObjectByName('sculpted-YOU WIN!')!;
+    expect(title.visible).toBe(true);
+    expect(heading.visible).toBe(false);
+    expect(effectsHost.dataset).toMatchObject({ victory: 'true' });
     frame(2983);
     expect(victory.visible).toBe(true);
     frame(1);
     expect(victory.visible).toBe(false);
     expect(backgroundRain().visible).toBe(false);
+    expect(title.visible).toBe(false);
+    expect(heading.visible).toBe(true);
+    expect(effectsHost.dataset).toMatchObject({ victory: 'false' });
     expect(frames.size).toBe(0);
+    view.celebrateResult('player');
+    frame(500);
+    motion.matches = true;
+    motion.dispatchEvent(new Event('change'));
+    frame();
+    expect(title.visible).toBe(false);
+    expect(heading.visible).toBe(true);
+    motion.matches = false;
+    view.celebrateResult('player');
+    frame(500);
+    view.stop();
+    view.setResult(null);
+    frame();
+    expect(title.visible).toBe(false);
+    expect(effectsHost.dataset).toMatchObject({ victory: 'false' });
+    expect(scene().getObjectByName('sculpted-YOU WIN!')).toBeUndefined();
   });
   it.each([[PAYOUT.seven, 0], [0, PAYOUT.seven], [PAYOUT.cherry, PAYOUT.seven]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
     const { view, host } = setup();

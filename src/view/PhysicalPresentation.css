@@ -1,4 +1,5 @@
 /* Interactive text remains in the DOM; the machine's labels and rewards are meshes. */
+#stageEffects[data-victory=true] { z-index: 6; }
 #winBurst, #miniLabel[data-win=true] { visibility: hidden; }
 #start, #start:disabled, #start:hover:not(:disabled) { color: transparent; text-shadow: none; filter: none; }
 #start { left: 24.9% !important; }
