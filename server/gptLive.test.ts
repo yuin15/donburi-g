@@ -372,8 +372,36 @@ describe('live conversation pacing', () => {
     bridge.sendMic(voice);
     for (let i = 0; i < 5; i += 1) bridge.sendMic(quiet);
     expect(events.onUserSpeech).toHaveBeenCalledExactlyOnceWith({ startMs: 0, endMs: 200 });
-    expect(events.onUserSpeechEnd).toHaveBeenCalledExactlyOnceWith({ startMs: 0, endMs: 700 });
+    expect(events.onUserSpeechEnd).toHaveBeenCalledExactlyOnceWith(
+      { startMs: 0, endMs: 700 }, Buffer.concat([Buffer.alloc(9600, 4), Buffer.alloc(24000)]),
+    );
     expect(socket.send.mock.calls.filter(([raw]) => JSON.parse(raw).type === 'session.input_audio.append')).toHaveLength(7);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('isolates input PCM per VAD turn and never recovers a truncated overflow', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    // Discard a false start, including its PCM, before the actual utterance.
+    bridge.sendMic(voice); bridge.sendMic(quiet);
+    const nextVoice = Buffer.alloc(9600, 8);
+    bridge.sendMic(nextVoice.toString('base64'));
+    for (let i = 0; i < 5; i += 1) bridge.sendMic(quiet);
+    expect(events.onUserSpeechEnd.mock.calls[0][1]).toEqual(Buffer.concat([nextVoice, Buffer.alloc(24000)]));
+    for (let i = 0; i < 201; i += 1) bridge.sendMic(voice);
+    for (let i = 0; i < 5; i += 1) bridge.sendMic(quiet);
+    expect(events.onUserSpeechEnd.mock.calls[1][1]).toBeUndefined();
+    bridge.sendMic(voice); bridge.sendMic(voice);
+    for (let i = 0; i < 5; i += 1) bridge.sendMic(quiet);
+    expect(events.onUserSpeechEnd.mock.calls[2][1]).toEqual(Buffer.concat([Buffer.alloc(9600, 4), Buffer.alloc(24000)]));
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;

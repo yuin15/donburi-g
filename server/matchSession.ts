@@ -39,6 +39,7 @@ interface SettlementTurn {
   startedAt: number; endedAt: number | null; providerStartMs: number | null; providerEndMs: number | null;
   activeOffers: AgreementOffers; priorSpeech: ForwardedSpeech | null; transcript: string; conversation: string;
   playerLoanDirection: LoanDirection | null;
+  inputPcm: Buffer | null; needsInputAsr: boolean; inputAsrComplete: boolean;
   release: () => void; released: boolean; settledVersion: number; replyUntil: number;
 }
 interface ForwardedSpeech {
@@ -382,9 +383,20 @@ export class MatchSession {
           // route partial deltas through the historical regex paths.
           if (attributedTurn !== null) {
             const pending = this.agreementTurns.get(attributedTurn) ?? this.finishedAgreementTurns.get(attributedTurn);
-            if (pending) { pending.version += 1; pending.transcript += delta; }
-            if (pending?.endedAt !== null) this.queueConversationAgreement(attributedTurn, generation);
+            if (pending && !pending.inputAsrComplete) {
+              pending.version += 1; pending.transcript += delta;
+              if (pending.endedAt !== null) this.queueConversationAgreement(attributedTurn, generation);
+            }
             if (attributedTurn === this.userSpeechTurn && !this.userSpeaking) this.queueConversationLanguageSettle(generation);
+          } else {
+            // Do not guess whether a timingless delta belongs to an older or
+            // newer turn. Recover the current turn from its own exact PCM.
+            const pending = this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn);
+            if (pending && !pending.inputAsrComplete && !pending.needsInputAsr) {
+              pending.needsInputAsr = true;
+              pending.version += 1;
+              if (pending.endedAt !== null) this.queueConversationAgreement(this.userSpeechTurn, generation);
+            }
           }
         }
       },
@@ -412,11 +424,12 @@ export class MatchSession {
         this.reactions.conversationActivity();
 
       },
-      onUserSpeechEnd: (input?: { startMs: number | null; endMs: number | null }) => {
+      onUserSpeechEnd: (input?: { startMs: number | null; endMs: number | null }, pcm?: Buffer) => {
         if (!current() || resultOnly || this.resultTransition) return;
         this.userSpeaking = false;
-        const pending = this.agreementTurns.get(this.userSpeechTurn);
+        const pending = this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn);
         if (pending) {
+          if (pcm?.length) pending.inputPcm = pcm;
           pending.endedAt = Date.now();
           pending.replyUntil = Date.now() + 6_000;
           pending.providerEndMs = input?.endMs ?? input?.startMs ?? pending.providerEndMs;
@@ -1341,6 +1354,7 @@ export class MatchSession {
       providerStartMs, providerEndMs: null, version: 0, timer: null, deadlineTimer: null,
       activeOffers: this.captureAgreementOffers(), priorSpeech: this.lastForwardedSpeech,
       transcript: '', conversation: this.settlementConversation(), playerLoanDirection: null,
+      inputPcm: null, needsInputAsr: false, inputAsrComplete: false,
       release: () => undefined, released: false, settledVersion: -1, replyUntil: 0,
     };
     this.enqueueSettlementTurn(turn, pending);
@@ -1439,16 +1453,27 @@ export class MatchSession {
       }
     }
     if (pending.settledVersion < 0) pending.conversation = this.settlementConversation();
-    if (!pending.transcript.trim()) throw new SettlementUnavailable('classification');
     let version: number;
     do {
+      if (!pending.inputAsrComplete && (pending.needsInputAsr || !pending.transcript.trim())) {
+        if (!pending.inputPcm) throw new SettlementUnavailable('classification');
+        const transcript = await transcribeForwardedPcm(pending.inputPcm, signal);
+        signal.throwIfAborted();
+        pending.transcript = transcript;
+        pending.inputAsrComplete = true;
+        pending.needsInputAsr = false;
+        pending.inputPcm = null;
+        pending.version += 1;
+        this.recordVoiceDiagnostic('agreement_input_recovered', { turn: pending.id, source: 'input_pcm' });
+      }
+      if (!pending.transcript.trim()) throw new SettlementUnavailable('classification');
       version = pending.version;
       const startedAt = Date.now();
       const outcome = await retrySettlement(attemptSignal => this.agreements.resolve({
         id: pending.id, snapshot: getSnapshot(this.state), transcript: pending.transcript,
         conversation: `${pending.conversation}\n${previous?.conversation ?? ''}`,
         activeOffers: pending.activeOffers,
-      }, attemptSignal), result => result.state === 'unavailable', signal, 'classification');
+      }, attemptSignal), result => version === pending.version && result.state === 'unavailable', signal, 'classification');
       signal.throwIfAborted();
       this.recordVoiceDiagnostic('agreement_resolve', { state: outcome.state, elapsedMs: Date.now() - startedAt, versionMatched: version === pending.version });
       if (version !== pending.version) continue;
@@ -1465,14 +1490,14 @@ export class MatchSession {
           if (item.offerId !== null && (item.action === 'time_extension' || item.action === pending.playerLoanDirection)) this.applyAgreement(pending.id, item);
         }
       }
+      pending.settledVersion = version;
+      this.verifiedConversation.set(pending.id, `P:${pending.transcript}`);
+      // The audit also awaits a provider. Re-check the version after it so a
+      // trailing word cannot leave a newer revision stranded as "finished".
+      for (const speech of this.forwardedSpeeches.values()) {
+        if (speech.cause === pending && speech.transcript !== null) await this.reconcileForwardedSpeech(speech, signal);
+      }
     } while (version !== pending.version);
-    pending.settledVersion = version;
-    this.verifiedConversation.set(pending.id, `P:${pending.transcript}`);
-    // A trailing input delta can complete the cause after the speech audit.
-    // Re-use the exact ASR text and immutable agreement key, never Live captions.
-    for (const speech of this.forwardedSpeeches.values()) {
-      if (speech.cause === pending && speech.transcript !== null) await this.reconcileForwardedSpeech(speech, signal);
-    }
     this.recordVoiceDiagnostic('agreement_finish', { reason: 'settled', pendingCount: this.agreementTurns.size - 1 });
   }
 
@@ -1535,6 +1560,7 @@ export class MatchSession {
       const audit = await retrySettlement(attemptSignal => this.agreements.auditAssistantSpeech(
         getSnapshot(this.state), speech.transcript!, conversation, offers, attemptSignal, playerLoanDirection,
       ), result => {
+        if (version !== (speech.cause?.version ?? 0)) return false;
         if (result.state === 'unavailable') return true;
         if (result.state !== 'commit') return false;
         const conflict = result.agreements.some(item => item.action !== 'time_extension' && item.action !== playerLoanDirection);

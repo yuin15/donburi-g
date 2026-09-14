@@ -113,7 +113,7 @@ function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic'
 }
 type AgreementEventBridge = {
   onUserSpeech(timeline?: { startMs: number; endMs: number }): void;
-  onUserSpeechEnd(timeline?: { startMs: number; endMs: number }): void;
+  onUserSpeechEnd(timeline?: { startMs: number; endMs: number }, pcm?: Buffer): void;
   onTranscript(role: 'user' | 'assistant', delta: string, timing?: { startMs?: number; endMs?: number }): void;
   onNormalSpeechStarted?(speechId: string): void;
 };
@@ -1330,6 +1330,105 @@ describe('live match cleanup', () => {
     expect(agreement.resolve).not.toHaveBeenCalled();
     await session.shutdown('test_finished');
   });
+
+  for (const [action, request] of [
+    ['rival_to_player', 'さっきの当たり、惜しかったね。ところで5ドル貸してくれる？'],
+    ['player_to_rival', 'まだ勝負を続けたいな。よかったら5ドル貸してあげるよ'],
+    ['time_extension', 'この勝負、楽しくなってきたね。あと10秒延長して'],
+  ] as const) {
+    it.each([false, true])(`settles repeated conversational ${action} requests after chat (provider timing: %s)`, async hasTiming => {
+      const { session, messages } = setup('conversational-request', 'manual', 'audio');
+      const inputPcm = Buffer.alloc(9600, 8);
+      const outputPcm = Buffer.alloc(4800, 4);
+      asr.transcribe.mockImplementation(async pcm => pcm.equals(inputPcm) ? request : 'synthetic spoken acceptance');
+      agreement.resolve.mockImplementation(async turn => ({
+        state: turn.transcript.includes(request) ? 'accepted' : 'none', id: turn.id,
+        ...(turn.transcript.includes(request) ? { agreements: [{ action, offerId: null }] } : {}),
+      }));
+      agreement.auditAssistantSpeech.mockResolvedValue({ state: 'commit', agreements: [{ action, offerId: null }] });
+      try {
+        await session.initialize(); session.handleRaw('{"type":"start"}');
+        const state = (session as unknown as { state: MatchState }).state;
+        state.scores.player = 0; state.scores.rival = 10;
+        completeAgreementTurn('chat', 'こんにちは、今日は調子どう？', 0, 500);
+        await vi.advanceTimersByTimeAsync(350);
+        for (let index = 0; index < 2; index += 1) {
+          const timing = { startMs: 2000 + index * 2000, endMs: 2500 + index * 2000 };
+          const bridge = agreementBridge();
+          bridge.onUserSpeech(timing);
+          bridge.onTranscript('user', request, hasTiming ? timing : undefined);
+          bridge.onUserSpeechEnd(timing, inputPcm);
+          await vi.advanceTimersByTimeAsync(350);
+          const reply = `reply-${index}`;
+          provider.events!.onNormalSpeechStarted!(reply);
+          provider.events!.onAudio(outputPcm.toString('base64'), reply, 'normal');
+          provider.events!.onSpeechAudioEnded(reply);
+          await vi.advanceTimersByTimeAsync(1);
+          expect(agreement.resolve.mock.calls.at(-1)![0]).toMatchObject({
+            id: `conversational-request:turn:${index + 2}`, transcript: request,
+          });
+          // The same turn can receive late provider text after its PCM recovery.
+          // It must neither lose the next request nor settle this one twice.
+          bridge.onTranscript('user', '、お願いね', hasTiming ? timing : undefined);
+          await vi.advanceTimersByTimeAsync(350);
+          const transfers = messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'loan_transfer'));
+          expect(transfers).toHaveLength(index + 1);
+        }
+        expect(asr.transcribe.mock.calls.filter(([pcm]) => pcm.equals(inputPcm))).toHaveLength(hasTiming ? 0 : 2);
+        if (action === 'time_extension') expect(state.duration).toBe(80);
+        else expect(state.scores).toEqual(action === 'rival_to_player' ? { player: 10, rival: 0 } : { player: -10, rival: 20 });
+        expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
+      } finally { await session.shutdown('test_finished'); }
+    });
+  }
+
+  it('recovers each overlapping input from its own PCM instead of assigning a delayed request to new chat', async () => {
+    const { session, messages } = setup('overlapping-input', 'manual', 'audio');
+    const oldPcm = Buffer.alloc(9600, 4);
+    const newPcm = Buffer.alloc(9600, 8);
+    asr.transcribe.mockImplementation(async pcm => pcm.equals(oldPcm) ? '5ドル貸して' : '今日はいい天気だね');
+    agreement.resolve.mockImplementation(async turn => turn.transcript === '5ドル貸して'
+      ? { state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }
+      : { state: 'none', id: turn.id });
+    try {
+      await session.initialize(); session.handleRaw('{"type":"start"}');
+      const bridge = agreementBridge();
+      bridge.onUserSpeech({ startMs: 0, endMs: 500 });
+      bridge.onUserSpeechEnd({ startMs: 0, endMs: 500 }, oldPcm);
+      bridge.onUserSpeech({ startMs: 1000, endMs: 1500 });
+      bridge.onTranscript('user', '5ドル貸して');
+      bridge.onUserSpeechEnd({ startMs: 1000, endMs: 1500 }, newPcm);
+      await vi.advanceTimersByTimeAsync(350);
+      expect(agreement.resolve.mock.calls.map(([turn]) => [turn.id, turn.transcript])).toEqual([
+        ['overlapping-input:turn:1', '5ドル貸して'], ['overlapping-input:turn:2', '今日はいい天気だね'],
+      ]);
+      expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+      expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
+    } finally { await session.shutdown('test_finished'); }
+  });
+
+  it('reports failed input recovery and ignores its completion after shutdown', async () => {
+    const { session, messages } = setup('input-recovery-failure', 'manual', 'audio');
+    try {
+      await session.initialize(); session.handleRaw('{"type":"start"}');
+      asr.transcribe.mockRejectedValueOnce(new Error('synthetic ASR failure'));
+      provider.events!.onUserSpeech({ startMs: 0, endMs: 500 });
+      provider.events!.onUserSpeechEnd({ startMs: 0, endMs: 500 }, Buffer.alloc(9600, 4));
+      await vi.advanceTimersByTimeAsync(350);
+      expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(true);
+      expect(agreement.resolve).not.toHaveBeenCalled();
+      const transcription = deferred<string>();
+      asr.transcribe.mockReturnValueOnce(transcription.promise);
+      provider.events!.onUserSpeech({ startMs: 1000, endMs: 1500 });
+      provider.events!.onUserSpeechEnd({ startMs: 1000, endMs: 1500 }, Buffer.alloc(9600, 8));
+      await vi.advanceTimersByTimeAsync(350);
+      await session.shutdown('test_finished');
+      transcription.resolve('5ドル貸して');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(agreement.resolve).not.toHaveBeenCalled();
+    } finally { await session.shutdown('test_finished'); }
+  });
+
   it('streams ordinary PCM and captions while ASR is unresolved, then settles compound acceptance once after a new VAD', async () => {
     agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'time_extension', offerId: null }] }));
     const transcription = deferred<string>();
@@ -1473,6 +1572,39 @@ describe('live match cleanup', () => {
     expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(2);
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     await session.shutdown('test_finished');
+  });
+
+  it.each(['rival_to_player', 'player_to_rival', 'time_extension'] as const)('finishes a new %s transcript revision arriving during re-audit', async action => {
+    const { session, messages } = setup('reaudit-revision', 'manual', 'audio');
+    const audit = deferred<{ state: 'unavailable' }>();
+    agreement.resolve
+      .mockImplementationOnce(async turn => ({ state: 'none', id: turn.id }))
+      .mockImplementation(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action, offerId: null }] }));
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'safe' }).mockReturnValueOnce(audit.promise)
+      .mockResolvedValue({ state: 'commit', agreements: [{ action, offerId: null }] });
+    try {
+      await session.initialize(); session.handleRaw('{"type":"start"}');
+      completeAgreementTurn('request', '少しお願いがあるんだけど', 0, 1000);
+      await vi.advanceTimersByTimeAsync(350);
+      provider.events!.onNormalSpeechStarted!('reply');
+      provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'reply', 'normal');
+      provider.events!.onSpeechAudioEnded('reply');
+      await vi.advanceTimersByTimeAsync(1);
+      provider.events!.onTranscript('user', '、synthetic request', { startMs: 0, endMs: 1000 });
+      await vi.advanceTimersByTimeAsync(350);
+      expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(2);
+      provider.events!.onTranscript('user', '、お願いします', { startMs: 0, endMs: 1000 });
+      // An obsolete unavailable audit must not exhaust retries for this revision.
+      audit.resolve({ state: 'unavailable' });
+      await vi.advanceTimersByTimeAsync(400);
+      expect(agreement.resolve).toHaveBeenCalledTimes(3);
+      expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(3);
+      const internals = session as unknown as { finishedAgreementTurns: Map<number, { version: number; settledVersion: number }>; agreementTurns: Map<number, unknown> };
+      expect(internals.finishedAgreementTurns.get(1)).toMatchObject({ version: 3, settledVersion: 3 });
+      expect(internals.agreementTurns.size).toBe(0);
+      expect(messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'loan_transfer'))).toHaveLength(1);
+      expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
+    } finally { await session.shutdown('test_finished'); }
   });
 
   it('drains a delayed spoken agreement before freezing the result and does not require playback ACK', async () => {

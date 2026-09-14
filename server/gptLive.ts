@@ -10,7 +10,7 @@ export interface LiveEvents {
   onTranscript(role: 'user' | 'assistant', delta: string, timing?: { startMs: number | null; endMs: number | null }): void;
   onDelegation(delegation: { id: string; offsetMs: number }): void;
   onUserSpeech(range?: InputAudioRange): void;
-  onUserSpeechEnd(range?: InputAudioRange): void;
+  onUserSpeechEnd(range?: InputAudioRange, pcm?: Buffer): void;
   /** Capture the causal context before a normal utterance is queued for playback. */
   onNormalSpeechStarted?(speechId: string): void;
   onCommandRejected?(rejection: { kind: 'thinking' | 'commentary'; speechId?: string }): void;
@@ -47,6 +47,9 @@ export class GptLiveBridge {
   private inputSpeaking = false;
   private inputTimelineMs = 0;
   private inputTurnStartMs: number | null = null;
+  private inputPcmChunks: Buffer[] = [];
+  private inputPcmBytes = 0;
+  private inputPcmOverflow = false;
   private suppressedAt: number | null = null;
   private suppressionStop: ReturnType<typeof setTimeout> | null = null;
   private readonly pendingConfirmedLines: Array<{ line: string | LocalizedLine; speechId?: string }> = [];
@@ -252,7 +255,19 @@ export class GptLiveBridge {
     const startMs = this.inputTimelineMs;
     const endMs = startMs + durationMs;
     this.inputTimelineMs = endMs;
-    if (pcmRms(pcm) > 160) {
+    const audible = pcmRms(pcm) > 160;
+    if (audible || this.inputSpeaking) {
+      // Retain only this bounded, already-forwarded input turn in memory.
+      // Its PCM can recover a transcript that has no usable provider offsets.
+      if (!this.inputPcmOverflow && this.inputPcmBytes + pcm.length <= 48_000 * 20) {
+        this.inputPcmChunks.push(pcm);
+        this.inputPcmBytes += pcm.length;
+      } else {
+        this.inputPcmOverflow = true;
+        this.inputPcmChunks = [];
+      }
+    }
+    if (audible) {
       if (!this.inputSpeaking && this.inputTurnStartMs === null) this.inputTurnStartMs = startMs;
       this.inputSpeechMs += durationMs;
       this.inputQuietMs = 0;
@@ -268,14 +283,25 @@ export class GptLiveBridge {
       if (!this.inputSpeaking) {
         this.inputSpeechMs = 0;
         this.inputTurnStartMs = null;
+        this.clearInputPcm();
       }
       if (this.inputQuietMs >= 450) {
         this.inputSpeechMs = 0;
-        if (this.inputSpeaking) this.events.onUserSpeechEnd({ startMs: this.inputTurnStartMs ?? startMs, endMs });
+        if (this.inputSpeaking) this.events.onUserSpeechEnd(
+          { startMs: this.inputTurnStartMs ?? startMs, endMs },
+          this.inputPcmOverflow ? undefined : Buffer.concat(this.inputPcmChunks),
+        );
         this.inputSpeaking = false;
         this.inputTurnStartMs = null;
+        this.clearInputPcm();
       }
     }
+  }
+
+  private clearInputPcm(): void {
+    this.inputPcmChunks = [];
+    this.inputPcmBytes = 0;
+    this.inputPcmOverflow = false;
   }
 
   updateGameContext(text: string): void {
@@ -419,6 +445,7 @@ export class GptLiveBridge {
 
   close(): Promise<void> {
     if (this.closing) return this.closing;
+    this.clearInputPcm();
     this.contextInFlight = null;
     if (this.suppressionStop) clearTimeout(this.suppressionStop);
     this.suppressionStop = null;
