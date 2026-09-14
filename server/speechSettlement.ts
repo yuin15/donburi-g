@@ -52,8 +52,10 @@ export function pcmWave(pcm: Buffer): Uint8Array<ArrayBuffer> {
   return new Uint8Array(wave);
 }
 
-export async function transcribeForwardedPcm(pcm: Buffer, signal: AbortSignal): Promise<string> {
+export async function transcribeForwardedPcm(pcm: Buffer, signal: AbortSignal, options: { allowEmpty?: boolean } = {}): Promise<string> {
+  let attempt = 0;
   return retrySettlement(async attemptSignal => {
+    attempt += 1;
     const form = new FormData();
     form.append('model', 'gpt-transcribe');
     form.append('response_format', 'json');
@@ -63,9 +65,10 @@ export async function transcribeForwardedPcm(pcm: Buffer, signal: AbortSignal): 
     });
     if (!response.ok) throw new SettlementUnavailable('asr');
     const result: unknown = await response.json();
-    if (!result || typeof result !== 'object' || !('text' in result) || typeof result.text !== 'string' || !result.text.trim()) {
+    if (!result || typeof result !== 'object' || !('text' in result) || typeof result.text !== 'string') {
       throw new SettlementUnavailable('asr');
     }
+    if (!result.text.trim() && !(options.allowEmpty && attempt > 1)) throw new SettlementUnavailable('asr');
     return result.text;
   }, () => false, signal, 'asr');
 }

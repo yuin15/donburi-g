@@ -27,10 +27,19 @@ describe('post-speech settlement transport', () => {
   });
 
   it('reports ASR exhaustion instead of treating unavailable or empty text as none', async () => {
-    const request = vi.fn().mockResolvedValue(Response.json({ text: '' }));
+    const request = vi.fn().mockImplementation(async () => Response.json({ text: '' }));
     vi.stubGlobal('fetch', request);
     await expect(transcribeForwardedPcm(Buffer.alloc(48), new AbortController().signal)).rejects.toMatchObject({ stage: 'asr' });
     expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts wordless output only after retrying a successful empty ASR', async () => {
+    const request = vi.fn().mockImplementation(async () => Response.json({ text: '' }));
+    vi.stubGlobal('fetch', request);
+    await expect(transcribeForwardedPcm(Buffer.alloc(48), new AbortController().signal, { allowEmpty: true })).resolves.toBe('');
+    expect(request).toHaveBeenCalledTimes(2);
+    request.mockResolvedValue(new Response(null, { status: 503 }));
+    await expect(transcribeForwardedPcm(Buffer.alloc(48), new AbortController().signal, { allowEmpty: true })).rejects.toMatchObject({ stage: 'asr' });
   });
 
   it('bounds a non-cooperating transport and aborts every retry attempt', async () => {
