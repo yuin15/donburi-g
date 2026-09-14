@@ -17,7 +17,7 @@ export class MediaServerLeg {
     }
     this.send({ type: 'agent.speak', event_id: this.utteranceId, audio });
   }, () => {
-    this.send({ type: 'agent.speak_end' });
+    if (this.utteranceId) this.send({ type: 'agent.speak_end', event_id: this.utteranceId });
     this.utteranceId = null;
   });
   private closed = false;

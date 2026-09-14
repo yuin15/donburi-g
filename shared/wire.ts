@@ -33,7 +33,7 @@ const spin = z.object({
   winningLines: z.array(z.enum(['middle', 'top', 'bottom', 'diagonalDown', 'diagonalUp'])).max(5).optional(),
   payout: z.number().int().min(0).max(150), total: score,
   upgrades: z.array(upgrade).max(6).optional(),
-  upgradeSpent: z.number().int().min(0).max(60).optional(),
+  upgradeSpent: z.number().int().min(0).max(90).optional(),
 }).refine(value => {
   const fields = [value.grid, value.stops, value.bet, value.winningLines];
   if (fields.every(field => field === undefined)) return true;
@@ -64,7 +64,7 @@ const snapshot = z.object({
   stats: z.object({ player: sideStats, rival: sideStats }),
   upgrades: z.object({ player: z.array(upgrade).max(6), rival: z.array(upgrade).max(2) }),
   rivalDistraction: z.object({ untilElapsed: z.number().min(0).max(MAX_MATCH_SECONDS), seconds: z.union([z.literal(2), z.literal(4)]) }).optional(),
-  upgradeSpent: z.number().int().min(0).max(60).optional(),
+  upgradeSpent: z.number().int().min(0).max(90).optional(),
   winner: z.enum(['player', 'rival', 'draw']).optional(), eventSeq: z.number().int().min(0),
 }).refine(v => v.round === v.rounds.player)
   .refine(v => v.status !== 'result' || (v.elapsed === (v.duration ?? MATCH_SECONDS) && v.remaining === 0 && v.winner !== undefined))

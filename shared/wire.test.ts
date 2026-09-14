@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bet, MatchSnapshot, ServerEnvelope, ServerMessage, SpinView } from './protocol';
 import { parseServerEnvelope } from './wire';
-import { advanceMatch, createMatch, evaluateGrid, gridFromStops, startMatch } from '../src/domain/game';
+import { advanceMatch, createMatch, evaluateGrid, getSnapshot, gridFromStops, purchaseUpgrade, requestManualSpin, startMatch } from '../src/domain/game';
 
 function envelope(message: ServerMessage): ServerEnvelope {
   return {
@@ -48,6 +48,25 @@ describe('bankroll reel wire', () => {
     };
     const message: ServerMessage = { type: 'side_spin', spin };
     expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
+  });
+
+  it('accepts a legal $90 snapshot and spin after all six purchases', () => {
+    const state = createMatch(123, 'wire-grid', 'manual');
+    startMatch(state);
+    state.scores.player = 100;
+    for (const id of ['steady', 'jackpot'] as const) {
+      for (let count = 0; count < 3; count += 1) expect(purchaseUpgrade(state, id, count)).toBe(true);
+    }
+    expect(state.upgradeSpent).toBe(90);
+
+    const snapshot: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(state) };
+    expect(parseServerEnvelope(JSON.stringify(envelope(snapshot)))).toEqual(envelope(snapshot));
+
+    const event = requestManualSpin(state, 0).find(value => value.type === 'side_spin');
+    if (!event || event.type !== 'side_spin') throw new Error('missing upgraded player spin');
+    expect(event.spin.upgradeSpent).toBe(90);
+    const spin: ServerMessage = { type: 'side_spin', spin: event.spin };
+    expect(parseServerEnvelope(JSON.stringify(envelope(spin)))).toEqual(envelope(spin));
   });
 
   it('round-trips a snapshot whose statistics include all simultaneous winning lines in one round', () => {
