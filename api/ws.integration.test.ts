@@ -44,6 +44,7 @@ vi.mock('../server/gptLive', () => ({ GptLiveBridge: class {
   connect = (timeoutMs?: number) => provider.gptConnect(this.events, timeoutMs);
   close = vi.fn(() => provider.gptClose());
   updateGameContext = vi.fn();
+  hasPendingConversation = vi.fn(() => false);
   requestReaction = vi.fn();
   requestConversationInvitation = vi.fn(() => true);
   requestConfirmedLine = vi.fn();

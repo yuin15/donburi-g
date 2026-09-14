@@ -659,10 +659,12 @@ describe('live conversation pacing', () => {
     bridge.noteSpeechPlaybackDone('normal-1');
     events.onAudio.mockClear();
     events.onTranscript.mockClear();
+    expect(bridge.hasPendingConversation()).toBe(false);
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '次の返事' }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', '次の返事', { startMs: null, endMs: null });
     expect(events.onAudio).not.toHaveBeenCalled();
+    expect(bridge.hasPendingConversation()).toBe(true);
     await vi.advanceTimersByTimeAsync(4_999);
     expect(events.onAudio).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);

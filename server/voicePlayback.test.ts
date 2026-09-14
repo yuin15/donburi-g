@@ -81,7 +81,7 @@ it('settles a ten-second request inside continuous speech without interrupting p
   const session = new MatchSession(frontend, 'continuous-extension', async () => undefined, { voiceMode: 'audio', spinMode: 'manual' });
   const intro = Buffer.alloc(4800, 4);
   const acceptance = Buffer.alloc(4800, 5);
-  settlement.transcribe.mockImplementation(async (pcm: Buffer) => pcm.includes(5) ? 'わかった、10秒延長するね。' : 'synthetic intro');
+  settlement.transcribe.mockImplementation(async (pcm: Buffer) => pcm.length > 9600 ? '10秒延長して' : pcm.includes(5) ? 'わかった、10秒延長するね。' : 'synthetic intro');
   settlement.resolve.mockImplementation(async (turn: AgreementTurn) => ({
     state: 'accepted', id: turn.id, agreements: [{ action: 'time_extension', offerId: null }],
   }));
@@ -105,7 +105,7 @@ it('settles a ten-second request inside continuous speech without interrupting p
     await vi.advanceTimersByTimeAsync(1000);
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'voice_audio').map(message => message.speechId)).toEqual(['normal-1', 'normal-1']);
-    expect(settlement.transcribe.mock.calls.map(([pcm]) => pcm)).toEqual([intro, acceptance]);
+    expect(settlement.transcribe.mock.calls.map(([pcm]) => pcm)).toEqual([Buffer.concat([intro, acceptance]), Buffer.concat([intro, intro, Buffer.alloc(24000)])]);
     expect(settlement.audit.mock.calls.at(-1)![2]).toContain('P:10秒延長して');
     expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
     expect(messages.filter(message => message.type === 'voice_interrupt')).toHaveLength(0);
@@ -117,6 +117,74 @@ it('settles a ten-second request inside continuous speech without interrupting p
   }
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it.each([
+  ['rival_to_player', true, false], ['player_to_rival', true, false],
+  ['rival_to_player', false, false], ['player_to_rival', false, false],
+  ['rival_to_player', true, true], ['player_to_rival', true, true],
+] as const)('settles %s across VAD turns (early reply: %s, previous loan: %s)', async (action, earlyReply, previousLoan) => {
+  const messages: ServerMessage[] = [];
+  const frontend = { readyState: 1, close: vi.fn(), send(raw: string) { messages.push(JSON.parse(raw)); } } as unknown as WebSocket;
+  const session = new MatchSession(frontend, 'queued-conversation', async () => undefined, { voiceMode: 'audio', spinMode: 'manual' });
+  const intro = Buffer.alloc(4800, 4), prefix = Buffer.alloc(4800, 5), acceptance = Buffer.alloc(4800, 6);
+  const request = action === 'rival_to_player' ? 'ところで5ドル貸して' : '今度は5ドル貸してあげる';
+  const previousAction = action === 'rival_to_player' ? 'player_to_rival' : 'rival_to_player';
+  const inputTranscripts = ['さっきのスロット惜しかったね', request, 'お願いね'];
+  if (previousLoan) inputTranscripts.unshift('synthetic previous request');
+  settlement.transcribe.mockImplementation(async (pcm: Buffer) => pcm.length > 9600 ? inputTranscripts.shift()
+    : pcm.includes(6) ? 'synthetic loan acceptance' : previousLoan && pcm.includes(4) ? 'synthetic previous acceptance' : 'synthetic chat');
+  settlement.resolve.mockImplementation(async (turn: AgreementTurn) => turn.transcript === request
+    ? { state: 'accepted', id: turn.id, agreements: [{ action, offerId: null }] }
+    : turn.transcript === 'synthetic previous request' ? { state: 'accepted', id: turn.id, agreements: [{ action: previousAction, offerId: null }] }
+    : { state: 'none', id: turn.id });
+  settlement.audit.mockImplementation(async (_snapshot, transcript, _conversation, _offers, _signal, direction) => {
+    if (transcript === 'synthetic previous acceptance') return { state: 'commit', agreements: [{ action: previousAction, offerId: null }] };
+    if (transcript !== 'synthetic loan acceptance') return { state: 'safe' };
+    expect(direction).toBe(action);
+    return { state: 'commit', agreements: [{ action, offerId: null }] };
+  });
+  try {
+    const initializing = session.initialize(); const upstream = sockets[0];
+    const emit = (type: string, data = {}) => upstream.emit('message', JSON.stringify({ type, ...data }));
+    upstream.emit('open'); emit('session.started'); await initializing;
+    session.handleRaw('{"type":"start"}');
+    let inputOffset = 0;
+    const userTurn = (text: string) => {
+      const start = inputOffset;
+      for (let i = 0; i < 2; i++) session.handleRaw(JSON.stringify({ type: 'mic', audio: intro.toString('base64') }));
+      emit('session.input_transcript.delta', { delta: text, start_ms: start, end_ms: start + 200 });
+      for (let i = 0; i < 5; i++) session.handleRaw(JSON.stringify({ type: 'mic', audio: Buffer.alloc(4800).toString('base64') }));
+      inputOffset += 700;
+    };
+    if (previousLoan) { userTurn('synthetic previous request'); await vi.advanceTimersByTimeAsync(350); }
+    emit('session.output_audio.delta', { delta: intro.toString('base64') });
+    await vi.advanceTimersByTimeAsync(900);
+    session.handleRaw('{"type":"voice_speech_done","speechId":"normal-1"}');
+    // A queued reply can start with the already settled request as its cause.
+    if (previousLoan && earlyReply) emit('session.output_audio.delta', { delta: prefix.toString('base64') });
+    userTurn('さっきのスロット惜しかったね');
+    await vi.advanceTimersByTimeAsync(350);
+    // This ordinary reply is generated while the five-second playback gap runs.
+    if (earlyReply && !previousLoan) emit('session.output_audio.delta', { delta: prefix.toString('base64') });
+    userTurn(request);
+    await vi.advanceTimersByTimeAsync(350);
+    userTurn('お願いね');
+    if (!earlyReply) emit('session.output_audio.delta', { delta: prefix.toString('base64') });
+    emit('session.output_audio.delta', { delta: acceptance.toString('base64') });
+    await vi.advanceTimersByTimeAsync(5500);
+    const transfers = messages.filter(message => message.type === 'loan_transfer');
+    expect(transfers).toHaveLength(previousLoan ? 2 : 1);
+    expect(transfers.at(-1)).toMatchObject({ direction: action, amount: 5 });
+    expect(settlement.audit.mock.calls.at(-1)![2]).toContain(`P:${request}`);
+    expect(settlement.audit.mock.calls.at(-1)![2]).toContain('P:お願いね');
+    const outcomes = session as unknown as { finishedAgreementTurns: Map<number, { id: string }>; agreements: { applyOnce: (id: string, item: { action: typeof action; offerId: null }, apply: () => boolean) => boolean } };
+    const requestId = outcomes.finishedAgreementTurns.get(previousLoan ? 3 : 2)!.id;
+    expect(outcomes.agreements.applyOnce(requestId, { action, offerId: null }, () => true)).toBe(false);
+    expect(messages.filter(message => message.type === 'voice_audio')).toHaveLength(3);
+    expect(messages.filter(message => message.type === 'voice_interrupt')).toHaveLength(0);
+    expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
+  } finally { await session.shutdown('synthetic_conversation_finished'); }
+});
 
 it.each([[0, 3], [160, 3], [161, 2], [161, 3]])('preserves the last PCM and the next reply with microphone RMS %i over %i chunks', async (amplitude, chunkCount) => {
   const player = new LiveAudioPlayer(); await player.prepare();

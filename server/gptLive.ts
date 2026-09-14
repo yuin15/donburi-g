@@ -13,6 +13,8 @@ export interface LiveEvents {
   onUserSpeechEnd(range?: InputAudioRange, pcm?: Buffer): void;
   /** Capture the causal context before a normal utterance is queued for playback. */
   onNormalSpeechStarted?(speechId: string): void;
+  /** A player VAD turn can arrive while this utterance is still queued. */
+  onNormalSpeechInput?(speechId: string): void;
   onCommandRejected?(rejection: { kind: 'thinking' | 'commentary'; speechId?: string }): void;
   onError(code: string): void;
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
@@ -310,6 +312,9 @@ export class GptLiveBridge {
     this.flushContext();
   }
 
+  /** Automatic game offers must not replace a reply still waiting to be heard. */
+  hasPendingConversation(): boolean { return this.hasPendingPlayback(); }
+
   requestReaction(text: string): boolean {
     if (Date.now() < this.conversationUntil || Date.now() < this.playbackQuietUntil || this.hasPendingPlayback()) return false;
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
@@ -338,7 +343,10 @@ export class GptLiveBridge {
     this.conversationLanguagePending = true;
     // Volume-only VAD can be an acknowledgement, background noise, or echo.
     // Preserve both collected PCM and its playback fence through the last sample.
-    if (!options.interruptPlayback) return null;
+    if (!options.interruptPlayback) {
+      if (this.activeNormalSpeech) this.events.onNormalSpeechInput?.(this.activeNormalSpeech.speechId);
+      return null;
+    }
     if (this.hasActivePlayback()) this.playbackInterrupt = ++this.playbackInterruptSequence;
     this.discardBufferedNormalSpeech();
     // An interrupted tagged line must not retain ownership of the next reply.

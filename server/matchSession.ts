@@ -39,6 +39,7 @@ interface SettlementTurn {
   startedAt: number; endedAt: number | null; providerStartMs: number | null; providerEndMs: number | null;
   activeOffers: AgreementOffers; priorSpeech: ForwardedSpeech | null; transcript: string; conversation: string;
   playerLoanDirection: LoanDirection | null;
+  requestedActions: AgreementAction[];
   inputPcm: Buffer | null; needsInputAsr: boolean; inputAsrComplete: boolean;
   release: () => void; released: boolean; settledVersion: number; replyUntil: number;
 }
@@ -46,6 +47,8 @@ interface ForwardedSpeech {
   id: string; cause: SettlementTurn | null; conversation: string; offers: AgreementOffers;
   previousSegment: ForwardedSpeech | null;
   nextTurn: { cause: SettlementTurn; conversation: string } | null;
+  relatedTurns: SettlementTurn[];
+  committedRequests: Partial<Record<AgreementAction, SettlementTurn>>;
   transcript: string | null; chunks: Buffer[]; bytes: number; release: () => void; timer: NodeJS.Timeout; ended: boolean;
 }
 
@@ -182,7 +185,7 @@ export class MatchSession {
   private readonly agreements = new ConversationAgreementCoordinator();
   private readonly agreementTurns = new Map<number, SettlementTurn>();
   private readonly finishedAgreementTurns = new Map<number, SettlementTurn>();
-  private readonly speechCauses = new Map<string, { cause: SettlementTurn | null; conversation: string }>();
+  private readonly speechCauses = new Map<string, { cause: SettlementTurn | null; conversation: string; relatedTurns?: SettlementTurn[] }>();
   private readonly forwardedSpeeches = new Map<string, ForwardedSpeech>();
   private readonly verifiedConversation = new Map<string, string>();
   private lastForwardedSpeech: ForwardedSpeech | null = null;
@@ -347,11 +350,25 @@ export class MatchSession {
         else this.media?.completeSpeechInput(speechId);
       },
       onNormalSpeechStarted: speechId => {
+        const cause = this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn) ?? null;
+        // One sentence can span several VAD turns before any reply starts.
+        // Include the whole player contribution since the previous heard reply,
+        // so a trailing "please" does not hide the request immediately before it.
+        const relatedTurns = cause ? [...this.finishedAgreementTurns.values(), ...this.agreementTurns.values()]
+          .filter(turn => turn.priorSpeech === cause.priorSpeech && turn.startedAt <= cause.startedAt) : [];
         this.speechCauses.set(`${generation}:${speechId}`, {
-          cause: this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn) ?? null,
+          cause, relatedTurns,
           conversation: this.settlementConversation(),
         });
         while (this.speechCauses.size > 32) this.speechCauses.delete(this.speechCauses.keys().next().value!);
+      },
+      onNormalSpeechInput: speechId => {
+        const captured = this.speechCauses.get(`${generation}:${speechId}`);
+        const pending = this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn);
+        if (captured && pending) {
+          captured.relatedTurns ??= captured.cause ? [captured.cause] : [];
+          if (!captured.relatedTurns.includes(pending)) captured.relatedTurns.push(pending);
+        }
       },
       onTranscript: (role, delta, timing) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
@@ -419,7 +436,9 @@ export class MatchSession {
         const turn = this.createAgreementTurn(generation, now, input?.startMs ?? null);
         this.agreementTurns.set(this.userSpeechTurn, turn);
         const ongoing = this.forwardedSpeeches.get(`${generation}:${this.activeOutputSpeechId}`);
-        if (ongoing && !ongoing.ended) ongoing.nextTurn = { cause: turn, conversation: this.settlementConversation() };
+        // Preserve ordinary words across VAD pauses. Only an earlier actionable
+        // request needs a separate settlement segment for the next request.
+        if (ongoing && !ongoing.ended && ongoing.cause?.requestedActions.length) ongoing.nextTurn = { cause: turn, conversation: this.settlementConversation() };
         const bridge = this.gpt;
         const interrupt = bridge?.beginUserSpeech({ interruptPlayback: false });
         if (bridge && interrupt !== null && interrupt !== undefined) void this.interruptUserPlayback(bridge, interrupt, generation);
@@ -433,7 +452,7 @@ export class MatchSession {
         this.userSpeaking = false;
         const pending = this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn);
         if (pending) {
-          if (pcm?.length) pending.inputPcm = pcm;
+          if (pcm?.length) { pending.inputPcm = pcm; pending.version += 1; }
           pending.endedAt = Date.now();
           pending.replyUntil = Date.now() + 6_000;
           pending.providerEndMs = input?.endMs ?? input?.startMs ?? pending.providerEndMs;
@@ -1079,6 +1098,7 @@ export class MatchSession {
       || this.state.status !== 'playing'
       || this.state.scores.rival >= 1
       || this.extensionOffer
+      || this.gpt?.hasPendingConversation()
       || this.hasPendingAgreementGate()
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
@@ -1128,6 +1148,7 @@ export class MatchSession {
       || this.loanOffer
       || this.playerLoanOffer
       || this.extensionOffer
+      || this.gpt?.hasPendingConversation()
       || this.hasPendingAgreementGate()
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
@@ -1164,6 +1185,7 @@ export class MatchSession {
       || this.voiceDisabled
       || this.state.status !== 'playing'
       || this.isBothBalancesExhausted()
+      || this.gpt?.hasPendingConversation()
       || this.hasPendingAgreementGate()
       || this.state.remaining > 15
       || this.userSpeaking
@@ -1357,7 +1379,7 @@ export class MatchSession {
       id: `${this.sessionId}:turn:${turn}`, generation, startedAt, endedAt: null,
       providerStartMs, providerEndMs: null, version: 0, timer: null, deadlineTimer: null,
       activeOffers: this.captureAgreementOffers(), priorSpeech: this.lastForwardedSpeech,
-      transcript: '', conversation: this.settlementConversation(), playerLoanDirection: null,
+      transcript: '', conversation: this.settlementConversation(), playerLoanDirection: null, requestedActions: [],
       inputPcm: null, needsInputAsr: false, inputAsrComplete: false,
       release: () => undefined, released: false, settledVersion: -1, replyUntil: 0,
     };
@@ -1459,7 +1481,9 @@ export class MatchSession {
     if (pending.settledVersion < 0) pending.conversation = this.settlementConversation();
     let version: number;
     do {
-      if (!pending.inputAsrComplete && (pending.needsInputAsr || !pending.transcript.trim())) {
+      // Live captions can omit words even with valid offsets. Use the complete
+      // input audio for settlement whenever the bridge has finished the turn.
+      if (!pending.inputAsrComplete && (pending.inputPcm || pending.needsInputAsr || !pending.transcript.trim())) {
         if (!pending.inputPcm) throw new SettlementUnavailable('classification');
         const transcript = await transcribeForwardedPcm(pending.inputPcm, signal);
         signal.throwIfAborted();
@@ -1468,7 +1492,7 @@ export class MatchSession {
         pending.needsInputAsr = false;
         pending.inputPcm = null;
         pending.version += 1;
-        this.recordVoiceDiagnostic('agreement_input_recovered', { turn: pending.id, source: 'input_pcm' });
+        this.recordVoiceDiagnostic('agreement_input_recovered', { source: 'input_pcm' });
       }
       if (!pending.transcript.trim()) throw new SettlementUnavailable('classification');
       version = pending.version;
@@ -1487,6 +1511,8 @@ export class MatchSession {
       // One player turn establishes one loan direction. Keep it for the
       // spoken acceptance; an ambiguous or withdrawn request authorizes none.
       pending.playerLoanDirection = loanDirections.size === 1 ? [...loanDirections][0] : null;
+      pending.requestedActions = outcome.state === 'accepted' ? outcome.agreements
+        .map(item => item.action).filter(action => action === 'time_extension' || action === pending.playerLoanDirection) : [];
       if (outcome.state === 'accepted') {
         // A direct request still needs the AI's spoken acceptance. A player
         // accepting an already heard offer completes the agreement immediately.
@@ -1499,7 +1525,7 @@ export class MatchSession {
       // The audit also awaits a provider. Re-check the version after it so a
       // trailing word cannot leave a newer revision stranded as "finished".
       for (const speech of this.forwardedSpeeches.values()) {
-        if (speech.cause === pending && speech.transcript !== null) await this.reconcileForwardedSpeech(speech, signal);
+        if ((speech.cause === pending || speech.relatedTurns.includes(pending)) && speech.transcript !== null) await this.reconcileForwardedSpeech(speech, signal);
       }
     } while (version !== pending.version);
     this.recordVoiceDiagnostic('agreement_finish', { reason: 'settled', pendingCount: this.agreementTurns.size - 1 });
@@ -1514,7 +1540,11 @@ export class MatchSession {
     if (previousSegment) {
       // A new player turn changes settlement ownership without ending playback
       // or losing any PCM. Keep the preceding segment's original cause for ASR.
-      if (!previousSegment.ended) this.finishForwardedSpeech(generation, speechId);
+      if (!previousSegment.ended) {
+        // A new VAD turn applies to the next PCM, not the already sent prefix.
+        if (nextTurn) previousSegment.relatedTurns = previousSegment.relatedTurns.filter(turn => turn !== nextTurn.cause);
+        this.finishForwardedSpeech(generation, speechId);
+      }
       previousSegment.nextTurn = null;
       this.forwardedSpeeches.set(`${key}:part:${this.forwardedSpeeches.size}`, previousSegment);
       this.forwardedSpeeches.delete(key);
@@ -1529,13 +1559,20 @@ export class MatchSession {
         id: previousSegment && !nextTurn ? previousSegment.id : `${this.sessionId}:speech:${key}${nextTurn ? `:turn:${nextTurn.cause.id}` : ''}`, cause,
         previousSegment,
         nextTurn: null,
+        // Keep this shared list while the model is generating, including PCM
+        // waiting behind a playback gap. A VAD pause is not a semantic boundary.
+        relatedTurns: captured?.relatedTurns ?? (cause ? [cause] : []),
+        committedRequests: previousSegment && !nextTurn ? previousSegment.committedRequests : {},
         conversation: nextTurn?.conversation ?? captured?.conversation ?? this.settlementConversation(), offers: emptyOffers(),
         transcript: null, chunks: [], bytes: 0, release: () => undefined, timer: setTimeout(() => this.finishForwardedSpeech(generation, speechId), 1_100), ended: false,
       };
       const current = speech;
       current.release = this.settlements.reserve(async signal => {
         try {
-          current.transcript = await transcribeForwardedPcm(Buffer.concat(current.chunks), signal);
+          current.transcript = await transcribeForwardedPcm(Buffer.concat(current.chunks), signal, { allowEmpty: true });
+          // Breaths and short output noise can form a PCM segment without words.
+          // A successful empty ASR is not a failed monetary agreement.
+          if (!current.transcript.trim()) return;
           await this.reconcileForwardedSpeech(current, signal);
         } finally {
           current.chunks.length = 0;
@@ -1557,19 +1594,41 @@ export class MatchSession {
 
   private async reconcileForwardedSpeech(speech: ForwardedSpeech, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted();
-    let version: number;
+    if (!speech.transcript?.trim()) return;
+    const sources = () => [...new Set([...(speech.cause ? [speech.cause] : []), ...speech.relatedTurns])]
+      .sort((left, right) => left.startedAt - right.startedAt);
+    const revision = () => sources().map(turn => `${turn.id}:${turn.version}`).join('|');
+    let version: string;
     do {
-      version = speech.cause?.version ?? 0;
+      version = revision();
       // A trailing player transcript can be queued behind this speech. Its
       // resolver will reconcile the same ASR again once that revision settles.
-      if (speech.cause && speech.cause.settledVersion !== version) return;
+      const turns = sources();
+      if (turns.some(turn => turn.settledVersion !== turn.version)) return;
+      const preferred = [...(speech.cause ? [speech.cause] : []), ...[...turns].reverse()];
+      const requestFor = (action: AgreementAction) => speech.committedRequests[action]
+        ?? preferred.find(turn => turn.requestedActions.includes(action) && !this.agreements.hasApplied(turn.id, action))
+        ?? preferred.find(turn => turn.requestedActions.includes(action));
       const offers = { ...(speech.cause?.activeOffers ?? emptyOffers()) };
-      const playerLoanDirection = speech.cause?.playerLoanDirection ?? null;
-      const conversation = `${speech.conversation}\n${speech.cause?.conversation ?? ''}\nP:${speech.cause?.transcript ?? ''}\nR(previous segment):${speech.previousSegment?.transcript ?? ''}`;
+      // Queued speech may start before the next request arrives. An earlier
+      // completed transaction must not pin the direction of a fresh request.
+      // Once this PCM commits, keep its source stable through later re-audits.
+      const loanSource = speech.committedRequests.rival_to_player ?? speech.committedRequests.player_to_rival
+        ?? preferred.find(turn => turn.playerLoanDirection !== null && !this.agreements.hasApplied(turn.id, turn.playerLoanDirection))
+        ?? preferred.find(turn => turn.playerLoanDirection !== null);
+      const playerLoanDirection = loanSource?.playerLoanDirection ?? null;
+      for (const action of ['rival_to_player', 'player_to_rival', 'time_extension'] as const) {
+        const source = requestFor(action);
+        if (source?.activeOffers[action]) offers[action] = source.activeOffers[action];
+      }
+      const conversation = `${speech.conversation}\n${speech.cause?.conversation ?? ''}\n${turns.map(turn => `P:${turn.transcript}`).join('\n')}\nR(previous segment):${speech.previousSegment?.transcript ?? ''}`;
+      this.recordVoiceDiagnostic('agreement_audit_context', {
+        turnCount: turns.length, causalLoanDirection: speech.cause?.playerLoanDirection ?? null, playerLoanDirection,
+      });
       const audit = await retrySettlement(attemptSignal => this.agreements.auditAssistantSpeech(
         getSnapshot(this.state), speech.transcript!, conversation, offers, attemptSignal, playerLoanDirection,
       ), result => {
-        if (version !== (speech.cause?.version ?? 0)) return false;
+        if (version !== revision()) return false;
         if (result.state === 'unavailable') return true;
         if (result.state !== 'commit') return false;
         const conflict = result.agreements.some(item => item.action !== 'time_extension' && item.action !== playerLoanDirection);
@@ -1577,24 +1636,29 @@ export class MatchSession {
         return conflict;
       }, signal, 'classification');
       signal.throwIfAborted();
-      if (version !== (speech.cause?.version ?? 0)) continue;
+      if (version !== revision()) continue;
       this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, phase: 'post_speech' });
       if (this.closed || this.state.status !== 'playing') return;
       if (audit.state === 'commit') {
-        if (!speech.cause) throw new SettlementUnavailable('classification');
-        for (const item of audit.agreements) this.applyAgreement(speech.cause.id, item);
+        for (const item of audit.agreements) {
+          const cause = requestFor(item.action) ?? speech.cause;
+          if (!cause) throw new SettlementUnavailable('classification');
+          this.applyAgreement(cause.id, item);
+          speech.committedRequests[item.action] = cause;
+        }
       } else if (audit.state === 'offer') {
         for (const action of audit.actions) speech.offers[action] = `${speech.id}:offer:${action}`;
       }
       speech.conversation = `${conversation}\nR:${speech.transcript}`;
       this.verifiedConversation.set(speech.id, `R:${speech.transcript}`);
-    } while (version !== (speech.cause?.version ?? 0));
+    } while (version !== revision());
   }
 
   private finishForwardedSpeech(generation: number, speechId: string): void {
     const speech = this.forwardedSpeeches.get(`${generation}:${speechId}`);
     if (!speech || speech.ended) return;
     speech.ended = true;
+    speech.relatedTurns = [...speech.relatedTurns];
     speech.nextTurn = null;
     clearTimeout(speech.timer);
     speech.release();

@@ -164,6 +164,10 @@ export class ConversationAgreementCoordinator {
     } catch { return { state: 'unavailable' }; } finally { clearTimeout(timer); }
   }
 
+  hasApplied(id: string, action: AgreementAction): boolean {
+    return this.applied.has(`${id}:applied:${action === 'time_extension' ? action : 'loan'}`);
+  }
+
   applyOnce(id: string, agreement: AcceptedAgreement, apply: (direction?: LoanDirection) => boolean): boolean {
     // A direct representation and an offered representation of the same
     // action in one turn are one agreement. Conversely, a server offer can

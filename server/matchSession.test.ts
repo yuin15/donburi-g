@@ -10,6 +10,7 @@ const provider = vi.hoisted(() => ({
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[], bridgeLanguages: [] as Array<'ja' | 'en'>,
   context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(), endUserSpeech: vi.fn(), finishUserTurnGate: vi.fn(), playbackDone: vi.fn(), interruptPlayback: vi.fn(), discardNormalPlayback: vi.fn(), mediaComplete: vi.fn(),
+  pendingConversation: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   finishPlaybackInterrupt: vi.fn(),
   seed: [1, 0, 0, 0] as [number, number, number, number],
@@ -45,6 +46,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   connect = provider.gptConnect;
   close = provider.gptClose;
   updateGameContext = provider.context;
+  hasPendingConversation = provider.pendingConversation;
   requestReaction = provider.reaction;
   requestConversationInvitation = provider.conversationInvitation;
   requestConfirmedLine = (line: string | { ja: string; en?: string }, speechId?: string) => {
@@ -83,6 +85,7 @@ vi.mock('./conversationAgreement', () => ({ ConversationAgreementCoordinator: cl
   resolve = agreement.resolve;
   auditAssistantSpeech = agreement.auditAssistantSpeech;
   applyOnce = agreement.applyOnce;
+  hasApplied = (id: string, action: string) => agreement.applied.has(`${id}:applied:${action}`);
 } }));
 vi.mock('./rivalBrain', async importOriginal => ({
   ...(await importOriginal<typeof import('./rivalBrain')>()),
@@ -1424,7 +1427,7 @@ describe('live match cleanup', () => {
           const transfers = messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'loan_transfer'));
           expect(transfers).toHaveLength(index + 1);
         }
-        expect(asr.transcribe.mock.calls.filter(([pcm]) => pcm.equals(inputPcm))).toHaveLength(hasTiming ? 0 : 2);
+        expect(asr.transcribe.mock.calls.filter(([pcm]) => pcm.equals(inputPcm))).toHaveLength(2);
         if (action === 'time_extension') expect(state.duration).toBe(80);
         else expect(state.scores).toEqual(action === 'rival_to_player' ? { player: 10, rival: 0 } : { player: -10, rival: 20 });
         expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
@@ -1738,7 +1741,37 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it.each(['maybeOfferLoan', 'maybeOfferPlayerLoan', 'maybeOfferTimeExtension'] as const)('defers %s until queued conversation has played', async method => {
+    const { session } = setup('pending-conversation', 'manual', 'audio', () => 0);
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    const controls = session as unknown as { state: MatchState } & Record<typeof method, () => void>;
+    controls.state.scores.player = method === 'maybeOfferPlayerLoan' ? 0 : 30;
+    controls.state.scores.rival = method === 'maybeOfferLoan' ? 0 : 30;
+    controls.state.remaining = 10;
+    provider.pendingConversation.mockReturnValue(true);
+    controls[method]();
+    expect(provider.confirmedLine).not.toHaveBeenCalled();
+    provider.pendingConversation.mockReturnValue(false);
+    controls[method]();
+    expect(provider.confirmedLine).toHaveBeenCalledTimes(1);
+    await session.shutdown('test');
+  });
+
+  it('does not report a failed agreement for wordless output PCM', async () => {
+    const { session, messages } = setup('wordless-output', 'manual', 'audio');
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    asr.transcribe.mockResolvedValue('');
+    provider.events!.onNormalSpeechStarted!('breath');
+    provider.events!.onAudio(Buffer.alloc(4800, 1).toString('base64'), 'breath', 'normal');
+    provider.events!.onSpeechAudioEnded('breath');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(agreement.auditAssistantSpeech).not.toHaveBeenCalled();
+    expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
+    await session.shutdown('test');
+  });
+
   it.each(['audio', 'avatar'] as const)('keeps distinct requests and delayed settlements within continuous %s playback', async voiceMode => {
+    agreement.resolve.mockImplementation(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'time_extension', offerId: null }] }));
     const { session, messages } = setup('continuous-requests', 'manual', voiceMode);
     await session.initialize(); session.handleRaw('{"type":"start"}');
     completeAgreementTurn('first', 'synthetic first extension request', 0, 100);
