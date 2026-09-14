@@ -1,13 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import type { Side, SpinView, SymbolId } from '../../shared/protocol';
 import { advanceMatch, createMatch, PAYOUT, STARTING_BALANCE, startMatch } from './game';
-import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats';
+import { cloneMatchStats, createMatchStats, recordSpin, winningSymbols } from './matchStats';
 
 function winningSpin(side: Side, symbol: SymbolId, round: number): SpinView {
   return { side, round, symbols: [symbol, symbol, symbol], payout: PAYOUT[symbol], total: PAYOUT[symbol] };
 }
 
 describe('confirmed match statistics', () => {
+  it('resolves every confirmed payline while retaining legacy centre-row spins', () => {
+    const grid: SpinView['grid'] = [
+      ['seven', 'seven', 'seven'],
+      ['bell', 'bell', 'bell'],
+      ['cherry', 'cherry', 'cherry'],
+    ];
+    expect(winningSymbols({ side: 'player', round: 1, symbols: grid[1], grid, winningLines: ['top', 'bottom', 'diagonalDown'], payout: 36, total: 36 }))
+      .toEqual(['seven', 'cherry', 'seven']);
+    expect(winningSymbols(winningSpin('rival', 'bell', 2))).toEqual(['bell']);
+    expect(winningSymbols({ side: 'player', round: 3, symbols: ['seven', 'seven', 'seven'], payout: 0, total: 0 })).toEqual([]);
+  });
+
   it.each([2654435761, 3668339987, 4203543429, 1035485675])('reconciles both sides with every funded domain spin for seed %s', seed => {
     const state = createMatch(seed, 'stats-domain-check');
     startMatch(state);

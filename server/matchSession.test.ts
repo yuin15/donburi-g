@@ -849,7 +849,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('updates ordinary wins and time even when no new spontaneous reaction is requested', async () => {
+  it('updates ordinary wins and time and requests a bell reaction', async () => {
     const { session, messages } = setup();
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -869,9 +869,83 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り45秒、プレイヤー$65(BET $1)、あなた$23(BET $1)'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('首位=プレイヤー'));
-    expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore);
+    expect(provider.reaction).toHaveBeenCalledTimes(reactionsBefore + 1);
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤーがベルを揃えた'));
     // Ready + start + one changed context per elapsed second, not every 100ms tick.
     expect(provider.context).toHaveBeenCalledTimes(17);
+    await session.shutdown('test_finished');
+  });
+
+  it.each([
+    ['player', 'cherry', 'bottom'], ['player', 'bell', 'middle'], ['player', 'seven', 'top'],
+    ['rival', 'cherry', 'bottom'], ['rival', 'bell', 'middle'], ['rival', 'seven', 'top'],
+  ] as const)('uses the confirmed %s %s payline for side spins', async (side, symbol, line) => {
+    const { session } = setup(`side-${side}-${symbol}`, 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.reaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.rounds = side === 'player' ? { player: 4, rival: 0 } : { player: 0, rival: 4 };
+    const grid: NonNullable<SpinView['grid']> = [
+      ['seven', 'seven', 'seven'],
+      ['bell', 'bell', 'bell'],
+      ['cherry', 'cherry', 'cherry'],
+    ];
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    handleGameEvent({
+      type: 'side_spin', seq: 1, at: 4,
+      spin: { side, round: 4, symbols: grid[1], grid, winningLines: [line], payout: symbol === 'seven' ? 30 : symbol === 'bell' ? 6 : 3, total: 33 },
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    const winner = side === 'player' ? 'プレイヤー' : 'あなた自身';
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining(symbol === 'seven'
+      ? `${winner}が7揃いを出した`
+      : `${winner}が${symbol === 'bell' ? 'ベル' : 'チェリー'}を揃えた`));
+    await session.shutdown('test_finished');
+  });
+
+  it('names both paired wins and gives a seven priority', async () => {
+    const { session } = setup('winning-lines', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.reaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    const grid: NonNullable<SpinView['grid']> = [
+      ['seven', 'seven', 'seven'],
+      ['bell', 'bell', 'bell'],
+      ['cherry', 'cherry', 'cherry'],
+    ];
+    state.rounds = { player: 4, rival: 4 };
+    handleGameEvent({
+      type: 'spin', seq: 1, at: 4,
+      player: { side: 'player', round: 4, symbols: grid[1], grid, winningLines: ['bottom'], payout: 3, total: 33 },
+      rival: { side: 'rival', round: 4, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 36 },
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤーがチェリーを揃えた'));
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining('あなたがベルを揃えた'));
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    provider.reaction.mockClear();
+    state.rounds = { player: 5, rival: 5 };
+    handleGameEvent({
+      type: 'spin', seq: 2, at: 5,
+      player: { side: 'player', round: 5, symbols: grid[1], grid, winningLines: ['top', 'middle'], payout: 36, total: 69 },
+      rival: { side: 'rival', round: 5, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 42 },
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤーが7揃いを出した'));
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining('あなたがベルを揃えた'));
+
     await session.shutdown('test_finished');
   });
 

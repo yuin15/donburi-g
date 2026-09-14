@@ -9,7 +9,6 @@ import {
   createMatch,
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
-  PAYOUT,
   LOAN_AMOUNT,
   requestManualSpin,
   purchaseUpgrade,
@@ -27,6 +26,7 @@ import { MediaServerLeg } from './mediaServer.js';
 import { acceptsImmediateLoanOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
 import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
+import { winningSymbols } from '../src/domain/matchStats.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('purchase'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100), upgradeId: z.enum(['steady', 'jackpot']), expectedCount: z.number().int().min(0).max(2) }),
@@ -692,19 +692,12 @@ export class MatchSession {
       if (event.spin.side === 'rival') {
         this.emit({ type: 'rival_line', text: `I'm on $${event.spin.bet ?? this.state.bets.rival}.`, reason: 'bet_strategy' });
       }
-      if (event.spin.payout >= PAYOUT.seven) {
-        const player = event.spin.side === 'player';
-        this.react(player ? 'player_jackpot' : 'rival_jackpot', player
-          ? 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。'
-          : 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.spin.round, event.spin.side);
-      }
+      this.reactToSpin(event.spin);
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を踏まえて短く反応して。', event.player.round);
-      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
-      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
+      this.reactToSpins(event.player, event.rival);
       return;
     }
     if (event.type === 'leader_change') {
@@ -1656,6 +1649,44 @@ export class MatchSession {
       if (reason === 'rival_leads') return this.state.scores.rival > this.state.scores.player;
       return true;
     });
+  }
+
+  private reactToSpins(player: SpinView, rival: SpinView): void {
+    const playerSymbol = this.primaryWinningSymbol(player);
+    const rivalSymbol = this.primaryWinningSymbol(rival);
+    if (!playerSymbol && !rivalSymbol) return;
+    if (!playerSymbol) { this.reactToSpin(rival, rivalSymbol); return; }
+    if (!rivalSymbol) { this.reactToSpin(player, playerSymbol); return; }
+    if (playerSymbol === 'seven' && rivalSymbol === 'seven') {
+      this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を踏まえて短く反応して。', player.round);
+      return;
+    }
+    const playerWin = this.winningSymbolPhrase('プレイヤー', playerSymbol);
+    const rivalWin = this.winningSymbolPhrase('あなた', rivalSymbol);
+    const reason = playerSymbol === 'seven'
+      ? `player_jackpot_rival_${rivalSymbol}`
+      : rivalSymbol === 'seven'
+        ? `rival_jackpot_player_${playerSymbol}`
+        : `both_${playerSymbol}_${rivalSymbol}`;
+    this.react(reason, `同じ回転で、${playerWin}、${rivalWin}。誰が何を揃えたか取り違えず、${playerSymbol === 'seven' || rivalSymbol === 'seven' ? '7揃いを主に' : ''}短く反応して。`, player.round);
+  }
+
+  private reactToSpin(spin: SpinView, symbol = this.primaryWinningSymbol(spin)): void {
+    if (!symbol) return;
+    const player = spin.side === 'player';
+    const reason = symbol === 'seven' ? `${player ? 'player' : 'rival'}_jackpot` : `${player ? 'player' : 'rival'}_${symbol}`;
+    this.react(reason, player
+      ? `${this.winningSymbolPhrase('プレイヤー', symbol)}。誰が何を揃えたか取り違えず、驚きか悔しさを短く一言。`
+      : `${this.winningSymbolPhrase('あなた自身', symbol)}。誰が何を揃えたか取り違えず、喜びを短く一言。`, spin.round, spin.side);
+  }
+
+  private primaryWinningSymbol(spin: SpinView): 'cherry' | 'bell' | 'seven' | null {
+    const symbols = winningSymbols(spin);
+    return symbols.includes('seven') ? 'seven' : symbols.includes('bell') ? 'bell' : symbols.includes('cherry') ? 'cherry' : null;
+  }
+
+  private winningSymbolPhrase(winner: string, symbol: 'cherry' | 'bell' | 'seven'): string {
+    return symbol === 'seven' ? `${winner}が7揃いを出した` : `${winner}が${symbol === 'bell' ? 'ベル' : 'チェリー'}を揃えた`;
   }
 
   private pushContext(): void {
