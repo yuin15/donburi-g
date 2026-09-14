@@ -103,7 +103,7 @@ export class ReelScene {
   private rivalDistracted = false;
   private cabinetOverlays: Array<{ element: HTMLElement; depth: number }> = [];
   private wasPosing = false;
-  private pendingResult: { winner: Side | 'draw'; at: number } | null = null;
+  private pendingResult: { winner: Side | 'draw'; at: number; ready?: () => void } | null = null;
   private overlayOrigin = new THREE.Vector3();
   private overlayRight = new THREE.Vector3();
   private overlayDown = new THREE.Vector3();
@@ -432,21 +432,22 @@ export class ReelScene {
   }
 
   /** Decorate the confirmed result without changing the settled reels or payout. */
-  celebrateResult(winner: 'player' | 'rival' | 'draw'): void {
+  celebrateResult(winner: 'player' | 'rival' | 'draw', ready?: () => void): void {
     if (this.disposed) return;
     const now = performance.now();
     const at = this.cabinet.jackpotPoseEnd;
     // The last reel's callback can request the result at pose progress zero.
     if (!this.motionPreference.matches && !document.hidden && now < at) {
-      this.pendingResult = { winner, at };
+      this.pendingResult = { winner, at, ready };
       this.requestRender();
       return;
     }
-    this.finishResult(winner, now);
+    this.finishResult(winner, now, ready);
   }
 
-  private finishResult(winner: Side | 'draw', started: number): void {
+  private finishResult(winner: Side | 'draw', started: number, ready?: () => void): void {
     this.stop();
+    ready?.();
     if (winner === 'player' && !this.motionPreference.matches && !document.hidden) {
       this.cabinet.celebrateResult(started);
     }
@@ -574,9 +575,9 @@ export class ReelScene {
     if (this.disposed || document.hidden) return;
     const now = performance.now();
     if (this.pendingResult && (now >= this.pendingResult.at || this.motionPreference.matches)) {
-      const { winner, at } = this.pendingResult;
+      const { winner, at, ready } = this.pendingResult;
       // Keep the original timeline if a hidden tab resumes after the pose.
-      this.finishResult(winner, at);
+      this.finishResult(winner, at, ready);
     }
     const completions: Array<() => void> = [];
     for (const side of ['player', 'rival'] as const) {

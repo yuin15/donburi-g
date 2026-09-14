@@ -438,10 +438,10 @@ export class GameView implements GamePresentation {
     this.scene.show(['cherry', 'bell', 'seven']);
   }
   stopScene(): void { this.playerReelsSpinning = false; this.cancelBetPreview(); this.scene.stop(); }
-  celebrateResult(winner: 'player' | 'rival' | 'draw'): void {
+  celebrateResult(winner: 'player' | 'rival' | 'draw', ready?: () => void): void {
     this.playerReelsSpinning = false;
     this.cancelBetPreview();
-    this.scene.celebrateResult(winner);
+    this.scene.celebrateResult(winner, ready);
   }
   playSound(cue: GameSound): void { this.audio.play(cue); }
   unlockSound(): Promise<void> { return this.audio.unlock(); }

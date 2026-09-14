@@ -134,17 +134,20 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
 
   const showResult = (snapshot: MatchSnapshot) => {
     clearTimers();
-    render({
-      snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
-      sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },
-      expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
-      rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
-      line: resultLine(snapshot), heard: '',
-      startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
+    const current = revision;
+    view.celebrateResult(snapshot.winner ?? 'draw', () => {
+      if (current !== revision) return;
+      render({
+        snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
+        sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },
+        expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
+        rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
+        line: resultLine(snapshot), heard: '',
+        startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
+      });
+      view.stopSound();
+      view.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
     });
-    view.celebrateResult(snapshot.winner ?? 'draw');
-    view.stopSound();
-    view.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
   };
 
   const play = (player: SpinView, rival: SpinView, result: MatchSnapshot | null = null) => {

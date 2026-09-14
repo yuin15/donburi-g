@@ -400,16 +400,16 @@ describe('stage rendering and cleanup', () => {
     expect(coins().every(pool => !pool.visible)).toBe(true);
     // Both final stops may synchronously request the result in the same frame
     // that starts the jackpot. The whole turn must survive that handoff.
-    view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1), side: 'rival' }, () => {
-      view.setResult('player');
-      view.celebrateResult('player');
-    });
+    const ready = vi.fn(() => view.setResult('player'));
+    view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1), side: 'rival' }, () => view.celebrateResult('player', ready));
     frame(1060);
     frame(500);
     const cabinet = scene().getObjectByName('physical-cabinet-rig')!;
     expect(Math.cos(cabinet.rotation.y)).toBeLessThan(0);
     expect(effectsHost.dataset).toMatchObject({ victory: 'false' });
+    expect(ready).not.toHaveBeenCalled();
     frame(528);
+    expect(ready).toHaveBeenCalledOnce();
     expect(cabinet.rotation.y).toBe(.095);
     expect(cabinet.scale.x).toBe(1);
     const victory = coins().find(pool => pool.userData.victory === true)!;
@@ -476,11 +476,13 @@ describe('stage rendering and cleanup', () => {
 
     // Leaving/rematching must cancel a result which is still waiting for the turn.
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
-    view.celebrateResult('player');
+    ready.mockClear();
+    view.celebrateResult('player', ready);
     frame(200);
     view.stop();
     view.setResult(null);
     frame(1200);
+    expect(ready).not.toHaveBeenCalled();
     expect(cabinet.rotation.y).toBe(.095);
     expect(title.visible).toBe(false);
     expect(coins().every(pool => !pool.visible)).toBe(true);

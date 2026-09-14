@@ -67,7 +67,8 @@ export interface GamePresentation {
   playSpin(spin: SpinView, stopped: (celebrate?: boolean) => void): void;
   resetScene(): void;
   stopScene(): void;
-  celebrateResult(winner: Side | 'draw'): void;
+  /** Publish the result UI in ready, immediately before the result effects begin. */
+  celebrateResult(winner: Side | 'draw', ready?: () => void): void;
   playSound(cue: GameSound): void;
   stopSound(): void;
   setEffectsMuted(muted: boolean): void;
