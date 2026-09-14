@@ -40,6 +40,7 @@ app.innerHTML = `
     <span class="sr-only" id="mockFace">CPU rival</span>
     <video id="avatar" autoplay playsinline></video>
     <span id="rivalMood">60 seconds. Let's play.</span><p id="line">Think you can beat me?</p><small id="heard"></small>
+    <section id="textChoice" aria-live="assertive" aria-label="CPU decision" hidden><small id="textChoiceKind"></small><strong id="textChoiceQuestion"></strong><span id="textChoiceDetail"></span><small class="text-choice-expiry">REPLY WITHIN 5 SEC</small><div><button id="textChoiceAccept"></button><button id="textChoiceDecline"></button></div></section>
     <div id="miniLabel"><span id="rivalWinLabel">RIVAL REELS · BET $1</span><strong id="rivalPay" hidden></strong></div>
     <strong class="sr-only" id="rivalReels">Cherry, Bell, Seven</strong>
     <div id="duelRules"><strong>MOST CASH WINS</strong><span>AUTO RIVAL · ONE SPIN EVERY 2s</span></div>

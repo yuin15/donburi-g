@@ -104,6 +104,14 @@ async function beginCpu(h: ReturnType<typeof setup>) {
   await start;
 }
 
+function spendCpuBankroll(h: ReturnType<typeof setup>): void {
+  h.vm.setBet(5);
+  h.vm.requestSpin();
+  expect(h.rounds.at(-1)?.spin).toMatchObject({ bet: 5, payout: 0, total: 25 });
+  h.vm.purchaseUpgrade('steady');
+  h.vm.purchaseUpgrade('steady');
+}
+
 it('purchases during CPU play, retains spending after stopping, and resets on rematch', async () => {
   const h = setup();
   await beginCpu(h);
@@ -537,6 +545,51 @@ describe('game view model', () => {
     h.rounds[1].stopped();
     expect(h.presentation.playSound).not.toHaveBeenCalledWith('lead');
     expect(h.vm.state.cue).toMatchObject({ kind: 'jackpot' });
+    h.vm.dispose();
+  });
+
+  it('offers one CPU borrow card, applies it once, and rejects a delayed stale reply', async () => {
+    const h = setup();
+    await beginCpu(h);
+    spendCpuBankroll(h);
+    const choice = h.vm.state.textChoice;
+    expect(choice).toMatchObject({ kind: 'borrow', question: 'BORROW $5?' });
+    h.vm.respondTextChoice(choice!.token, true);
+    expect(h.vm.state).toMatchObject({ scores: { player: 5, rival: 25 }, loanTransfer: { direction: 'rival_to_player', amount: 5 }, textChoice: null });
+    h.vm.respondTextChoice(choice!.token, true);
+    expect(h.vm.state.scores).toEqual({ player: 5, rival: 25 });
+    h.vm.dispose();
+  });
+
+  it('expires a CPU card both on its timer and before a delayed click can apply it', async () => {
+    const h = setup();
+    await beginCpu(h);
+    spendCpuBankroll(h);
+    const choice = h.vm.state.textChoice!;
+    h.clock.time = choice.expiresAt + 1;
+    h.vm.respondTextChoice(choice.token, true);
+    expect(h.vm.state).toMatchObject({ textChoice: null, scores: { player: 0, rival: 30 } });
+    h.vm.dispose();
+
+    const normal = setup();
+    await beginCpu(normal);
+    spendCpuBankroll(normal);
+    await normal.clock.advance(5000);
+    expect(normal.vm.state.textChoice).toBeNull();
+    normal.vm.leave();
+    expect(normal.vm.state.textChoice).toBeNull();
+    normal.vm.dispose();
+  });
+
+  it('keeps text decision cards out of every live voice state', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const broke = playingSnapshot();
+    broke.scores = broke.balances = { player: 0, rival: 10 };
+    session.emit({ type: 'snapshot', snapshot: broke });
+    expect(h.vm.state.textChoice).toBeNull();
+    session.emit({ type: 'voice_status', status: 'error', message: 'voice unavailable' });
+    expect(h.vm.state).toMatchObject({ mode: 'live', connection: { voiceReady: false }, textChoice: null });
     h.vm.dispose();
   });
 

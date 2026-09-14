@@ -3,8 +3,8 @@ import { upgradePrice } from '../../shared/shop';
 import type { LiveSession } from '../client/LiveSession';
 import type { AiConnectionState, AiProvider, AiRuntimeEvent } from '../client/AiStatus';
 import {
-  advanceMatch, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, setBet,
-  startMatch, purchaseUpgrade, type GameEvent, type MatchState,
+  advanceMatch, applyTimeExtension, createMatch, getSnapshot, LOAN_AMOUNT, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, setBet,
+  startMatch, purchaseUpgrade, transferLoan, type GameEvent, type MatchState,
 } from '../domain/game';
 import { RoundPresentation } from './RoundPresentation';
 import { RivalReactions } from './RivalReactions';
@@ -63,6 +63,9 @@ export class GameViewModel implements GameCommands {
   private cue: GameViewState['cue'] = null;
   private timeExtension: GameViewState['timeExtension'] = null;
   private loanTransfer: GameViewState['loanTransfer'] = null;
+  private textChoice: GameViewState['textChoice'] = null;
+  private textChoiceToken = 0;
+  private readonly offeredTextChoices = new Set<'borrow' | 'lend' | 'extend'>();
   private rivalDistraction: GameViewState['rivalDistraction'] = null;
   private line = INITIAL_LINE;
   private videoEnabled = false;
@@ -89,6 +92,7 @@ export class GameViewModel implements GameCommands {
   private cueTimer: number | undefined;
   private timeExtensionTimer: number | undefined;
   private loanTransferTimer: number | undefined;
+  private textChoiceTimer: number | undefined;
   private payoutTimers: Partial<Record<Side, number>> = {};
   private assistantTimer: number | undefined;
   private revision = 0;
@@ -214,11 +218,53 @@ export class GameViewModel implements GameCommands {
       this.processPracticeEvents(advanceMatch(this.practiceState, this.practiceElapsed()));
       purchaseUpgrade(this.practiceState, id, expectedCount);
       this.consumeSnapshot(getSnapshot(this.practiceState));
+      this.maybeOfferTextChoice();
       this.emit();
     } else {
       this.liveSession?.send({ type: 'purchase', matchId: this.snapshot.matchId,
         commandId: `purchase:${++this.purchaseCommand}`, upgradeId: id, expectedCount });
     }
+  }
+
+  respondTextChoice(token: number, accepted: boolean): void {
+    const choice = this.textChoice;
+    if (this.disposed || this.mode !== 'practice' || !this.practiceState || !choice || choice.token !== token) return;
+    if (this.deps.clock.now() >= choice.expiresAt) {
+      this.clearTextChoice();
+      this.line = 'Offer expired. Keep spinning.';
+      this.emit();
+      return;
+    }
+    // Clear first: a double click, timer, or stale DOM node cannot apply twice.
+    this.clearTextChoice();
+    this.processPracticeEvents(advanceMatch(this.practiceState, this.practiceElapsed()));
+    this.consumeSnapshot(getSnapshot(this.practiceState));
+    if (this.practiceState.status !== 'playing') { this.emit(); return; }
+    if (!accepted) {
+      this.line = choice.kind === 'extend' ? 'No extension. Finish strong.' : 'Offer declined. Keep spinning.';
+      this.emit();
+      return;
+    }
+    if (choice.kind === 'extend') {
+      const event = applyTimeExtension(this.practiceState);
+      if (event) {
+        this.consumeSnapshot(event.after);
+        this.presentTimeExtension(event.before.remaining, event.after.remaining);
+        this.line = 'One more chance. +10 seconds.';
+      }
+    } else {
+      const direction = choice.kind === 'borrow' ? 'rival_to_player' : 'player_to_rival';
+      const event = transferLoan(this.practiceState, direction);
+      if (event) {
+        this.rounds.syncLoan(direction, LOAN_AMOUNT);
+        this.displayBalances = { ...event.after.balances };
+        this.consumeSnapshot(event.after);
+        this.presentLoan(direction, LOAN_AMOUNT);
+        this.line = direction === 'rival_to_player' ? 'Here. Make this $5 count.' : 'Fine. One $5 loan.';
+      }
+    }
+    if (!this.textChoice) this.maybeOfferTextChoice();
+    this.emit();
   }
 
   leave(): void {
@@ -299,7 +345,7 @@ export class GameViewModel implements GameCommands {
     for (const [id, resolve] of this.waits) { this.deps.clock.clearTimeout(id); resolve(false); }
     this.waits.clear();
     this.practiceTimer = this.spinQueueTimer = this.spinRequestTimer = undefined;
-    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = this.loanTransferTimer = undefined;
+    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = this.loanTransferTimer = this.textChoiceTimer = undefined;
     this.payoutTimers = {};
   }
 
@@ -345,6 +391,8 @@ export class GameViewModel implements GameCommands {
     this.cue = null;
     this.timeExtension = null;
     this.loanTransfer = null;
+    this.clearTextChoice();
+    this.offeredTextChoices.clear();
     this.rivalDistraction = null;
     this.assistantText = '';
     this.conversation = 'idle';
@@ -369,6 +417,8 @@ export class GameViewModel implements GameCommands {
     this.cue = null;
     this.timeExtension = null;
     this.loanTransfer = null;
+    this.clearTextChoice();
+    this.offeredTextChoices.clear();
     this.rivalDistraction = null;
     this.line = INITIAL_LINE;
     this.heard = this.assistantText = '';
@@ -395,12 +445,14 @@ export class GameViewModel implements GameCommands {
     startMatch(this.practiceState);
     this.practiceStartedAt = this.deps.clock.now();
     this.consumeSnapshot(getSnapshot(this.practiceState));
+    this.maybeOfferTextChoice();
     this.emit();
     this.deps.presentation.focus('start');
     const tick = () => {
       if (!this.practiceState || this.practiceState.status !== 'playing') return;
       this.processPracticeEvents(advanceMatch(this.practiceState, this.practiceElapsed()));
       this.consumeSnapshot(getSnapshot(this.practiceState));
+      this.maybeOfferTextChoice();
       this.emit();
       if (this.practiceState.status === 'playing') this.practiceTimer = this.schedule(tick, 100);
     };
@@ -434,6 +486,7 @@ export class GameViewModel implements GameCommands {
       if (!this.warnedTime && snapshot.remaining <= 10) { this.warnedTime = true; this.deps.presentation.playSound('warning'); }
     }
     if (snapshot.status === 'result' || snapshot.status === 'aborted') this.clearSpinInput();
+    if (snapshot.status === 'result' || snapshot.status === 'aborted') this.clearTextChoice();
   }
 
   private clearSpinInput(): void {
@@ -443,6 +496,61 @@ export class GameViewModel implements GameCommands {
     this.spinQueued = this.spinPending = this.spinAnimating = false;
     this.spinNextAt = 0;
     this.spinRequestId = undefined;
+  }
+
+  private clearTextChoice(): void {
+    this.cancelTimer(this.textChoiceTimer);
+    this.textChoiceTimer = undefined;
+    this.textChoice = null;
+  }
+
+  private maybeOfferTextChoice(): void {
+    const state = this.practiceState;
+    if (this.mode !== 'practice' || this.voiceReady || !state || state.status !== 'playing') return;
+    if (this.textChoice) {
+      if (this.isTextChoiceEligible(state, this.textChoice.kind)) return;
+      this.clearTextChoice();
+    }
+    let choice: Omit<NonNullable<GameViewState['textChoice']>, 'token' | 'expiresAt'> | null = null;
+    // A player without even the minimum bet gets the first decision. The rival
+    // gets the next priority, then the late-match extension.
+    if (!this.offeredTextChoices.has('borrow') && state.scores.player < 1 && state.scores.rival >= LOAN_AMOUNT) {
+      choice = { kind: 'borrow', question: 'BORROW $5?', detail: 'Ask your rival for one more spin.', acceptLabel: 'BORROW $5', declineLabel: 'DECLINE' };
+    } else if (!this.offeredTextChoices.has('lend') && state.scores.rival < 1 && state.scores.player >= LOAN_AMOUNT) {
+      choice = { kind: 'lend', question: 'LEND $5?', detail: 'Your rival is out of cash.', acceptLabel: 'LEND $5', declineLabel: 'DECLINE' };
+    } else if (!this.offeredTextChoices.has('extend') && !state.extensionUsed && state.duration === 60 && state.remaining <= 15) {
+      choice = { kind: 'extend', question: 'EXTEND THE DUEL?', detail: 'Add 10 seconds for one more chance.', acceptLabel: 'EXTEND +10 SEC', declineLabel: 'DECLINE' };
+    }
+    if (!choice) return;
+    this.offeredTextChoices.add(choice.kind);
+    const token = ++this.textChoiceToken;
+    const expiresAt = this.deps.clock.now() + 5000;
+    this.textChoice = { ...choice, token, expiresAt };
+    this.textChoiceTimer = this.schedule(() => {
+      if (this.textChoice?.token !== token) return;
+      this.clearTextChoice();
+      this.line = 'Offer expired. Keep spinning.';
+      this.emit();
+    }, 5000);
+  }
+
+  private isTextChoiceEligible(state: MatchState, kind: NonNullable<GameViewState['textChoice']>['kind']): boolean {
+    if (kind === 'borrow') return state.scores.player < 1 && state.scores.rival >= LOAN_AMOUNT && !state.loanUsed.rival_to_player;
+    if (kind === 'lend') return state.scores.rival < 1 && state.scores.player >= LOAN_AMOUNT && !state.loanUsed.player_to_rival;
+    return !state.extensionUsed && state.duration === 60 && state.remaining <= 15;
+  }
+
+  private presentTimeExtension(before: number, after: number): void {
+    this.timeExtension = { decision: 'accepted', before, after };
+    this.deps.presentation.playSound('ruleChange');
+    this.cancelTimer(this.timeExtensionTimer);
+    this.timeExtensionTimer = this.schedule(() => { this.timeExtension = null; this.emit(); }, 1350);
+  }
+
+  private presentLoan(direction: 'rival_to_player' | 'player_to_rival', amount: 5): void {
+    this.loanTransfer = { direction, amount };
+    this.cancelTimer(this.loanTransferTimer);
+    this.loanTransferTimer = this.schedule(() => { this.loanTransfer = null; this.emit(); }, 1800);
   }
 
   private flushSpinQueue(): void {
@@ -465,6 +573,7 @@ export class GameViewModel implements GameCommands {
       this.spinPending = false;
       this.processPracticeEvents(events);
       this.consumeSnapshot(getSnapshot(this.practiceState));
+      this.maybeOfferTextChoice();
     } else if (this.mode === 'live') {
       this.spinRequestId = this.liveSession?.sendSpin();
       if (this.spinRequestId) {
@@ -548,6 +657,7 @@ export class GameViewModel implements GameCommands {
 
   private finishPresentation(snapshot: MatchSnapshot): void {
     this.consumeSnapshot(snapshot);
+    this.clearTextChoice();
     if (this.result?.matchId !== snapshot.matchId) {
       this.sessionRecord.newBest = snapshot.scores.player > this.sessionRecord.best;
       this.sessionRecord.best = Math.max(this.sessionRecord.best, snapshot.scores.player);
@@ -703,10 +813,7 @@ export class GameViewModel implements GameCommands {
       this.line = message.line;
       this.setConversation('replying');
       if (message.decision === 'accepted') {
-        this.timeExtension = { decision: message.decision, before: message.before.remaining, after: message.after.remaining };
-        this.deps.presentation.playSound('ruleChange');
-        this.cancelTimer(this.timeExtensionTimer);
-        this.timeExtensionTimer = this.schedule(() => { this.timeExtension = null; this.emit(); }, 1350);
+        this.presentTimeExtension(message.before.remaining, message.after.remaining);
       }
     } else if (message.type === 'loan_transfer') {
       // Apply the authoritative post-transfer snapshot before waiting for any
@@ -719,9 +826,7 @@ export class GameViewModel implements GameCommands {
       this.assistantText = this.heard = '';
       this.line = message.line;
       this.setConversation('replying');
-      this.loanTransfer = { direction: message.direction, amount: message.amount };
-      this.cancelTimer(this.loanTransferTimer);
-      this.loanTransferTimer = this.schedule(() => { this.loanTransfer = null; this.emit(); }, 1800);
+      this.presentLoan(message.direction, message.amount);
     } else if (message.type === 'rival_distraction') {
       this.line = message.line;
       this.setConversation('replying');
@@ -820,7 +925,7 @@ export class GameViewModel implements GameCommands {
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
       sessionRecord: { ...this.sessionRecord },
-      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, loanTransfer: this.loanTransfer ? { ...this.loanTransfer } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
+      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, loanTransfer: this.loanTransfer ? { ...this.loanTransfer } : null, textChoice: this.textChoice ? { ...this.textChoice } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
       expression: now >= this.reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : this.expression,
       rivalMood: this.rivalDistraction?.active ? 'DISTRACTED...' : this.snapshot.status === 'result' ? gap > 0 ? 'Next round is mine.' : gap < 0 ? 'Up for a rematch?' : 'One more to settle it.' : gap > 0 ? 'I can still catch you.' : gap < 0 ? 'Catch me if you can.' : '60 seconds. Let\'s play.',
       microphone: { visible: this.mode === 'live' && this.voiceReady, active: this.micActive && this.snapshot.status !== 'result', muted: this.micMuted, level: this.micActive && !this.micMuted && this.snapshot.status !== 'result' ? this.micLevel : 0 },
