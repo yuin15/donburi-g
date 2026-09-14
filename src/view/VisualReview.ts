@@ -110,12 +110,13 @@ export function mountVisualReview(port: ReviewPort): void {
     let previous = performance.now();
     const timings: number[] = [];
     let peakCalls = 0, peakTriangles = 0;
+    let previousFrames = port.scene.stats().frames;
     const measure = (now: number) => {
       if (!active) return;
-      const state = document.querySelector<HTMLElement>('#stageArt')?.dataset;
-      if (state?.spinning === 'true' || state?.win === 'true' || state?.rivalWin === 'true') timings.push(now - previous);
-      previous = now;
       const current = port.scene.stats();
+      if (current.frames !== previousFrames) timings.push(now - previous);
+      previousFrames = current.frames;
+      previous = now;
       peakCalls = Math.max(peakCalls, current.calls);
       peakTriangles = Math.max(peakTriangles, current.triangles);
       if (context) {
@@ -148,7 +149,7 @@ export function mountVisualReview(port: ReviewPort): void {
       recordSpin(matchStats, rival);
       port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, balances: { player: total, rival: rivalTotal }, bets: { player: examples[i].bet, rival: rivalBet }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
       port.spin(player, rival);
-      await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 3000 : 2000));
+      await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 4200 : 2000));
     }
     active = false;
     recorder?.stop();

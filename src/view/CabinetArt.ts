@@ -73,7 +73,7 @@ export class CabinetArt {
     this.scoreGlints = { player: this.makeScoreGlint('player'), rival: this.makeScoreGlint('rival') };
     this.timerLights = this.makeTimerLights();
     this.finalGlow = this.makeFinalGlow();
-    this.group.add(this.timerLights, this.finalGlow, this.glows.rival, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...Object.values(this.scoreGlints), this.coins.group);
+    this.group.add(this.timerLights, this.finalGlow, this.glows.rival, this.bulbs.rival, this.sparkles.player, this.sparkles.rival, ...Object.values(this.scoreGlints), this.coins.group, this.coins.backgroundGroup);
     this.playerGroup.add(this.glows.player, this.bulbs.player);
   }
 

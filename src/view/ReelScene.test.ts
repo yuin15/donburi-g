@@ -78,6 +78,7 @@ function coins(): InstancedMesh[] {
   scene().traverse(node => { if (node instanceof InstancedMesh && node.name === 'win-coin') result.push(node); });
   return result;
 }
+function backgroundRain(): InstancedMesh { return scene().getObjectByName('background-coin-rain') as InstancedMesh; }
 function coinPosition(mesh: InstancedMesh, index: number): Vector3 {
   const matrix = new Matrix4();
   mesh.getMatrixAt(index, matrix);
@@ -305,8 +306,8 @@ describe('stage rendering and cleanup', () => {
     expect(host.dataset).toMatchObject({ win: 'false', jackpot: 'false' });
     expect(frames.size).toBe(0);
   });
-  it('uses five shared instanced coin pools with payout-sized counts and a 1.7 second jackpot', () => {
-    const { view } = setup();
+  it('collects the jackpot in 1.7 seconds and rains behind the scene for three seconds', () => {
+    const { view } = setupWithEffects();
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
     frame();
     const pools = coins();
@@ -315,13 +316,30 @@ describe('stage rendering and cleanup', () => {
     expect(new Set(pools.map(pool => pool.geometry))).toHaveLength(1);
     expect(pools.filter(pool => pool.visible)).toHaveLength(1);
     expect(pools.find(pool => pool.visible)!.count).toBe(270);
+    const rain = backgroundRain();
+    expect(rain.count).toBe(600);
+    expect(rain.geometry).toBe(pools[0].geometry);
+    expect(rain.layers.isEnabled(0)).toBe(true);
+    expect(rain.layers.isEnabled(1)).toBe(false);
+    expect(pools[0].layers.isEnabled(1)).toBe(true);
+    const positions = activeCoinPositions(rain).map(coin => coin.position);
+    expect(Math.min(...positions.map(p => p.x))).toBeLessThan(100);
+    expect(Math.max(...positions.map(p => p.x))).toBeGreaterThan(1570);
+    expect(positions.every(p => p.z < -150 && p.z > -600)).toBe(true);
     frame(1700);
     expect(pools.every(pool => !pool.visible && pool.count === 0)).toBe(true);
+    expect(rain.visible).toBe(true);
+    frame(1283);
+    expect(rain.visible).toBe(true);
+    frame(1);
+    expect(rain.visible).toBe(false);
+    expect(rain.count).toBe(0);
     expect(frames.size).toBe(0);
     motion.matches = true;
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
     frame();
     expect(pools.every(pool => !pool.visible && pool.count === 0)).toBe(true);
+    expect(rain.visible).toBe(false);
     frame(180);
     expect(frames.size).toBe(0);
   });
@@ -331,6 +349,7 @@ describe('stage rendering and cleanup', () => {
     view.celebrateResult('rival');
     frame();
     expect(coins().every(pool => !pool.visible)).toBe(true);
+    expect(backgroundRain().visible).toBe(false);
     view.celebrateResult('draw');
     frame();
     expect(coins().every(pool => !pool.visible)).toBe(true);
@@ -339,10 +358,12 @@ describe('stage rendering and cleanup', () => {
     const victory = coins().find(pool => pool.userData.victory === true)!;
     expect(victory.visible).toBe(true);
     expect(victory.count).toBe(480);
+    expect(backgroundRain().count).toBe(600);
     frame(2983);
     expect(victory.visible).toBe(true);
     frame(1);
     expect(victory.visible).toBe(false);
+    expect(backgroundRain().visible).toBe(false);
     expect(frames.size).toBe(0);
   });
   it.each([[PAYOUT.seven, 0], [0, PAYOUT.seven], [PAYOUT.cherry, PAYOUT.seven]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
@@ -364,6 +385,10 @@ describe('stage rendering and cleanup', () => {
     frame(1034);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    if (playerPayout === PAYOUT.seven) {
+      expect(backgroundRain().visible).toBe(true);
+      frame(1300);
+    }
     expect(frames.size).toBe(0);
   });
   it('clears reel highlights on the next play while the previous collection finishes on schedule', () => {
@@ -405,12 +430,18 @@ describe('stage rendering and cleanup', () => {
       }
       expect(scene().getObjectByName(side + '-score-collect-glint')!.visible).toBe(false);
     }
+    expect(backgroundRain().visible).toBe(true);
+    frame(1300);
+    expect(backgroundRain().visible).toBe(false);
     expect(frames.size).toBe(0);
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven, ['bell', 'cherry', 'seven'], true);
     frame();
+    expect(backgroundRain().visible).toBe(true);
+    expect(frames.size).toBe(0);
     view.play(spin(3), { ...spin(3), side: 'rival' }, vi.fn());
     frame();
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(backgroundRain().visible).toBe(false);
   });
   it('finishes consecutive jackpot collections independently without delaying the next spin', () => {
     const { view } = setup();
@@ -428,6 +459,11 @@ describe('stage rendering and cleanup', () => {
     expect(overlapping[1].visible).toBe(true);
     frame(1060);
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(backgroundRain().count).toBe(600);
+    frame(1299);
+    expect(backgroundRain().visible).toBe(true);
+    frame(1);
+    expect(backgroundRain().visible).toBe(false);
     expect(frames.size).toBe(0);
   });
   it('bounds rival-only flashes, supports a still preview, and clears them on reset, stop and disposal', () => {

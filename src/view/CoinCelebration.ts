@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Side, SymbolId } from '../../shared/protocol';
 import { VICTORY_DURATION } from '../viewmodel/RewardPresentation';
-import { OVERLAYS, STAGE_HEIGHT } from './StageLayout';
+import { OVERLAYS, STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
 
 export type CoinStyle = 'fountain' | 'rain';
 type Lane = { mesh: THREE.InstancedMesh; side: Side; started: number; duration: number; count: number; still: boolean; jackpot: boolean };
@@ -10,14 +10,21 @@ const mix = THREE.MathUtils.lerp;
 const smooth = (x: number) => { const p = clamp(x, 0, 1); return p * p * (3 - 2 * p); };
 const random = (index: number, salt: number) => { const n = Math.sin(index * 127.1 + salt * 311.7) * 43758.5453; return n - Math.floor(n); };
 const COUNTS = { player: { cherry: 24, bell: 72, jackpot: 270 }, rival: { cherry: 12, bell: 27, jackpot: 54 }, victory: 480 };
+const BACKGROUND_COUNT = 600;
+const BACKGROUND_DURATION = 3000;
 
 /** Fixed GPU pools: two overlapping payouts per side, plus one victory shower. */
 export class CoinCelebration {
   readonly group = new THREE.Group();
+  /** Base scene layer: cabinets, portraits and DOM text remain in front. */
+  readonly backgroundGroup = new THREE.Group();
   readonly arrivals: Record<Side, number> = { player: 0, rival: 0 };
   private readonly pose = new THREE.Object3D();
   private readonly lanes: Lane[];
   private readonly victory: THREE.InstancedMesh;
+  private readonly background: THREE.InstancedMesh;
+  private backgroundStarted = -Infinity;
+  private backgroundStill = false;
   private victoryStarted = -Infinity;
   private style: CoinStyle = 'fountain';
 
@@ -38,6 +45,9 @@ export class CoinCelebration {
     }));
     this.victory = make(COUNTS.victory, 'player');
     this.victory.userData.victory = true;
+    this.background = make(BACKGROUND_COUNT, 'player');
+    this.background.name = 'background-coin-rain';
+    this.backgroundGroup.add(this.background);
   }
 
   setStyle(style: CoinStyle): void { this.style = style; }
@@ -46,14 +56,25 @@ export class CoinCelebration {
     const candidates = this.lanes.filter(lane => lane.side === side);
     const lane = candidates.find(candidate => now >= candidate.started + candidate.duration) ?? candidates.reduce((a, b) => a.started < b.started ? a : b);
     Object.assign(lane, { started: now, duration, still, jackpot, count: COUNTS[side][jackpot ? 'jackpot' : symbol === 'bell' ? 'bell' : 'cherry'] });
+    if (side === 'player' && jackpot) {
+      this.backgroundStarted = now;
+      this.backgroundStill = still;
+    }
   }
 
   celebrate(now: number): void {
     this.stop();
     this.victoryStarted = now;
+    this.backgroundStarted = now;
   }
 
   stop(side?: Side): void {
+    if (!side || side === 'player') {
+      this.backgroundStarted = -Infinity;
+      this.backgroundStill = false;
+      this.background.visible = false;
+      this.background.count = 0;
+    }
     for (const lane of this.lanes) if (!side || lane.side === side) {
       lane.started = -Infinity;
       lane.still = false;
@@ -79,6 +100,23 @@ export class CoinCelebration {
     this.arrivals.player = this.arrivals.rival = 0;
     if (reducedMotion) { this.stop(); return false; }
     let active = false;
+    const rainElapsed = this.backgroundStill ? 1200 : now - this.backgroundStarted;
+    this.background.visible = rainElapsed >= 0 && rainElapsed < BACKGROUND_DURATION;
+    this.background.count = this.background.visible ? BACKGROUND_COUNT : 0;
+    if (this.background.visible) {
+      active ||= !this.backgroundStill;
+      const seconds = rainElapsed / 1000;
+      const fade = smooth(rainElapsed / 150) * smooth((BACKGROUND_DURATION - rainElapsed) / 300);
+      for (let i = 0; i < BACKGROUND_COUNT; i++) {
+        const depth = random(i, 12), spread = random(i, 13);
+        // Staggered repeated falls maintain a dense shower for the full interval.
+        const fall = (random(i, 14) + seconds / (1.25 + depth * .8)) % 1;
+        const x = 18 + spread * (STAGE_WIDTH - 36) + Math.sin(seconds * 1.8 + i) * 16;
+        const y = -65 + fall * (STAGE_HEIGHT + 130);
+        this.setCoin(this.background, i, x, y, -280 + depth * 100, (.7 + depth * .85) * fade, i * .71 + seconds * (3 + depth * 6));
+      }
+      this.background.instanceMatrix.needsUpdate = true;
+    }
     for (const lane of this.lanes) {
       const progress = lane.still ? .4 : (now - lane.started) / lane.duration;
       lane.mesh.visible = progress >= 0 && progress < 1;
@@ -147,5 +185,6 @@ export class CoinCelebration {
     this.stop();
     for (const lane of this.lanes) lane.mesh.dispose();
     this.victory.dispose();
+    this.background.dispose();
   }
 }
