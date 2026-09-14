@@ -1,5 +1,5 @@
 import type { Bet, MatchSnapshot, MatchStats, ReelGrid, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol.js';
-import { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
+import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, RIVAL_SPIN_INTERVAL, TIME_EXTENSION_SECONDS } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 import { upgradePrice } from '../../shared/shop.js';
 
@@ -300,42 +300,36 @@ export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot 
 
 /** The domain is the only place that can turn an authorized extension into extra time. */
 export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
-  return applyTimeExtensionWithin(state, EXTENSION_REQUEST_REMAINING_SECONDS);
+  return applyTimeExtensionWithin(state);
 }
 
-/** An explicit player request may use the same one-shot +10 second rule at any point in a live match. */
+/** Every newly authorized agreement may add the same fixed +10 seconds. */
 export function applyPlayerRequestedTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
-  return applyTimeExtensionWithin(state, MATCH_SECONDS);
+  return applyTimeExtensionWithin(state);
 }
 
-function applyTimeExtensionWithin(state: MatchState, maximumRemaining: number): Extract<GameEvent, { type: 'time_extended' }> | null {
+function applyTimeExtensionWithin(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
   if (
     state.status !== 'playing'
-    || state.extensionUsed
-    || state.duration !== MATCH_SECONDS
-    || state.remaining > maximumRemaining
+    || state.duration + TIME_EXTENSION_SECONDS > MAX_MATCH_SECONDS
   ) return null;
   const before = getSnapshot(state);
-  state.duration = MAX_MATCH_SECONDS;
+  state.duration += TIME_EXTENSION_SECONDS;
   state.remaining = Math.max(0, state.duration - state.elapsed);
+  // Kept for old UI fixtures. It no longer limits separately agreed extensions.
   state.extensionUsed = true;
   return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };
 }
 /**
- * The authoritative, all-or-nothing loan entry point. A transfer is possible
- * only while the player cannot place the minimum bet for a rival-to-player
- * loan, and the lender can cover the fixed amount. A player may voluntarily
- * lend to the rival regardless of the rival's current balance. `balances`
- * shares `scores`, so snapshots stay equal.
+ * The authoritative fixed-$5 transfer. Agreement, rather than either balance,
+ * authorizes it; the lender may become negative. `balances` shares `scores`,
+ * so snapshots stay equal.
  */
 export function transferLoan(state: MatchState, direction: LoanDirection): Extract<GameEvent, { type: 'loan_transfer' }> | null {
   const [lender, borrower] = direction === 'rival_to_player'
     ? ['rival', 'player'] as const
     : ['player', 'rival'] as const;
-  if (
-    state.status !== 'playing'
-    || (direction === 'player_to_rival' && state.scores[lender] < LOAN_AMOUNT)
-  ) return null;
+  if (state.status !== 'playing') return null;
   const before = getSnapshot(state);
   state.scores[lender] -= LOAN_AMOUNT;
   state.scores[borrower] += LOAN_AMOUNT;
