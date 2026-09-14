@@ -123,8 +123,13 @@ export class LiveClient extends EventTarget {
           this.pcm.interrupt();
           void this.detachAvatar().then(() => this.pcm.prepare()).then(() => {
             if (!this.closed && !this.voiceStopped) {
+              // A route may arrive while the initial LiveKit connection is
+              // still importing or connecting. PCM is now the selected route,
+              // so it satisfies the output-ready half of the initial gate.
+              avatarReady = true;
               this.send({ type: 'voice_route_ready', transitionId: message.transitionId });
               this.dispatchEvent(new Event('voice-route'));
+              ready();
             }
           }, () => {
             void this.stopVoice();
@@ -157,13 +162,16 @@ export class LiveClient extends EventTarget {
           void this.pcm.speechEnded(message.speechId).then(() => this.send({ type: 'voice_speech_done', speechId: message.speechId }));
           return;
         }
-        if (message.type === 'avatar' && !this.voiceStopped && voiceMode === 'avatar') {
+        if (message.type === 'avatar' && !this.voiceStopped && voiceMode === 'avatar' && this.playbackRoute === 'avatar') {
           this.setAiStatus('liveKit', 'connecting');
           void this.attachAvatar(message.livekitUrl, message.livekitToken).then(() => {
             avatarReady = true;
             this.setAiStatus('liveKit', 'connected');
             ready();
           }).catch(() => {
+            // `voice_route` cancels an in-flight import/connect by design. It
+            // has its own PCM readiness path and must not close this socket.
+            if (this.closed || this.voiceStopped || this.playbackRoute === 'audio') return;
             this.setAiStatus('liveKit', 'failed');
             fail(new Error('avatar_connect_failed'));
           });

@@ -22,9 +22,9 @@ vi.mock('livekit-client', () => ({
 import { LiveClient } from './live';
 
 function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let resolve!: (value: T) => void, reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 class Socket {
   static OPEN = 1;
@@ -512,6 +512,45 @@ it('switches an avatar connection to prepared browser PCM, keeps microphone capt
   await vi.waitFor(() => expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'voice_speech_done', speechId: 'confirmed' })));
   instance.send({ type: 'mic', audio: 'AAAA' });
   expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'mic', audio: 'AAAA' }));
+  await instance.disconnect();
+});
+
+it('uses PCM readiness when fallback arrives before the avatar message starts an attachment', async () => {
+  const instance = client();
+  const connection = instance.connect('test', 'avatar');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'voice_route', route: 'audio', transitionId: 'before-avatar' });
+  await vi.waitFor(() => expect(pcm.prepare).toHaveBeenCalledOnce());
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  ws.message({ type: 'voice_status', status: 'ready' });
+  await connection;
+  expect(media.connect).not.toHaveBeenCalled();
+  expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'voice_route_ready', transitionId: 'before-avatar' });
+  await instance.disconnect();
+});
+
+it.each(['resolves', 'rejects'] as const)('keeps PCM fallback connected when the cancelled avatar connect later %s', async outcome => {
+  const pending = deferred<void>();
+  media.connect.mockReturnValueOnce(pending.promise);
+  const instance = client();
+  const connection = instance.connect('test', 'avatar');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  await vi.waitFor(() => expect(media.connect).toHaveBeenCalledOnce());
+  ws.message({ type: 'voice_status', status: 'ready' });
+  ws.message({ type: 'voice_route', route: 'audio', transitionId: `during-${outcome}` });
+  await connection;
+  if (outcome === 'resolves') pending.resolve();
+  else pending.reject(new Error('old_connect_rejected'));
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(ws.close).not.toHaveBeenCalled();
+  const routeAck = [...ws.send.mock.calls].reverse()
+    .map(call => JSON.parse(call[0] as string))
+    .find((message: { type?: string }) => message.type === 'voice_route_ready');
+  expect(routeAck).toEqual({ type: 'voice_route_ready', transitionId: `during-${outcome}` });
   await instance.disconnect();
 });
 
