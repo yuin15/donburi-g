@@ -324,6 +324,29 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('holds a required hit until playback ACK before releasing another confirmed line', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    expect(bridge.requestRequiredReaction('プレイヤーがベルを揃えた。', 'required-hit')).toBe(true);
+    bridge.requestConfirmedLine('次の確定台詞', 'after-required');
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    for (let i = 0; i < 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('required-hit');
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    bridge.completeConfirmedSpeech('required-hit');
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).content).toContain('次の確定台詞');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('uses the settled English state for confirmed and delegated fixed lines', async () => {
     const { bridge } = setup('', 'en');
     const connecting = bridge.connect();

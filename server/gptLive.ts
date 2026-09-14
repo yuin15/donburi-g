@@ -31,7 +31,7 @@ export class GptLiveBridge {
   private suppressionStop: ReturnType<typeof setTimeout> | null = null;
   private pendingConfirmedLine: { line: string | LocalizedLine; speechId?: string } | null = null;
   private pendingDelegationResult: { id: string; content: string | LocalizedLine; speechId: string } | null = null;
-  private activeDelegationSpeech: { speechId: string; commandId: string; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  private activeDelegationSpeech: { speechId: string; commandId: string; started: boolean; holdUntilPlayback: boolean; ended: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private suppressAfterTaggedSpeech = false;
   private outputQuietMs = 0;
   private conversationUntil = 0;
@@ -145,17 +145,18 @@ export class GptLiveBridge {
             return;
           }
           const speech = this.activeDelegationSpeech;
+          const taggedSpeech = speech && !speech.ended ? speech : null;
           let endDelegationSpeech = false;
-          if (speech) {
-            if (audible) { speech.started = true; speech.quietMs = 0; }
-            else if (speech.started) speech.quietMs += pcm.length / 48;
-            if (speech.started && speech.quietMs >= 900) endDelegationSpeech = true;
-            else if (speech.started) {
-              if (speech.timer) clearTimeout(speech.timer);
-              speech.timer = setTimeout(() => this.finishDelegationSpeech(), 900);
+          if (taggedSpeech) {
+            if (audible) { taggedSpeech.started = true; taggedSpeech.quietMs = 0; }
+            else if (taggedSpeech.started) taggedSpeech.quietMs += pcm.length / 48;
+            if (taggedSpeech.started && taggedSpeech.quietMs >= 900) endDelegationSpeech = true;
+            else if (taggedSpeech.started) {
+              if (taggedSpeech.timer) clearTimeout(taggedSpeech.timer);
+              taggedSpeech.timer = setTimeout(() => this.finishDelegationSpeech(), 900);
             }
           }
-          if (speech) this.events.onAudio(event.delta, speech.speechId);
+          if (taggedSpeech) this.events.onAudio(event.delta, taggedSpeech.speechId);
           else this.events.onAudio(event.delta);
           // The browser must enqueue the final tagged PCM before it can ACK
           // that the acceptance line has actually finished playing.
@@ -282,6 +283,37 @@ export class GptLiveBridge {
     if (this.suppressedAt === null && !this.conversationLanguagePending) this.flushConfirmedLine();
   }
 
+  /** Starts one required game reaction only when no conversation or tagged line owns output. */
+  requestRequiredReaction(line: string | LocalizedLine, speechId: string): boolean {
+    if (
+      !this.ready
+      || this.inputSpeaking
+      || this.conversationLanguagePending
+      || this.suppressedAt !== null
+      || Date.now() < this.conversationUntil
+      || this.activeDelegationSpeech
+      || this.pendingConfirmedLine
+      || this.pendingDelegationResult
+    ) return false;
+    const localizedLine = typeof line === 'string' ? line : localized(line, this.conversationLanguage);
+    const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
+    const commandId = this.append('commentary', `Speak only this confirmed ${language} line exactly: ${JSON.stringify(localizedLine)}`, null, speechId);
+    if (!commandId) return false;
+    this.activeDelegationSpeech = { speechId, commandId, started: false, holdUntilPlayback: true, ended: false, quietMs: 0, timer: null };
+    return true;
+  }
+
+  /** Browser PCM or Avatar playback confirms that a tagged line may release output. */
+  completeConfirmedSpeech(speechId: string): void {
+    const speech = this.activeDelegationSpeech;
+    if (!speech || speech.speechId !== speechId || !speech.holdUntilPlayback || !speech.ended) return;
+    this.activeDelegationSpeech = null;
+    if (this.suppressedAt === null && !this.conversationLanguagePending) {
+      this.flushConfirmedLine();
+      this.flushDelegationResult();
+    }
+  }
+
   /** Cancels only the tagged confirmed line that has not finished speaking. */
   cancelConfirmedSpeech(speechId: string): void {
     if (this.pendingConfirmedLine?.speechId === speechId) this.pendingConfirmedLine = null;
@@ -366,17 +398,19 @@ export class GptLiveBridge {
   }
 
   private flushConfirmedLine(): void {
+    if (this.activeDelegationSpeech?.holdUntilPlayback) return;
     const pending = this.pendingConfirmedLine;
     this.pendingConfirmedLine = null;
     const line = pending && (typeof pending.line === 'string' ? pending.line : localized(pending.line, this.conversationLanguage));
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
     const commandId = pending && line ? this.append('commentary', `Speak only this confirmed ${language} line exactly: ${JSON.stringify(line)}`, null, pending.speechId) : null;
     if (commandId && pending?.speechId) {
-      this.activeDelegationSpeech = { speechId: pending.speechId, commandId, started: false, quietMs: 0, timer: null };
+      this.activeDelegationSpeech = { speechId: pending.speechId, commandId, started: false, holdUntilPlayback: false, ended: false, quietMs: 0, timer: null };
     }
   }
 
   private flushDelegationResult(): void {
+    if (this.activeDelegationSpeech?.holdUntilPlayback) return;
     const result = this.pendingDelegationResult;
     this.pendingDelegationResult = null;
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
@@ -385,14 +419,15 @@ export class GptLiveBridge {
       ? result.content
       : `Speak only this confirmed ${language} line exactly: ${JSON.stringify(localized(result.content, this.conversationLanguage))}`;
     const commandId = result ? this.append('commentary', content, result.id, result.speechId) : null;
-    if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, quietMs: 0, timer: null };
+    if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, holdUntilPlayback: false, ended: false, quietMs: 0, timer: null };
   }
 
   private finishDelegationSpeech(): void {
     const speech = this.activeDelegationSpeech;
-    if (!speech) return;
+    if (!speech || speech.ended) return;
     if (speech.timer) clearTimeout(speech.timer);
-    this.activeDelegationSpeech = null;
+    speech.ended = true;
+    if (!speech.holdUntilPlayback) this.activeDelegationSpeech = null;
     this.events.onSpeechAudioEnded(speech.speechId);
     if (this.suppressAfterTaggedSpeech) {
       this.suppressAfterTaggedSpeech = false;

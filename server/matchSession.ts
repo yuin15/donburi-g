@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type SpinView } from '../shared/protocol.js';
+import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type Side, type SpinView, type SymbolId } from '../shared/protocol.js';
 import {
   abortMatch,
   applyTimeExtension,
@@ -88,6 +88,7 @@ const EXTENSION_RETRY_LINE: LocalizedLine = { ja: 'もう一度、延長して�
 const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。初回だけ、まず資金切れかこの台への軽い愚痴・感想を短く一言で話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげる。例文を列挙して読まず、すぐに「雑談しよう？」「どうする？」と質問を重ねない。短い二文までで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
+type RequiredWinReaction = { line: LocalizedLine; wins: Record<Side, Record<SymbolId, number>> };
 
 export class MatchSession {
   private readonly state: MatchState;
@@ -106,7 +107,7 @@ export class MatchSession {
   private messagesInWindow = 0;
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
-    if (!this.voiceReady || this.closed) return;
+    if (!this.voiceReady || this.closed || this.requiredWinSpeech) return false;
     const zeroBalanceChat = text === ZERO_BALANCE_CHAT_REACTION;
     if (!zeroBalanceChat) {
       this.pushContext();
@@ -119,6 +120,11 @@ export class MatchSession {
     }
     return reactionRequested;
   });
+  /** Confirmed wins bypass optional commentary caps and remain until their playback ACK. */
+  private readonly requiredWinReactions: RequiredWinReaction[] = [];
+  private readonly requiredWinKeys = new Set<string>();
+  private requiredWinSpeech: { id: string } | null = null;
+  private requiredWinRetry: NodeJS.Timeout | null = null;
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
@@ -230,6 +236,8 @@ export class MatchSession {
           if (this.activeOutputSpeechId === speechId) this.activeOutputSpeechId = null;
           if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
           this.finishLoanOfferSpeech(speechId);
+          this.gpt?.completeConfirmedSpeech(speechId);
+          this.finishRequiredWinReaction(speechId);
         });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
@@ -271,6 +279,7 @@ export class MatchSession {
         if (!resultOnly) {
           this.gameReady = true;
           this.emit({ type: 'voice_status', status: 'ready' });
+          this.scheduleRequiredWinReaction();
         }
       },
       onAudio: (audio, speechId) => {
@@ -390,6 +399,7 @@ export class MatchSession {
         this.queueDirectTimeExtensionRequest(generation);
         this.queueDirectLoanRequest(generation);
         this.queueDirectPlayerLoanOffer(generation);
+        this.scheduleRequiredWinReaction();
       },
       onDelegation: delegation => {
         if (!current() || resultOnly || this.resultTransition) return;
@@ -411,6 +421,10 @@ export class MatchSession {
           this.loanOffer = null;
           this.loanDecisionPending = false;
           this.pushContext();
+        }
+        if (this.requiredWinSpeech?.id === rejection.speechId) {
+          this.requiredWinSpeech = null;
+          this.scheduleRequiredWinReaction();
         }
       },
       onError: code => { if (current()) this.handleGptError(code); },
@@ -460,6 +474,8 @@ export class MatchSession {
     if (this.hardStop) clearTimeout(this.hardStop);
     if (this.lobbyStop) clearTimeout(this.lobbyStop);
     if (this.resultStop) clearTimeout(this.resultStop);
+    if (this.requiredWinRetry) clearTimeout(this.requiredWinRetry);
+    this.requiredWinRetry = null;
     if (this.conversationLanguageSettle) {
       clearTimeout(this.conversationLanguageSettle.timer);
       this.delegationSettles.delete(this.conversationLanguageSettle.timer);
@@ -539,6 +555,8 @@ export class MatchSession {
   private stopVoice(): Promise<void> {
     if (this.voiceStopping) return this.voiceStopping;
     this.voiceDisabled = true;
+    if (this.requiredWinRetry) clearTimeout(this.requiredWinRetry);
+    this.requiredWinRetry = null;
     if (this.routeTransition) {
       clearTimeout(this.routeTransition.timer);
       this.routeTransition.resolve(false);
@@ -652,6 +670,8 @@ export class MatchSession {
       if (this.activeOutputSpeechId === message.speechId) this.activeOutputSpeechId = null;
       if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
       this.finishLoanOfferSpeech(message.speechId);
+      this.gpt?.completeConfirmedSpeech(message.speechId);
+      this.finishRequiredWinReaction(message.speechId);
       return;
     }
     if (message.type === 'voice_route_ready') {
@@ -780,12 +800,12 @@ export class MatchSession {
       if (event.spin.side === 'rival') {
         this.emit({ type: 'rival_line', text: `I'm on $${event.spin.bet ?? this.state.bets.rival}.`, reason: 'bet_strategy' });
       }
-      this.reactToSpin(event.spin);
+      this.enqueueRequiredWinReaction(event.spin);
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      this.reactToSpins(event.player, event.rival);
+      this.enqueueRequiredWinReaction(event.player, event.rival);
       return;
     }
     if (event.type === 'leader_change') {
@@ -813,6 +833,8 @@ export class MatchSession {
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
+      if (this.requiredWinRetry) clearTimeout(this.requiredWinRetry);
+      this.requiredWinRetry = null;
       const direction: LocalizedLine = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
         ? { ja: '双方とも残高を使い切った。逆転、再戦、追加の回転は誘わず、軽く勝負を諦めた短い一言だけを話す。', en: 'Both balances are empty. Briefly accept the result without suggesting another spin or rematch.' }
         : event.snapshot.winner === 'player'
@@ -824,7 +846,7 @@ export class MatchSession {
       if (this.timer) clearInterval(this.timer);
       const deadline = Math.min(this.sessionDeadline, Date.now() + RESULT_REACTION_MS);
       this.resultStop = setTimeout(() => void this.shutdown('result_complete'), Math.max(0, deadline - Date.now()));
-      this.beginResultVoice(direction, deadline);
+      this.beginResultVoice(this.withRequiredWinSummary(direction), deadline);
     }
   }
 
@@ -1907,42 +1929,107 @@ export class MatchSession {
     });
   }
 
-  private reactToSpins(player: SpinView, rival: SpinView): void {
-    const playerSymbol = this.primaryWinningSymbol(player);
-    const rivalSymbol = this.primaryWinningSymbol(rival);
-    if (!playerSymbol && !rivalSymbol) return;
-    if (!playerSymbol) { this.reactToSpin(rival, rivalSymbol); return; }
-    if (!rivalSymbol) { this.reactToSpin(player, playerSymbol); return; }
-    if (playerSymbol === 'seven' && rivalSymbol === 'seven') {
-      this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を踏まえて短く反応して。', player.round);
+  private enqueueRequiredWinReaction(...spins: SpinView[]): void {
+    const wins: RequiredWinReaction['wins'] = {
+      player: { cherry: 0, bell: 0, seven: 0 },
+      rival: { cherry: 0, bell: 0, seven: 0 },
+    };
+    for (const spin of spins) {
+      const key = `${spin.side}:${spin.round}`;
+      if (this.requiredWinKeys.has(key)) continue;
+      this.requiredWinKeys.add(key);
+      for (const symbol of winningSymbols(spin)) wins[spin.side][symbol] += 1;
+    }
+    if (!Object.values(wins.player).some(Boolean) && !Object.values(wins.rival).some(Boolean)) return;
+    this.requiredWinReactions.push({ wins, line: this.requiredWinLine(wins) });
+    this.scheduleRequiredWinReaction();
+  }
+
+  private scheduleRequiredWinReaction(delayMs = 0): void {
+    if (this.requiredWinRetry || this.requiredWinSpeech || this.requiredWinReactions.length === 0) return;
+    const timer = setTimeout(() => {
+      if (this.requiredWinRetry !== timer) return;
+      this.requiredWinRetry = null;
+      this.sendRequiredWinReaction();
+    }, delayMs);
+    this.requiredWinRetry = timer;
+  }
+
+  private sendRequiredWinReaction(): void {
+    if (this.closed || this.voiceDisabled || this.state.status !== 'playing') return;
+    if (
+      !this.voiceReady
+      || this.userSpeaking
+      || Date.now() < this.assistantOutputUntil
+      || this.activeOutputSpeechId
+      || this.extensionSpeech
+      || this.loanOffer
+      || this.loanDecisionPending
+      || this.extensionDecisionPending
+    ) {
+      this.scheduleRequiredWinReaction(250);
       return;
     }
-    const playerWin = this.winningSymbolPhrase('プレイヤー', playerSymbol);
-    const rivalWin = this.winningSymbolPhrase('あなた', rivalSymbol);
-    const reason = playerSymbol === 'seven'
-      ? `player_jackpot_rival_${rivalSymbol}`
-      : rivalSymbol === 'seven'
-        ? `rival_jackpot_player_${playerSymbol}`
-        : `both_${playerSymbol}_${rivalSymbol}`;
-    this.react(reason, `同じ回転で、${playerWin}、${rivalWin}。誰が何を揃えたか取り違えず、${playerSymbol === 'seven' || rivalSymbol === 'seven' ? '7揃いを主に' : ''}短く反応して。`, player.round);
+    const reaction = this.requiredWinReactions[0];
+    if (!reaction) return;
+    const id = randomUUID();
+    if (this.gpt?.requestRequiredReaction?.(reaction.line, id)) {
+      this.requiredWinSpeech = { id };
+      return;
+    }
+    this.scheduleRequiredWinReaction(250);
   }
 
-  private reactToSpin(spin: SpinView, symbol = this.primaryWinningSymbol(spin)): void {
-    if (!symbol) return;
-    const player = spin.side === 'player';
-    const reason = symbol === 'seven' ? `${player ? 'player' : 'rival'}_jackpot` : `${player ? 'player' : 'rival'}_${symbol}`;
-    this.react(reason, player
-      ? `${this.winningSymbolPhrase('プレイヤー', symbol)}。誰が何を揃えたか取り違えず、驚きか悔しさを短く一言。`
-      : `${this.winningSymbolPhrase('あなた自身', symbol)}。誰が何を揃えたか取り違えず、喜びを短く一言。`, spin.round, spin.side);
+  private finishRequiredWinReaction(speechId: string): void {
+    if (this.requiredWinSpeech?.id !== speechId) return;
+    this.requiredWinSpeech = null;
+    this.requiredWinReactions.shift();
+    this.scheduleRequiredWinReaction();
   }
 
-  private primaryWinningSymbol(spin: SpinView): 'cherry' | 'bell' | 'seven' | null {
-    const symbols = winningSymbols(spin);
-    return symbols.includes('seven') ? 'seven' : symbols.includes('bell') ? 'bell' : symbols.includes('cherry') ? 'cherry' : null;
+  private requiredWinLine(wins: RequiredWinReaction['wins']): LocalizedLine {
+    const ja = [
+      this.describeRequiredWinsJa('プレイヤー', wins.player),
+      this.describeRequiredWinsJa('私', wins.rival),
+    ].filter(Boolean).join('、');
+    const en = [
+      this.describeRequiredWinsEn('The player', wins.player),
+      this.describeRequiredWinsEn('I', wins.rival),
+    ].filter(Boolean).join(', ');
+    return { ja: `${ja}。いい当たりだね。`, en: `${en}. Nice hit.` };
   }
 
-  private winningSymbolPhrase(winner: string, symbol: 'cherry' | 'bell' | 'seven'): string {
-    return symbol === 'seven' ? `${winner}が7揃いを出した` : `${winner}が${symbol === 'bell' ? 'ベル' : 'チェリー'}を揃えた`;
+  private describeRequiredWinsJa(winner: string, wins: Record<SymbolId, number>): string {
+    const seven = wins.seven ? `7揃い${wins.seven > 1 ? `${wins.seven}ライン` : ''}` : '';
+    const small = (['cherry', 'bell'] as const).flatMap(symbol => wins[symbol]
+      ? [`${symbol === 'cherry' ? 'チェリー' : 'ベル'}${wins[symbol] > 1 ? `${wins[symbol]}ライン` : ''}`]
+      : []).join('と');
+    if (seven && small) return `${winner}が${seven}を出し、${small}を揃えた`;
+    if (seven) return `${winner}が${seven}を出した`;
+    return small ? `${winner}が${small}を揃えた` : '';
+  }
+
+  private describeRequiredWinsEn(winner: string, wins: Record<SymbolId, number>): string {
+    const named = (symbol: SymbolId) => symbol === 'seven' ? 'a seven' : symbol === 'bell' ? 'a bell' : 'cherries';
+    const parts = (['seven', 'cherry', 'bell'] as const).flatMap(symbol => wins[symbol]
+      ? [`${wins[symbol] > 1 ? `${wins[symbol]} ${symbol === 'seven' ? 'sevens' : `${symbol} lines`}` : named(symbol)}`]
+      : []);
+    return parts.length ? `${winner} hit ${parts.join(' and ')}` : '';
+  }
+
+  private withRequiredWinSummary(direction: LocalizedLine): LocalizedLine {
+    if (this.requiredWinReactions.length === 0) return direction;
+    const totals: RequiredWinReaction['wins'] = {
+      player: { cherry: 0, bell: 0, seven: 0 },
+      rival: { cherry: 0, bell: 0, seven: 0 },
+    };
+    for (const reaction of this.requiredWinReactions) for (const side of ['player', 'rival'] as const) for (const symbol of ['cherry', 'bell', 'seven'] as const) totals[side][symbol] += reaction.wins[side][symbol];
+    const ja = [this.describeRequiredWinsJa('プレイヤー', totals.player), this.describeRequiredWinsJa('あなた', totals.rival)].filter(Boolean).join('、');
+    const en = [this.describeRequiredWinsEn('The player', totals.player), this.describeRequiredWinsEn('you', totals.rival)].filter(Boolean).join(', ');
+    return {
+      ja: `${direction.ja} 未発話の当たりは${ja}。勝敗への一言で短く含めて。`,
+      en: `${direction.en} Unspoken hits: ${en}. Include them briefly in the result line.`,
+    };
   }
 
   private pushContext(): void {
