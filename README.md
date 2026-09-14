@@ -52,7 +52,7 @@ npm run dev
 | AI音声 | OpenAI GPT-Live | 招待コード、マイク許可、サーバー側の音声設定 |
 | AI音声＋映像 | GPT-Live / LiveAvatar / LiveKit | 音声設定に加え、LiveAvatarの設定 |
 
-**ADD AI VOICE · OPTIONAL** を開き、招待コードを入力して **CONNECT AI VOICE**。接続後に **PLAY** を押します。映像を付ける場合だけ **Add live video** にチェックを入れます。音声だけならLiveAvatarには接続しません。
+常時表示の **ADD AI VOICE · OPTIONAL** に招待コードを入力して **CONNECT AI VOICE**。接続後に **PLAY** を押します。映像を付ける場合だけ **Add live video** にチェックを入れます。音声だけならLiveAvatarには接続しません。
 
 **MIC** はマイク入力、**VOICE** はライバルの声、**SOUND** はゲーム効果音を操作します。**LISTENING TO YOU / RIVAL REPLY** は発話検出と返事の字幕受信を表示します。マイク音声はOpenAIへ送信され、音声・映像APIの利用枠を消費します。初期接続に失敗した場合はCPU対戦へ進めます。接続後に任意の音声・映像が終了しても同じ試合を続行します。試合用WebSocket自体が切れた場合は、その旨を表示して対戦を終了します。
 

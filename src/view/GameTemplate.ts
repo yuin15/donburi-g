@@ -82,14 +82,15 @@ app.innerHTML = `
     <p>Click or press SPACE after the reels stop.<br>Your rival spins automatically.<br>Finish with more cash in 60 seconds.</p>
     <p class="gate-strategy">Start with $30. Pick $1, $3, or $5.<br>More BET unlocks more lines.<br>Every spin could turn the game.</p>
     <div class="gate-payout"><span class="symbol-icon cherry"></span><span class="symbol-icon bell"></span><span class="symbol-icon seven"></span><span>Pick your risk.<br>No queued spins.</span></div>
-    <button id="practice" class="primary">PLAY NOW <span>→</span></button>
-    <small>Free · No mic needed · Desktop 1280×720 or larger</small>
-    <details class="voice-options"><summary>ADD AI VOICE · OPTIONAL</summary>
+    <section class="voice-options" aria-labelledby="voiceOptionsTitle">
+      <h3 id="voiceOptionsTitle">ADD AI VOICE · OPTIONAL</h3>
       <p>Talk to your rival while you play. Microphone audio is sent to OpenAI. An invite is required. Connections close after the match; conversations are not stored.</p>
       <label>Invite code<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
       <label class="voice-video-option" hidden><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
-      <button id="liveConnect">CONNECT AI VOICE</button>
-    </details>
+      <button id="liveConnect" class="primary">CONNECT AI VOICE <span>→</span></button>
+    </section>
+    <button id="practice" class="secondary">PLAY NOW <span>→</span></button>
+    <small>Free · No mic needed · Desktop 1280×720 or larger</small>
     <small id="gateMessage" role="status">CPU play needs no external AI service.</small>
   </div>
 </div>
