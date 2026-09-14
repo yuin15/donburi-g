@@ -1996,17 +1996,19 @@ export class MatchSession {
       this.describeRequiredWinsEn('The player', wins.player),
       this.describeRequiredWinsEn('I', wins.rival),
     ].filter(Boolean).join(', ');
-    return { ja: `${ja}。いい当たりだね。`, en: `${en}. Nice hit.` };
+    return {
+      ja: `確定当たり情報（発話内容ではない）: ${ja}`,
+      en: `Confirmed hit information (not speech): ${en}`,
+    };
   }
 
   private describeRequiredWinsJa(winner: string, wins: Record<SymbolId, number>): string {
-    const seven = wins.seven ? `7揃い${wins.seven > 1 ? `${wins.seven}ライン` : ''}` : '';
+    const seven = wins.seven ? `7揃い${wins.seven > 1 ? ` ${wins.seven}ライン` : ''}` : '';
     const small = (['cherry', 'bell'] as const).flatMap(symbol => wins[symbol]
-      ? [`${symbol === 'cherry' ? 'チェリー' : 'ベル'}${wins[symbol] > 1 ? `${wins[symbol]}ライン` : ''}`]
+      ? [`${symbol === 'cherry' ? 'チェリー' : 'ベル'}${wins[symbol] > 1 ? ` ${wins[symbol]}ライン` : ''}`]
       : []).join('と');
-    if (seven && small) return `${winner}が${seven}を出し、${small}を揃えた`;
-    if (seven) return `${winner}が${seven}を出した`;
-    return small ? `${winner}が${small}を揃えた` : '';
+    const symbols = [seven, small].filter(Boolean).join('、');
+    return symbols ? `${winner}: ${symbols}` : '';
   }
 
   private describeRequiredWinsEn(winner: string, wins: Record<SymbolId, number>): string {
@@ -2014,7 +2016,7 @@ export class MatchSession {
     const parts = (['seven', 'cherry', 'bell'] as const).flatMap(symbol => wins[symbol]
       ? [`${wins[symbol] > 1 ? `${wins[symbol]} ${symbol === 'seven' ? 'sevens' : `${symbol} lines`}` : named(symbol)}`]
       : []);
-    return parts.length ? `${winner} hit ${parts.join(' and ')}` : '';
+    return parts.length ? `${winner}: ${parts.join(', ')}` : '';
   }
 
   private withRequiredWinSummary(direction: LocalizedLine): LocalizedLine {
@@ -2027,8 +2029,8 @@ export class MatchSession {
     const ja = [this.describeRequiredWinsJa('プレイヤー', totals.player), this.describeRequiredWinsJa('あなた', totals.rival)].filter(Boolean).join('、');
     const en = [this.describeRequiredWinsEn('The player', totals.player), this.describeRequiredWinsEn('you', totals.rival)].filter(Boolean).join(', ');
     return {
-      ja: `${direction.ja} 未発話の当たりは${ja}。勝敗への一言で短く含めて。`,
-      en: `${direction.en} Unspoken hits: ${en}. Include them briefly in the result line.`,
+      ja: `${direction.ja} 未発話の当たりの確定情報（発話で列挙しない）: ${ja}。勝敗への短い自然な一言で反応し、実況や図柄・ライン数の説明はしない。`,
+      en: `${direction.en} Confirmed unspoken hits (do not list them aloud): ${en}. Give one short, natural result reaction without narrating symbols or line counts.`,
     };
   }
 

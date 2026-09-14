@@ -944,9 +944,8 @@ describe('live match cleanup', () => {
     });
     await vi.advanceTimersByTimeAsync(1);
     const winner = side === 'player' ? 'プレイヤー' : '私';
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(symbol === 'seven'
-      ? `${winner}が7揃いを出した`
-      : `${winner}が${symbol === 'bell' ? 'ベル' : 'チェリー'}を揃えた`), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(`確定当たり情報（発話内容ではない）: ${winner}:`), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(symbol === 'seven' ? '7揃い' : symbol === 'bell' ? 'ベル' : 'チェリー'), expect.any(String));
     await session.shutdown('test_finished');
   });
 
@@ -978,8 +977,8 @@ describe('live match cleanup', () => {
       rival: { side: 'rival', round: 4, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 36 },
     });
     await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤーがチェリー2ラインを揃えた'), expect.any(String));
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私がベルを揃えた'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: チェリー 2ライン'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'), expect.any(String));
     finishRequiredWin(session);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -991,8 +990,8 @@ describe('live match cleanup', () => {
       rival: { side: 'rival', round: 5, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 42 },
     });
     await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤーが7揃いを出し、ベルを揃えた'), expect.any(String));
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私がベルを揃えた'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: 7揃い、ベル'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'), expect.any(String));
 
     await session.shutdown('test_finished');
   });
@@ -1071,7 +1070,8 @@ describe('live match cleanup', () => {
     state.winner = 'player';
     handleGameEvent({ type: 'match_end', seq: 2, at: 60, snapshot: getSnapshot(state) });
     await vi.advanceTimersByTimeAsync(1);
-    expect(provider.openingContexts.at(-1)).toContain('未発話の当たりはプレイヤーが7揃いを出した');
+    expect(provider.openingContexts.at(-1)).toContain('未発話の当たりの確定情報（発話で列挙しない）: プレイヤー: 7揃い');
+    expect(provider.openingContexts.at(-1)).toContain('実況や図柄・ライン数の説明はしない');
     await session.shutdown('test_finished');
   });
 

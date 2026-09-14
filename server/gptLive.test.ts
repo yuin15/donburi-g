@@ -331,7 +331,10 @@ describe('live conversation pacing', () => {
     socket.readyState = 1;
     socket.emit('message', JSON.stringify({ type: 'session.started' }));
     await connecting;
-    expect(bridge.requestRequiredReaction('プレイヤーがベルを揃えた。', 'required-hit')).toBe(true);
+    expect(bridge.requestRequiredReaction('確定当たり情報（発話内容ではない）: プレイヤー: ベル', 'required-hit')).toBe(true);
+    const required = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(required.content).toContain('not a line to read aloud');
+    expect(required.content).toContain('Do not read out or list');
     bridge.requestConfirmedLine('次の確定台詞', 'after-required');
     expect(socket.send).toHaveBeenCalledTimes(1);
     const voice = Buffer.alloc(4800, 4).toString('base64');

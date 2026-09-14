@@ -297,7 +297,12 @@ export class GptLiveBridge {
     ) return false;
     const localizedLine = typeof line === 'string' ? line : localized(line, this.conversationLanguage);
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
-    const commandId = this.append('commentary', `Speak only this confirmed ${language} line exactly: ${JSON.stringify(localizedLine)}`, null, speechId);
+    const commandId = this.append('commentary', [
+      `Use ${language}. The following is confirmed game information, not a line to read aloud: ${JSON.stringify(localizedLine)}`,
+      'React as the rival with one short, natural line. You must react, but do not narrate or explain the spin.',
+      'Do not read out or list who matched what, symbol names, or line counts.',
+      'For the player\'s small hit, sound surprised or disappointed; for your own, pleased or lightly boastful; for both, competitive. Make a seven a bigger reaction. Avoid repeating stock phrases.',
+    ].join(' '), null, speechId);
     if (!commandId) return false;
     this.activeDelegationSpeech = { speechId, commandId, started: false, holdUntilPlayback: true, ended: false, quietMs: 0, timer: null };
     return true;
