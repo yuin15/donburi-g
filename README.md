@@ -33,7 +33,7 @@ Click any image to inspect the full-size capture.
 2. Both players start with **$30**. Choose **$1 / $3 / $5 BET** with the buttons or keys **1 / 2 / 3**. Higher bets activate more paylines.
 3. Click **SPIN** or press **Space** after the reels stop. Every spin deducts its bet, then adds any winning-line payouts. Inputs during a spin are ignored; holding Space does not repeat.
 4. The rival spins independently every **two seconds** while it has enough cash. Use the lower-right **UPGRADE** shop to add six cherries or one seven to your reels. Each product costs **$10 → $15 → $20**, with up to three purchases per round. Upgrades affect the next spin and reset on rematch.
-5. Finish with more cash when the clock ends. Inspect **ROUND STATS**, then choose **REMATCH**. The normal round lasts **60 seconds**; an accepted extension adds ten seconds once.
+5. Finish with more cash when the clock ends. Inspect **ROUND STATS**, then choose **REMATCH**. The normal round lasts **60 seconds**. Each distinct spoken agreement in live mode adds **ten seconds**; the CPU round's **EXTEND** card remains a one-time choice available with **15 seconds or less** remaining.
 
 | BET | Active paylines |
 | --- | --- |
@@ -48,7 +48,7 @@ CPU rounds can offer on-screen choices to borrow or lend $5, or extend a close f
 ## How OpenAI enables the experience
 
 - **Conversation during active play:** OpenAI GPT-Live streams microphone input, rival speech, and transcripts while the game continues. Current balances, remaining time, and confirmed outcomes provide context for replies. Players can speak while operating the controls, respond to the rival, and interrupt its speech. This shared conversation is central to the game's appeal.
-- **Spoken interaction with the match:** Requests for fictional money or extra time can reach server-validated game actions. A bounded Responses API path classifies a reply to a loan offer. The game code retains control of balances, time, and reel outcomes.
+- **Spoken interaction with the match:** Normal rival speech streams immediately. The exact forwarded PCM is transcribed with `gpt-transcribe`, then Responses API classification settles spoken agreements in the background. Each distinct agreement transfers a fixed $5 in either direction or adds ten seconds. The game code retains control of balances, time, and reel outcomes.
 - **Development support:** Codex assisted the voice integration, implementation, refactoring, and debugging, as well as 3D model scripts, mesh corrections, export, and Three.js integration. Included scripts and models support further visual iteration.
 - **Creative assets:** OpenAI image generation supplied project artwork and the rival's expression variants. The current rival has **18 expressions**. [Artwork provenance](docs/visual-assets.md) and [expression details](docs/rival-expressions.md) record their sources.
 
@@ -83,7 +83,9 @@ For your own local server, copy [`.env.example`](.env.example) to the ignored `.
 | `GPT_LIVE_MODEL`, `GPT_LIVE_VOICE` | Defaults in this source: `gpt-live-1`, `marin` |
 | `RIVAL_REASONING_MODEL` | Responses API classifier configuration; default `gpt-5.6-luna` |
 
-The Responses API is used for a bounded loan-reply classification path; direct borrowing and time-extension requests have deterministic handlers. It does not control the CPU's normal bets or select reel outcomes.
+Ordinary voice starts with the first PCM chunk and does not wait for agreement classification. Display captions stream independently; agreement settlement uses the exact forwarded 24 kHz PCM16 mono audio, sent as an in-memory WAV to `gpt-transcribe`, followed by Responses API classification alongside the relevant player turn and offer context. This adds transcription API requests and usage, and balances or time may update several seconds after the speech.
+
+In live mode, a validated agreement moves a fixed $5 in either direction even if the lender's balance becomes negative, or adds ten seconds for each distinct agreement. Server-issued turn and offer IDs prevent duplicate application, including repeated affirmatives to the same offer. New speech does not cancel an already forwarded agreement. Background processing uses bounded retries and explicitly reports exhausted failures; pending settlement delays the final result only for a bounded interval. These APIs do not control normal CPU bets or select reel outcomes. Offline CPU play and its one-time **EXTEND** card at 15 seconds or less are unchanged.
 
 **LiveAvatar video is hidden in the current demo UI.** Its integration and LiveKit playback code remain in the repository, but neither is required for the current voice-only experience. Redis/Upstash is also optional. Connection limits are process-local demo safeguards, not a global spending cap. See [operations](docs/operations.md).
 
@@ -152,14 +154,14 @@ Never commit keys, invites, environment files, personal email addresses, microph
 2. 両者は**$30**から開始。ボタンまたは**1 / 2 / 3**キーで**$1 / $3 / $5 BET**を選びます。$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインが有効です。
 3. リール停止後に**SPIN**をクリック、または**Space**で回転。BETを支払い、当たったラインの配当を残高に加えます。回転中の入力は予約されず、長押しも連続回転になりません。
 4. ライバルは残高が続く限り**2秒ごと**に回転します。右下の**UPGRADE**からチェリー6枚追加・7を1枚追加を購入できます。各商品は**$10 → $15 → $20**で最大3回。次の回転から反映され、再戦でリセットします。
-5. 時間切れのときに残高が多い方が勝利。**ROUND STATS**で結果を見て、**REMATCH**で再戦できます。通常は**60秒**、延長が成立すると一度だけ10秒追加されます。
+5. 時間切れのときに残高が多い方が勝利。**ROUND STATS**で結果を見て、**REMATCH**で再戦できます。通常は**60秒**。音声対戦では新しい延長合意ごとに**10秒**追加されます。CPU対戦の**EXTEND**カードは従来どおり**残り15秒以内・一度だけ**です。
 
 有効ラインに同じ絵柄が3つ揃うと、チェリー**$3**、ベル**$6**、7**$30**。複数ラインは合算します。強化の購入費も勝敗に使う残高から支払います。CPU対戦には$5の貸し借りや終盤の延長を選ぶ場面があり、音声対戦ではサーバー側の規則に従って発話による依頼も扱います。[ゲーム規則](docs/game-rules.md)。
 
 ### OpenAIの活用
 
 - **進行中の対戦と会話の両立：** GPT-Liveでマイク入力、相手の声、字幕をストリーミングしながらゲームが進みます。現在の残高、残り時間、確定した出目を会話の文脈として渡し、操作しながら話しかけたり、相手の発言へ返したり、途中で口を挟んだりできます。この「一緒に話しながら遊ぶ」体験が企画の中心です。
-- **会話からゲームへの働きかけ：** ゲーム内のお金や時間延長のお願いを、サーバーが検証する処理へつなぎます。Responses APIは貸し借りの返答を分類する限定的な経路で使い、残高・時間・リールの結果はゲームコードが管理します。
+- **会話からゲームへの働きかけ：** 通常の返答音声は即時に再生します。実際に送出したPCMを`gpt-transcribe`で文字起こしし、Responses APIによる分類で合意を後から反映します。新しい合意ごとに双方いずれかへ固定$5を移動、または10秒を追加し、残高・時間・リールの結果はゲームコードが管理します。
 - **開発支援：** Codexを音声統合、実装、構成整理、不具合修正に活用。3Dでも制作スクリプト、メッシュ修正、書き出し、Three.jsへの統合を支援しています。制作スクリプトと出力モデルを収録し、見た目を継続して改善できるようにしています。
 - **素材制作：** OpenAI画像生成を背景やライバルの表情に使用。現在は**18表情**です。[素材の出所](docs/visual-assets.md)と[表情の仕様](docs/rival-expressions.md)を記録しています。
 
@@ -180,7 +182,11 @@ npm run dev
 
 音声は入口の**ADD AI VOICE · OPTIONAL**で主催者から受け取った招待コードを入力し、**CONNECT AI VOICE**、マイク許可、対戦開始の順に進みます。**MIC / VOICE / SOUND**でマイク入力・相手の声・効果音を別々に操作できます。マイク音声はOpenAIへ送信され、ホスト側のAPI利用枠を消費します。
 
-自分の環境で音声を動かす場合は[`.env.example`](.env.example)をGit対象外の`.env.local`へコピーし、上の英語版の設定表にあるキー・署名鍵・招待コード・Origin・有効化設定を入力します。既定の音声モデルは`gpt-live-1`、声は`marin`です。Responses APIは貸し借りの返答を分類する限定的な経路で使用し、直接の借入・延長依頼は決定的な処理を使います。
+自分の環境で音声を動かす場合は[`.env.example`](.env.example)をGit対象外の`.env.local`へコピーし、上の英語版の設定表にあるキー・署名鍵・招待コード・Origin・有効化設定を入力します。既定の音声モデルは`gpt-live-1`、声は`marin`です。
+
+通常音声は合意判定を待たず先頭PCMから再生し、字幕も独立して表示します。合意の反映には、実際に送出した24 kHz・PCM16・モノラル音声をメモリ内WAVとして`gpt-transcribe`へ送り、その文字起こしと元のプレイヤー発話・提案の文脈をResponses APIで分類します。文字起こしAPIの呼び出しと利用量が追加され、会話の数秒後に残高や時間が更新される場合があります。
+
+音声対戦では、検証された合意ごとに残高不足でも固定$5を双方いずれかへ移動し、時間は新しい合意ごとに+10秒です。同じ提案への重複した「はい」はサーバー発行のturn／offer IDで一度だけ扱います。新しい発話で送出済みの合意を取り消さず、後処理は回数を限って再試行し、失敗し尽くした場合は明示します。試合終了前の未完了処理も有限の範囲で待機します。オフラインCPU対戦と、残り15秒以内に一度だけ選べるEXTENDカードは変わりません。
 
 **現在のデモではLiveAvatar映像の選択項目を非表示にしています。** 実装は残していますが、音声のみの体験には不要です。Redis/Upstashも必須ではありません。プロセス内の接続制限はデモ用で、全体の課金上限を保証するものではありません。[運用手順](docs/operations.md)。
 

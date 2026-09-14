@@ -17,7 +17,9 @@ export type ReelGrid = [
 
 export const MATCH_SECONDS = 60;
 export const TIME_EXTENSION_SECONDS = 10;
-export const MAX_MATCH_SECONDS = MATCH_SECONDS + TIME_EXTENSION_SECONDS;
+/** Agreements may add time repeatedly.  The wire limit is deliberately bounded,
+ * but it is no longer the old single-extension 70 second rule. */
+export const MAX_MATCH_SECONDS = 10_000;
 export const EXTENSION_REQUEST_REMAINING_SECONDS = 15;
 export const MANUAL_SPIN_INTERVAL = 1.1;
 export const RIVAL_SPIN_INTERVAL = 2;

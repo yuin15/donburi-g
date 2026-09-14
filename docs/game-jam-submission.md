@@ -86,7 +86,7 @@ Codex and OpenAI voice/image services were used under their applicable service t
 | --- | --- |
 | Current rules and purchase costs | [Game model](../src/domain/game.ts), [shared prices](../shared/shop.ts), [game rules](game-rules.md) |
 | Streaming voice and match context | [GPT-Live client](../server/gptLive.ts), [match session](../server/matchSession.ts), [language handling](../server/conversationLanguage.ts) |
-| Bounded Responses API use | [Loan reply classification](../server/rivalBrain.ts); direct borrowing and time extension have local handlers |
+| Background spoken-agreement settlement | Normal voice streams immediately; [exact forwarded-PCM transcription](../server/speechSettlement.ts) uses `gpt-transcribe`, followed by [Responses classification and deduplication](../server/conversationAgreement.ts) for fixed $5 transfers and +10 seconds per distinct live agreement. Extra API usage and settlement latency apply; retries are bounded and exhausted failures are reported. |
 | Codex-assisted 3D development | [Procedural production source](../art-source/houdini/README.md), [cabinet and seven script](../art-source/houdini/build_cabinet.py), [symbols](../art-source/houdini/build_symbols.py), [coin](../art-source/houdini/build_coin.py), [OBJ exporter](../art-source/houdini/obj_export.py) |
 | Runtime models and presentation | [Symbol models](../src/view/SymbolModels.ts), [cabinet model](../src/view/CabinetModel.ts), [symbol atlas](../src/view/SymbolAtlas.ts), [win symbols](../src/view/WinSymbols.ts), [coin celebration](../src/view/CoinCelebration.ts), [victory title](../src/view/VictoryTitle.ts) |
 | Artwork and expressions | [Artwork provenance](visual-assets.md), [18 expressions](rival-expressions.md) |

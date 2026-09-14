@@ -17,6 +17,8 @@ export class RoundPresentation {
   private upgradeSpent = 0;
   /** Transfers received while a reel is still spinning must also affect that reel's eventual total. */
   private readonly loanAdjustments: Record<Side, Map<number, number>> = { player: new Map(), rival: new Map() };
+  /** A recovery snapshot can replace an in-flight reel's authoritative total. */
+  private readonly recoveredSpins: Record<Side, Map<number, SpinView>> = { player: new Map(), rival: new Map() };
 
   constructor(private readonly port: PresentationPort) {}
 
@@ -34,6 +36,8 @@ export class RoundPresentation {
     this.upgradeSpent = 0;
     this.loanAdjustments.player.clear();
     this.loanAdjustments.rival.clear();
+    this.recoveredSpins.player.clear();
+    this.recoveredSpins.rival.clear();
   }
 
   syncPurchases(spent: number): void {
@@ -56,23 +60,53 @@ export class RoundPresentation {
     }
   }
 
+  /**
+   * Reconcile a stream-gap recovery without treating the replayed reel as a
+   * new spin. The snapshot total is authoritative, but its payout remains
+   * hidden until the already-running reel stops.
+   */
+  syncRecoveredSpin(spin: SpinView): boolean {
+    const { side, round } = spin;
+    if (round !== this.latest[side] || round <= this.revealed[side]) return false;
+    this.loanAdjustments[side].delete(round);
+    this.recoveredSpins[side].set(round, spin);
+    this.scores = { ...this.scores, [side]: this.previewScore(spin) };
+    return true;
+  }
+
   spin(spin: SpinView): boolean {
     const { side, round } = spin;
     if (round <= this.latest[side] || this.didEnd) return false;
     this.latest[side] = round;
-    const purchaseAdjustment = () => side === 'player' ? this.upgradeSpent - (spin.upgradeSpent ?? 0) : 0;
-    const loanAdjustment = () => this.loanAdjustments[side].get(round) ?? 0;
-    this.scores = { ...this.scores, [side]: spin.total - spin.payout - purchaseAdjustment() + loanAdjustment() };
+    this.scores = { ...this.scores, [side]: this.previewScore(spin) };
     const revision = this.revision;
     this.port.play(spin, (celebrate = true) => {
       if (revision !== this.revision || round !== this.latest[side] || round <= this.revealed[side]) return;
       this.revealed[side] = round;
-      this.scores = { ...this.scores, [side]: spin.total - purchaseAdjustment() + loanAdjustment() };
+      const recovered = this.recoveredSpins[side].get(round) ?? spin;
+      this.scores = { ...this.scores, [side]: this.settledScore(recovered) };
       this.loanAdjustments[side].delete(round);
-      this.port.settled(spin, celebrate);
+      this.recoveredSpins[side].delete(round);
+      this.port.settled(recovered, celebrate);
       this.flushResult();
     });
     return true;
+  }
+
+  private purchaseAdjustment(spin: SpinView): number {
+    return spin.side === 'player' ? this.upgradeSpent - (spin.upgradeSpent ?? 0) : 0;
+  }
+
+  private loanAdjustment(spin: SpinView): number {
+    return this.loanAdjustments[spin.side].get(spin.round) ?? 0;
+  }
+
+  private previewScore(spin: SpinView): number {
+    return spin.total - spin.payout - this.purchaseAdjustment(spin) + this.loanAdjustment(spin);
+  }
+
+  private settledScore(spin: SpinView): number {
+    return spin.total - this.purchaseAdjustment(spin) + this.loanAdjustment(spin);
   }
 
   end(snapshot: MatchSnapshot): void {

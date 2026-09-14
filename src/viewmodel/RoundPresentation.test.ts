@@ -30,6 +30,32 @@ describe('independent spin presentation', () => {
     stopped[1]();
     expect(presenter.scores.player).toBe(26);
   });
+  it('reconciles repeated cross-direction loans into an older reel stop', () => {
+    const { presenter, stopped } = setup();
+    presenter.reset({ player: 30, rival: 30 });
+    presenter.spin({ ...spin('player', 1, 35), payout: 6 });
+    presenter.spin({ ...spin('rival', 1, 25), payout: 0 });
+    presenter.syncLoan('player_to_rival', 5);
+    expect(presenter.scores).toEqual({ player: 24, rival: 30 });
+    presenter.syncLoan('rival_to_player', 5);
+    expect(presenter.scores).toEqual({ player: 29, rival: 25 });
+    presenter.syncLoan('player_to_rival', 5);
+    expect(presenter.scores).toEqual({ player: 24, rival: 30 });
+    stopped[0](); stopped[1]();
+    expect(presenter.scores).toEqual({ player: 30, rival: 30 });
+  });
+  it('uses a recovered same-round total without revealing its payout early', () => {
+    const { presenter, stopped, settled } = setup();
+    presenter.spin({ ...spin('player', 1, 35), payout: 6 });
+    presenter.syncLoan('player_to_rival', 5);
+    expect(presenter.scores.player).toBe(24);
+    expect(presenter.syncRecoveredSpin({ ...spin('player', 1, 30), payout: 6 })).toBe(true);
+    expect(presenter.scores.player).toBe(24);
+    stopped[0]();
+    expect(presenter.scores.player).toBe(30);
+    expect(settled).toHaveBeenCalledWith(expect.objectContaining({ total: 30 }), true);
+    expect(presenter.syncRecoveredSpin(spin('player', 1, 30))).toBe(false);
+  });
   it('reveals only the side that stopped, regardless of overlapping start order', () => {
     const { presenter, stopped, settled } = setup();
     const p = spin('player', 4, 480), r = spin('rival', 15, 1320);

@@ -1,11 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type SpinView } from '../shared/protocol.js';
+import { type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type ServerMessage, type SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
   applyPlayerRequestedTimeExtension,
-  applyTimeExtension,
   advanceMatch,
   createMatch,
   getSnapshot,
@@ -25,10 +24,27 @@ import { GptLiveBridge } from './gptLive.js';
 import { isClearlyEnglishTurn, localized, type ConversationLanguage, type LocalizedLine } from './conversationLanguage.js';
 import { startAvatarSession, stopAvatarSession, type StartedAvatarSession } from './liveavatar.js';
 import { MediaServerLeg } from './mediaServer.js';
-import { acceptsImmediateLoanOffer, chooseLoanDecision, choosePlayerLoanIntent, chooseRivalUpgrade, chooseTimeExtension, classifyPlayerLoanIntent, offersLoanToRival, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
+import { chooseRivalUpgrade } from './rivalBrain.js';
 import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
 import { ProactiveConversationPacer } from './proactiveConversation.js';
+import { ConversationAgreementCoordinator, type AgreementAction } from './conversationAgreement.js';
+
+import { SpeechSettlementQueue, transcribeForwardedPcm, retrySettlement, SettlementUnavailable } from './speechSettlement.js';
+
+type AgreementOffers = Record<AgreementAction, string | null>;
+const emptyOffers = (): AgreementOffers => ({ rival_to_player: null, player_to_rival: null, time_extension: null });
+interface SettlementTurn {
+  id: string; generation: number; version: number; timer: NodeJS.Timeout | null; deadlineTimer: NodeJS.Timeout | null;
+  startedAt: number; endedAt: number | null; providerStartMs: number | null; providerEndMs: number | null;
+  activeOffers: AgreementOffers; priorSpeech: ForwardedSpeech | null; transcript: string; conversation: string;
+  release: () => void; released: boolean; settledVersion: number; replyUntil: number;
+}
+interface ForwardedSpeech {
+  id: string; cause: SettlementTurn | null; conversation: string; offers: AgreementOffers;
+  previousSegment: ForwardedSpeech | null;
+  transcript: string | null; chunks: Buffer[]; bytes: number; release: () => void; timer: NodeJS.Timeout; ended: boolean;
+}
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('purchase'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100), upgradeId: z.enum(['steady', 'jackpot']), expectedCount: z.number().int().min(0).max(2) }),
@@ -60,34 +76,31 @@ const MAX_TOTAL_SESSION_MS = 170_000;
 const MAX_LOBBY_MS = 90_000;
 const RESULT_REACTION_MS = 8_000;
 const EXTENSION_SPEECH_FALLBACK_MS = 15_000;
-// 70 seconds of play, a held acceptance line, final reaction, and a small cleanup margin.
-const PLAY_VOICE_WINDOW_MS = MAX_MATCH_SECONDS * 1000 + EXTENSION_SPEECH_FALLBACK_MS + RESULT_REACTION_MS + 2_000;
+// Reserve the initial 60s + one expected extension for provider lifecycle
+// purposes only. This is intentionally independent from the game-domain
+// agreement ceiling, which permits further server-confirmed +10s grants.
+const INITIAL_PLAY_VOICE_WINDOW_MS = 70_000 + EXTENSION_SPEECH_FALLBACK_MS + RESULT_REACTION_MS + 2_000;
+const PLAY_VOICE_WINDOW_MS = INITIAL_PLAY_VOICE_WINDOW_MS;
 const AUDIO_LOBBY_MS = Math.min(MAX_LOBBY_MS, MAX_TOTAL_SESSION_MS - PLAY_VOICE_WINDOW_MS);
 const AVATAR_LOBBY_MS = Math.min(MAX_LOBBY_MS, MAX_SESSION_MS - PLAY_VOICE_WINDOW_MS);
 const EXTENSION_OFFER_CHANCE = 0.2;
-const EXTENSION_OFFER_AUDIBLE_DELAY_MS = 1000;
 const EXTENSION_OFFER_REPLY_MS = 5000;
 const EXTENSION_OFFER_LINE: LocalizedLine = { ja: 'もう少し時間が欲しい？ 伸ばしてあげようか？', en: 'Need a little more time? Want me to extend it?' };
 const LOAN_OFFER_REPLY_MS = 5000;
 // A Live transcript can follow the speech-start signal slightly. Only the
 // response turn that began before the reply deadline gets this small grace.
 const LOAN_OFFER_TRANSCRIPT_GRACE_MS = 1000;
-const DIRECT_LOAN_TRANSCRIPT_SETTLE_MS = 250;
-// GPT-Live forwards input transcript deltas but no final-transcript event. A
-// direct borrower acceptance therefore gets one fixed, bounded grace before
-// money moves, so a same-turn withdrawal can still arrive without delaying
-// every request indefinitely.
-const DIRECT_LOAN_ACCEPTANCE_SETTLE_MS = 250;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE: LocalizedLine = { ja: 'お金がなくなっちゃった。5ドル貸してくれない？', en: 'I am out of money. Can you lend me $5?' };
 const PLAYER_LOAN_OFFER_LINE: LocalizedLine = { ja: 'お金を貸そうか？', en: 'Want me to lend you $5?' };
 const USER_TRANSCRIPT_SETTLE_MS = 250;
+const AGREEMENT_TRANSCRIPT_SETTLE_MS = 350;
+// This exceeds the observed 300ms late-subtitle case without keeping a silent
+// final turn open long enough to make a completed match look stalled.
+const AGREEMENT_TRANSCRIPT_GRACE_MS = 350;
 const LOAN_TO_PLAYER_LINE: LocalizedLine = { ja: 'しょうがないな、$5だけ貸すよ。無駄にしないで。', en: 'All right, I will lend you $5. Do not waste it.' };
 const LOAN_TO_RIVAL_LINE: LocalizedLine = { ja: '助かった、$5借りるよ。ここから巻き返す。', en: 'That helps. I will borrow $5 and make a comeback.' };
-const PLAYER_LOAN_UNAVAILABLE_LINE: LocalizedLine = { ja: '$5を貸せる残高がない。自分の資金で続けよう。', en: 'You do not have $5 available to lend. Keep playing with your bankroll.' };
-const LOAN_RETRY_LINE: LocalizedLine = { ja: 'ごめん、もう一度「貸して」って言ってくれる？', en: 'Sorry, can you ask me to lend it again?' };
-const KEEP_PLAYING_LINE: LocalizedLine = { ja: '今はその話はなしで、勝負を続けよう。', en: 'Let us leave that and keep playing.' };
-const EXTENSION_RETRY_LINE: LocalizedLine = { ja: 'もう一度、延長してって言ってくれる？', en: 'Can you ask for an extension again?' };
+const EXTENSION_ACCEPT_LINE: LocalizedLine = { ja: 'いいよ、合意どおり10秒追加する。', en: 'All right, agreed: ten more seconds.' };
 const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。初回だけ、まず資金切れかこの台への軽い愚痴・感想を短く一言で話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげる。例文を列挙して読まず、すぐに「雑談しよう？」「どうする？」と質問を重ねない。短い二文までで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
@@ -109,7 +122,7 @@ export class MatchSession {
   private messagesInWindow = 0;
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
-    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply() || this.playerLoanOffer || this.playerLoanIntentPending || !this.conversationPacer.canInitiate()) return false;
+    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply() || this.playerLoanOffer || !this.conversationPacer.canInitiate()) return false;
     this.conversationPacer.markInitiatedSpeechSent();
     this.pushContext();
     const accepted = this.gpt?.requestReaction(text) !== false;
@@ -147,44 +160,34 @@ export class MatchSession {
   private recentUserText = '';
   private conversationLanguage: ConversationLanguage = 'ja';
   private conversationLanguageSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
-  private readonly languageSettledActions: Array<{ turn: number; generation: number; action: () => void; cancel: () => void }> = [];
   /** Holds the just-finished user turn open long enough for its final transcript delta before result voice replaces this bridge. */
   private resultTransition: { direction: LocalizedLine; deadline: number; turn: number; generation: number; acceptsTranscript: boolean } | null = null;
   private zeroBalanceChatConsidered = false;
   private extensionOfferConsidered = false;
-  private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
+  private extensionOffer: { id: string; speechId: string; audibleAt: number | null; finishedAt: number | null; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
   private loanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number; replyTurn: number | null; transcriptGraceExpiresAt: number | null } | null = null;
   private playerLoanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number; replyTurn: number | null; transcriptGraceExpiresAt: number | null } | null = null;
   private playerLoanOfferMadeForCurrentZero = false;
-  private playerLoanRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
-  private playerLoanIntentPending: { turn: number; generation: number; transcript: string } | null = null;
-  private readonly playerLoanDecisionTurns = new Set<number>();
-  private rivalLoanLanguagePending: { turn: number; generation: number } | null = null;
   private userSpeaking = false;
+  private micCandidateUntil = 0;
   private userSpeechTurn = 0;
   private assistantOutputUntil = 0;
   private transcriptSequence = 0;
   private transcriptHistory: Array<{ sequence: number; role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
-  private extensionDelegation: { id: string | null; generation: number; offsetMs: number } | null = null;
-  private readonly seenDelegations = new Set<string>();
   private readonly delegationSettles = new Set<NodeJS.Timeout>();
-  /** A completed delegated decision consumes the one extension opportunity. */
-  private extensionNegotiation = false;
-  private extensionDecisionPending = false;
-  private loanDecisionPending = false;
-  private loanDelegation: { id: string | null; generation: number; direction: LoanDirection } | null = null;
-  private directLoanRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
-  private readonly directLoanRequestTurns = new Set<number>();
-  private directLoanDecision: { turn: number; transcriptSequence: number } | null = null;
-  private directPlayerLoanOfferSettle: { turn: number; generation: number; userTranscriptSequence: number; timer: NodeJS.Timeout } | null = null;
-  private readonly directPlayerLoanOfferTurns = new Set<number>();
-  private directPlayerLoanOfferDecision: { turn: number; userTranscriptSequence: number } | null = null;
-  private loanOfferReplySettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
-  private directExtensionRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
-  private readonly directExtensionRequestTurns = new Set<number>();
-  private directExtensionDecision: { turn: number; transcriptSequence: number } | null = null;
-  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: LocalizedLine; timer: NodeJS.Timeout; fenceSent: boolean; directDecision: { turn: number; transcriptSequence: number } | null; playerRequested: boolean } | null = null;
+  private readonly agreements = new ConversationAgreementCoordinator();
+  private readonly agreementTurns = new Map<number, SettlementTurn>();
+  private readonly finishedAgreementTurns = new Map<number, SettlementTurn>();
+  private readonly speechCauses = new Map<string, { cause: SettlementTurn | null; conversation: string }>();
+  private readonly forwardedSpeeches = new Map<string, ForwardedSpeech>();
+  private readonly verifiedConversation = new Map<string, string>();
+  private lastForwardedSpeech: ForwardedSpeech | null = null;
+  private settlementDrainDeadline: number | null = null;
+  private readonly settlements = new SpeechSettlementQueue(
+    stage => this.reportSettlementFailure(stage),
+    () => this.tick(),
+  );
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -228,7 +231,7 @@ export class MatchSession {
         if (this.closed) return;
         this.media = new MediaServerLeg(this.avatar.mediaWsUrl, () => { void this.switchAvatarToAudio('avatar_connection_lost'); }, speechId => {
           if (this.activeOutputSpeechId === speechId) this.activeOutputSpeechId = null;
-          if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
+          this.finishExtensionOfferSpeech(speechId);
           this.finishLoanOfferSpeech(speechId);
           this.finishPlayerLoanOfferSpeech(speechId);
           this.gpt?.noteSpeechPlaybackDone(speechId);
@@ -282,7 +285,7 @@ export class MatchSession {
         const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
         const durationMs = Buffer.byteLength(audio, 'base64') / 48;
         this.voiceDiagnostic.receivedMs += durationMs;
-        if (!outputAllowed() || this.resultTransition || ((this.extensionDecisionPending || this.loanDecisionPending || this.playerLoanIntentPending || this.awaitingExtensionTranscript()) && (kind === 'normal' || !speechId))) {
+        if (!outputAllowed() || this.resultTransition) {
           this.voiceDiagnostic.droppedMs += durationMs;
           this.scheduleVoiceDiagnostics();
           if (kind === 'normal' && speechId && !forwardedSpeechIds.has(speechId) && !discardedNormalSpeechIds.has(speechId)) {
@@ -304,11 +307,9 @@ export class MatchSession {
         }
         if (speechId && this.discardedSpeechIds.has(speechId)) { this.voiceDiagnostic.droppedMs += durationMs; return; }
         if (speechId && audible) {
-          // Once the player can hear the authoritative acceptance, the clock
-          // must already reflect it. A new microphone turn (for example,
-          // "thanks" or ambient noise) may otherwise cancel the pending direct
-          // decision before the playback-complete ACK arrives.
-          if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
+          if (this.extensionOffer?.speechId === speechId && this.extensionOffer.audibleAt === null) {
+            this.extensionOffer.audibleAt = Date.now();
+          }
           this.markLoanOfferAudible(speechId);
           this.markPlayerLoanOfferAudible(speechId);
         }
@@ -316,6 +317,7 @@ export class MatchSession {
           this.assistantOutputUntil = Date.now() + 750;
           this.conversationPacer.noteAssistantSpeech();
         }
+        if (kind === 'normal' && speechId && (this.outputRoute === 'audio' || this.outputRoute === 'avatar')) this.collectForwardedSpeech(generation, speechId, audio);
         if (this.outputRoute === 'avatar') {
           if (speechId) this.media?.speak(audio, speechId);
           else this.media?.speak(audio);
@@ -323,6 +325,7 @@ export class MatchSession {
         else if (this.outputRoute === 'audio') this.emit({ type: 'voice_audio', audio, ...(speechId ? { speechId } : {}) });
       },
       onSpeechAudioEnded: speechId => {
+        this.finishForwardedSpeech(generation, speechId);
         if (!current() || this.resultTransition) return;
         if (!forwardedSpeechIds.delete(speechId)) {
           // Confirmed lines may legitimately contain no PCM in a mocked or
@@ -335,9 +338,15 @@ export class MatchSession {
           this.routeTransition.queued.push({ type: 'speech_end', speechId });
           return;
         }
-        if (this.extensionSpeech?.id === speechId) this.extensionSpeech.fenceSent = true;
         if (this.outputRoute === 'audio') this.emit({ type: 'voice_speech_end', speechId });
         else this.media?.completeSpeechInput(speechId);
+      },
+      onNormalSpeechStarted: speechId => {
+        this.speechCauses.set(`${generation}:${speechId}`, {
+          cause: this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn) ?? null,
+          conversation: this.settlementConversation(),
+        });
+        while (this.speechCauses.size > 32) this.speechCauses.delete(this.speechCauses.keys().next().value!);
       },
       onTranscript: (role, delta, timing) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
@@ -346,70 +355,70 @@ export class MatchSession {
         // the old bridge cannot otherwise survive the result bridge handoff.
         if (this.resultTransition) {
           if (role !== 'user' || !this.resultTransition.acceptsTranscript || this.userSpeaking || this.resultTransition.turn !== this.userSpeechTurn || this.resultTransition.generation !== generation) return;
-          this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: this.userSpeechTurn });
+          const turn = this.attributeUserTranscript(timing);
+          this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: turn });
           if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
+          if (turn === this.userSpeechTurn) this.queueConversationLanguageSettle(generation);
           return;
         }
-        this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: role === 'user' ? this.userSpeechTurn : null });
+        const attributedTurn = role === 'user' ? this.attributeUserTranscript(timing) : null;
+        this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: attributedTurn });
         if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
         if (role === 'user') {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
           this.conversationPacer.noteUserTranscript(delta);
           this.reactions.conversationActivity();
-          if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
-          if (this.extensionOffer && rejectsTimeExtensionOffer(this.currentUserTurnTranscript())) {
-            this.extensionOffer = null;
-            this.pushContext();
-          }
+
         } else {
           this.assistantOutputUntil = Date.now() + 750;
         }
-        // While the authoritative decision is pending, do not display an untrusted
-        // normal reply that could grant time before the match actually does.
-        if (role === 'assistant' && (this.extensionDecisionPending || this.loanDecisionPending || this.playerLoanIntentPending || this.awaitingExtensionTranscript())) return;
         this.emit({ type: 'transcript', role, delta });
         if (role === 'user') {
-          this.refreshPlayerLoanIntentDecision(generation);
-          this.refreshDirectLoanDecision(generation);
-          this.refreshDirectPlayerLoanOffer(generation);
-          this.refreshDirectTimeExtensionDecision(generation);
-          if (!offersLoanToRival(this.currentUserTurnTranscript())) {
-            this.acceptRivalLoanFromCurrentTurn();
-            this.queueSettledRivalLoanReply(generation);
+          // Agreement interpretation is centralized after speech end. Do not
+          // route partial deltas through the historical regex paths.
+          if (attributedTurn !== null) {
+            const pending = this.agreementTurns.get(attributedTurn) ?? this.finishedAgreementTurns.get(attributedTurn);
+            if (pending) { pending.version += 1; pending.transcript += delta; }
+            if (pending?.endedAt !== null) this.queueConversationAgreement(attributedTurn, generation);
+            if (attributedTurn === this.userSpeechTurn && !this.userSpeaking) this.queueConversationLanguageSettle(generation);
           }
-          this.queueSettledPlayerLoanReply(generation);
-          this.queueDirectTimeExtensionRequest(generation);
-          this.queueDirectLoanRequest(generation);
-          this.queueDirectPlayerLoanOffer(generation);
-          if (!this.userSpeaking) this.queueConversationLanguageSettle(generation);
         }
       },
-      onUserSpeech: () => {
-        if (!current() || resultOnly) return;
-        for (const pending of this.languageSettledActions) pending.cancel();
-        this.languageSettledActions.length = 0;
+      onUserSpeech: (input?: { startMs: number | null; endMs: number | null }) => {
+        if (!current() || resultOnly || this.settlementDrainDeadline !== null) return;
         // This is a new, post-result turn. It must not be folded into the
         // final pre-result turn while waiting for its transcript grace.
         if (this.resultTransition) {
           this.resultTransition.acceptsTranscript = false;
           return;
         }
-        this.cancelPendingDirectDecisions();
-        this.cancelPendingPlayerLoanIntent();
+        // A later VAD turn cannot revoke an accepted/pending agreement. Only
+        // its own still-settling transcript can withdraw that candidate.
         this.userSpeechTurn += 1;
-        this.gpt?.beginUserSpeech();
+        this.micCandidateUntil = 0;
+        const now = Date.now();
         this.markLoanOfferReplyStarted();
         this.markPlayerLoanOfferReplyStarted();
+        this.agreementTurns.set(this.userSpeechTurn, this.createAgreementTurn(generation, now, input?.startMs ?? null));
+        const bridge = this.gpt;
+        const interrupt = bridge?.beginUserSpeech();
+        if (bridge && interrupt !== null && interrupt !== undefined) void this.interruptUserPlayback(bridge, interrupt, generation);
         this.userSpeaking = true;
         this.conversationPacer.noteUserSpeech();
         this.reactions.conversationActivity();
-        if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
-        else if (this.isPlayerLoanOfferActive(Date.now())) this.gpt?.suppressOutputAfterTaggedSpeech();
+
       },
-      onUserSpeechEnd: () => {
+      onUserSpeechEnd: (input?: { startMs: number | null; endMs: number | null }) => {
         if (!current() || resultOnly || this.resultTransition) return;
         this.userSpeaking = false;
+        const pending = this.agreementTurns.get(this.userSpeechTurn);
+        if (pending) {
+          pending.endedAt = Date.now();
+          pending.replyUntil = Date.now() + 6_000;
+          pending.providerEndMs = input?.endMs ?? input?.startMs ?? pending.providerEndMs;
+        }
+        (this.gpt as unknown as { endUserSpeech?: () => void } | null)?.endUserSpeech?.();
         this.conversationPacer.noteUserSpeechEnd();
         // Queue before tick: tick can synchronously produce match_end at this
         // exact boundary, which must retain this turn for delayed deltas.
@@ -419,33 +428,29 @@ export class MatchSession {
         // latest microphone chunk. Mirror that guard before releasing an
         // essential queued reaction, so it is not discarded by the bridge.
         this.reactions.conversationActivity();
-        if (!offersLoanToRival(this.currentUserTurnTranscript())) this.queueSettledRivalLoanReply(generation);
-        this.queueSettledPlayerLoanReply(generation);
-        this.queueDirectTimeExtensionRequest(generation);
-        this.queueDirectLoanRequest(generation);
-        this.queueDirectPlayerLoanOffer(generation);
+        this.queueConversationAgreement(this.userSpeechTurn, generation);
       },
       onDelegation: delegation => {
         if (!current() || resultOnly || this.resultTransition) return;
-        if (this.directExtensionRequestSettle?.turn === this.userSpeechTurn) {
-          clearTimeout(this.directExtensionRequestSettle.timer);
-          this.delegationSettles.delete(this.directExtensionRequestSettle.timer);
-          this.directExtensionRequestSettle = null;
-        }
-        this.queueDelegationRoute(delegation.id, delegation.offsetMs, generation);
+        // Delegation is optional Live metadata. Conversation agreements are
+        // already evaluated once from the completed transcript above.
+        this.gpt?.requestDelegationThinking(delegation.id, 'Continue the conversation naturally. Agreed transfers are $5; agreed extensions are 10 seconds.');
       },
       onCommandRejected: rejection => {
         if (!current()) return;
         this.recordVoiceDiagnostic('command_rejected', { kind: rejection.kind, tagged: Boolean(rejection.speechId) });
-        // Only the rejected tagged line may release its own rule wait. An
-        // unrelated thinking rejection cannot weaken a live negotiation.
+        // A rejected offer never becomes eligible; completed agreements were
+        // already committed before their tagged acknowledgement was queued.
         if (!rejection.speechId) return;
-        if (this.extensionSpeech?.id === rejection.speechId) this.commitExtensionSpeech(true);
         if (this.loanOffer?.speechId === rejection.speechId) {
           this.loanOffer = null;
-          this.loanDecisionPending = false;
           this.pushContext();
         }
+        if (this.playerLoanOffer?.speechId === rejection.speechId) {
+          this.playerLoanOffer = null;
+          this.pushContext();
+        }
+        if (this.extensionOffer?.speechId === rejection.speechId) { this.extensionOffer = null; this.pushContext(); }
       },
       onError: code => { if (current()) this.handleGptError(code); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -499,8 +504,6 @@ export class MatchSession {
       this.delegationSettles.delete(this.conversationLanguageSettle.timer);
     }
     this.conversationLanguageSettle = null;
-    this.languageSettledActions.length = 0;
-    this.rivalLoanLanguagePending = null;
     this.resultTransition = null;
     if (this.state.status !== 'result') abortMatch(this.state);
     const closeVoice = this.stopVoice();
@@ -509,19 +512,10 @@ export class MatchSession {
       if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
       this.releaseQuota = null;
       this.recentUserText = '';
-      this.extensionDelegation = null;
-      this.loanDelegation = null;
-      this.directLoanDecision = null;
-      this.directLoanRequestSettle = null;
-      this.loanOfferReplySettle = null;
-      this.directExtensionRequestSettle = null;
-      this.directExtensionDecision = null;
       this.loanOffer = null;
       this.playerLoanOffer = null;
-      this.playerLoanRequestSettle = null;
-      this.playerLoanIntentPending = null;
-      this.loanDecisionPending = false;
-      this.extensionDecisionPending = false;
+      this.extensionOffer = null;
+      this.clearAgreementWork();
       for (const timer of this.delegationSettles) clearTimeout(timer);
       this.delegationSettles.clear();
       this.emit({ type: 'voice_status', status: 'closed', message: reason });
@@ -555,7 +549,6 @@ export class MatchSession {
 
   private failVoice(provider: AiProvider, message?: string): void {
     if (this.closed || this.voiceDisabled) return;
-    this.commitExtensionSpeech(true);
     this.setProviderStatus(provider, 'failed');
     if (!this.gameReady && this.state.status !== 'playing') {
       this.emitSafeError('voice_error', '音声・映像へ接続できません。CPU対戦を開始できます。', false);
@@ -568,13 +561,13 @@ export class MatchSession {
 
   private endVoice(message?: string): void {
     if (this.closed || this.voiceDisabled) return;
-    this.commitExtensionSpeech(true);
     this.emit({ type: 'voice_status', status: 'closed', message });
     void this.stopVoice();
   }
 
   private stopVoice(): Promise<void> {
     if (this.voiceStopping) return this.voiceStopping;
+    if (!this.closed && this.settlements.pending) this.reportSettlementFailure('voice_closed');
     this.voiceDisabled = true;
     if (this.routeTransition) {
       clearTimeout(this.routeTransition.timer);
@@ -585,10 +578,9 @@ export class MatchSession {
     this.voiceReady = false;
     this.voiceConnected = false;
     this.voiceGeneration += 1;
+    this.userSpeaking = false;
     this.resultTransition = null;
     this.conversationLanguageSettle = null;
-    this.languageSettledActions.length = 0;
-    this.rivalLoanLanguagePending = null;
     this.resultSpeechStarted = false;
     if (this.resultSilence) clearInterval(this.resultSilence);
     this.resultSilence = null;
@@ -600,19 +592,10 @@ export class MatchSession {
     void this.closeBridge(this.gpt);
     this.gpt = null;
     this.recentUserText = '';
-    this.extensionDelegation = null;
-    this.loanDelegation = null;
-    this.directLoanDecision = null;
-    this.directLoanRequestSettle = null;
-    this.loanOfferReplySettle = null;
-    this.directExtensionRequestSettle = null;
-    this.directExtensionDecision = null;
     this.loanOffer = null;
     this.playerLoanOffer = null;
-    this.playerLoanRequestSettle = null;
-    this.playerLoanIntentPending = null;
-    this.loanDecisionPending = false;
-    this.extensionDecisionPending = false;
+    this.extensionOffer = null;
+    this.clearAgreementWork();
     for (const timer of this.delegationSettles) clearTimeout(timer);
     this.delegationSettles.clear();
     this.voiceStopping = (async () => {
@@ -650,11 +633,15 @@ export class MatchSession {
       this.audioInWindow += message.audio.length;
       if (this.audioInWindow > 192_000) { void this.shutdown('audio_rate_exceeded'); return; }
       if (this.voiceReady && this.voiceConnected) {
+        // Reserve only the pre-deadline VAD detection window, then publish
+        // current game context before sending input to the voice provider.
+        if (!this.userSpeaking && (Date.now() - this.startedAt) / 1000 < this.state.duration
+          && pcmRms(Buffer.from(message.audio, 'base64')) > 160) this.micCandidateUntil = Date.now() + 700;
         // Catch up a delayed timer before the model can answer this audio.
         this.tick();
         if (!this.voiceReady || this.state.status === 'result') return;
         this.pushContext();
-        this.gpt?.sendMic(message.audio);
+        if (this.settlementDrainDeadline === null || this.userSpeaking) this.gpt?.sendMic(message.audio);
       }
       return;
     }
@@ -674,12 +661,11 @@ export class MatchSession {
       // Advance with the same clock sample as the spin. A reserved extension
       // holds exactly at zero, but play stays normal until that boundary.
       this.tick();
-      if (this.extensionSpeech && this.state.remaining <= 0) { this.emitSpinStatus(message.commandId, false, 0); return; }
       const round = this.state.round;
       let accepted = false;
       if (!this.commands.has(message.commandId)) {
         this.commands.add(message.commandId);
-        this.publishEvents(requestManualSpin(this.state, this.state.elapsed, Boolean(this.extensionSpeech)));
+        this.publishEvents(requestManualSpin(this.state, this.state.elapsed, this.hasPendingAgreementGate()));
         accepted = this.state.round > round;
       }
       const retryAfterMs = this.state.status === 'playing' && this.state.lastManualSpinAt !== null
@@ -690,7 +676,7 @@ export class MatchSession {
     }
     if (message.type === 'voice_speech_done') {
       if (this.activeOutputSpeechId === message.speechId) this.activeOutputSpeechId = null;
-      if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
+      this.finishExtensionOfferSpeech(message.speechId);
       this.finishLoanOfferSpeech(message.speechId);
       this.finishPlayerLoanOfferSpeech(message.speechId);
       this.gpt?.noteSpeechPlaybackDone(message.speechId);
@@ -712,15 +698,13 @@ export class MatchSession {
       const releasedTaggedSpeech = new Set<string>();
       if (mayRelease) for (const entry of transition.queued) {
         if (entry.type === 'audio') {
-          if ((this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript()) && !entry.speechId) {
-            this.voiceDiagnostic.droppedMs += Buffer.byteLength(entry.audio, 'base64') / 48;
-            continue;
-          }
           if (entry.speechId && this.discardedSpeechIds.has(entry.speechId)) continue;
           this.emit({ type: 'voice_audio', audio: entry.audio, ...(entry.speechId ? { speechId: entry.speechId } : {}) });
+          if (entry.speechId && this.speechCauses.has(`${transition.generation}:${entry.speechId}`)) this.collectForwardedSpeech(transition.generation, entry.speechId, entry.audio);
           if (entry.speechId) releasedTaggedSpeech.add(entry.speechId);
         } else if (releasedTaggedSpeech.has(entry.speechId) && !this.discardedSpeechIds.has(entry.speechId)) {
           this.emit({ type: 'voice_speech_end', speechId: entry.speechId });
+          this.finishForwardedSpeech(transition.generation, entry.speechId);
         }
       }
       transition.resolve(true);
@@ -794,7 +778,11 @@ export class MatchSession {
   private tick(): void {
     if (this.state.status !== 'playing') return;
     const elapsed = (Date.now() - this.startedAt) / 1000;
-    this.publishEvents(advanceMatch(this.state, elapsed, Boolean(this.extensionSpeech)));
+    if (elapsed >= this.state.duration && this.settlementDrainDeadline === null) this.settlementDrainDeadline = Date.now() + 35_000;
+    if (elapsed < this.state.duration) this.settlementDrainDeadline = null;
+    // A turn that began at the deadline gets one bounded agreement decision;
+    // do not end then resurrect a completed match while it is in flight.
+    this.publishEvents(advanceMatch(this.state, elapsed, this.hasPendingAgreementGate()));
     this.maybeOfferTimeExtension();
     this.maybeOfferLoan();
     this.maybeOfferPlayerLoan();
@@ -889,6 +877,8 @@ export class MatchSession {
     this.voiceReady = false;
     this.resultSpeechStarted = false;
     const generation = ++this.voiceGeneration;
+    // Numerical settlement has drained before the immutable result handoff.
+
     const current = () => !this.closed && !this.voiceDisabled && generation === this.voiceGeneration && Date.now() < deadline;
     try {
       // Do not overlap GPT sessions or replay old output after the avatar buffer was cleared.
@@ -928,6 +918,31 @@ export class MatchSession {
   private clearBrowserAudio(): Promise<boolean> {
     this.emit({ type: 'voice_interrupt' });
     return Promise.resolve(true);
+  }
+
+  private async interruptUserPlayback(bridge: GptLiveBridge, interrupt: number, generation: number): Promise<void> {
+    const current = () => !this.closed && !this.voiceDisabled && this.gpt === bridge && this.voiceGeneration === generation;
+    const speechId = this.activeOutputSpeechId;
+    // A fallback may already own unplayed PCM. It belongs to the interrupted
+    // response too; a later route ACK must not resurrect that queue.
+    if (this.routeTransition) {
+      this.routeTransition.queued.length = 0;
+      this.routeTransition.queuedBytes = 0;
+    }
+    try {
+      // Browser WebSocket messages are ordered: stop queued sources before any
+      // replacement PCM. Avatar instead needs its matching buffer-cleared ACK;
+      // speak() drops bytes during that wait, so the bridge retains them.
+      const cleared = this.media ? await this.media.interruptAndWait(2000) : await this.clearBrowserAudio();
+      if (!current()) return;
+      if ((!cleared || this.routeTransition) && !(await this.switchAvatarToAudio('avatar_interrupt_timeout'))) return;
+      if (!current()) return;
+      if (this.activeOutputSpeechId === speechId) this.activeOutputSpeechId = null;
+      bridge.finishPlaybackInterrupt(interrupt);
+    } catch {
+      // A failed interrupt must never strand a playback fence indefinitely.
+      if (current()) this.failVoice('liveAvatar', 'Voice playback could not be interrupted · Your duel continues.');
+    }
   }
 
   /** The browser ACK is a barrier: no PCM is sent before LiveKit audio is muted and PCM is ready. */
@@ -1042,12 +1057,9 @@ export class MatchSession {
       || !this.voiceReady
       || this.voiceDisabled
       || this.state.status !== 'playing'
-      || this.state.loanUsed.player_to_rival
       || this.state.scores.rival >= 1
-      || this.state.scores.player < LOAN_AMOUNT
       || this.extensionOffer
-      || this.extensionDecisionPending
-      || this.extensionSpeech
+      || this.hasPendingAgreementGate()
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
       || now < this.assistantOutputUntil
@@ -1096,13 +1108,7 @@ export class MatchSession {
       || this.loanOffer
       || this.playerLoanOffer
       || this.extensionOffer
-      || this.extensionSpeech
-      || this.extensionDecisionPending
-      || this.loanDecisionPending
-      || this.playerLoanIntentPending
-      || this.playerLoanRequestSettle
-      || this.loanDelegation
-      || this.extensionDelegation
+      || this.hasPendingAgreementGate()
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
       || now < this.assistantOutputUntil
@@ -1138,9 +1144,7 @@ export class MatchSession {
       || this.voiceDisabled
       || this.state.status !== 'playing'
       || this.isBothBalancesExhausted()
-      || this.state.extensionUsed
-      || this.extensionNegotiation
-      || this.loanDecisionPending
+      || this.hasPendingAgreementGate()
       || this.state.remaining > 15
       || this.userSpeaking
       || Date.now() < this.assistantOutputUntil
@@ -1148,14 +1152,12 @@ export class MatchSession {
     this.extensionOfferConsidered = true;
     if (this.random() >= EXTENSION_OFFER_CHANCE) return;
     const now = Date.now();
-    this.extensionOffer = {
-      acceptAfter: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS,
-      expiresAt: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS + EXTENSION_OFFER_REPLY_MS,
-    };
+    const speechId = randomUUID();
+    this.extensionOffer = { id: speechId, speechId, audibleAt: null, finishedAt: null, expiresAt: now + LOAN_OFFER_SPEECH_TIMEOUT_MS };
     this.pushContext();
     // Existing commentary is the supported Live speech mechanism. This is an
     // invitation only; the domain clock changes after a later explicit reply.
-    this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE);
+    this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE, speechId);
   }
 
   private maybeInviteConversation(): void {
@@ -1164,17 +1166,7 @@ export class MatchSession {
       this.extensionOffer
       || this.loanOffer
       || this.playerLoanOffer
-      || this.extensionSpeech
-      || this.extensionDelegation
-      || this.loanDelegation
-      || this.extensionDecisionPending
-      || this.loanDecisionPending
-      || this.playerLoanIntentPending
-      || this.directLoanRequestSettle
-      || this.loanOfferReplySettle
-      || this.directExtensionRequestSettle
-      || this.directLoanDecision
-      || this.directExtensionDecision
+      || this.hasPendingAgreementGate()
       || this.delegationSettles.size
     );
     if (!this.conversationPacer.due(now, {
@@ -1202,7 +1194,6 @@ export class MatchSession {
       || this.voiceDisabled
       || this.userSpeaking
       || this.playerLoanOffer
-      || this.playerLoanIntentPending
       || this.conversationPacer.hasPendingReply()
       || !this.conversationPacer.canInitiate()
     ) return;
@@ -1218,47 +1209,8 @@ export class MatchSession {
     );
   }
 
-  /** Route only after transcript deltas following the delegation have settled. */
-  private queueDelegationRoute(id: string, offsetMs: number, generation: number): void {
-    if (this.seenDelegations.has(id)) return;
-    this.seenDelegations.add(id);
-    if (this.seenDelegations.size > 16) this.seenDelegations.delete(this.seenDelegations.values().next().value!);
-    // An offer's arrival-time window is authoritative. A later transcript may
-    // belong to this turn, but a reply cannot activate an offer retroactively.
-    const extensionOfferActive = this.isExtensionOfferActive(Date.now());
-    const loanOfferActive = this.isLoanOfferReplyEligibleForCurrentTurn(Date.now());
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration) return;
-      if (this.loanDecisionPending || this.extensionDecisionPending || this.rivalLoanLanguagePending?.turn === this.userSpeechTurn || this.directLoanRequestTurns.has(this.userSpeechTurn) || this.directExtensionRequestTurns.has(this.userSpeechTurn)) {
-        this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
-        return;
-      }
-      this.queueSettledPlayerLoanReply(generation);
-      if (this.playerLoanDecisionTurns.has(this.userSpeechTurn) || this.playerLoanRequestSettle) {
-        this.gpt?.requestDelegationThinking(id, 'Wait for the server loan result for this turn. Do not promise money, invent a transfer, or start a separate topic.');
-        return;
-      }
-      // An explicit late extension request remains an extension request even
-      // if a bankroll happens to be empty. It cancels an unanswered loan
-      // invitation so the two conversational decisions cannot overlap.
-      const { transcript } = this.selectedDelegationTranscript(offsetMs);
-      if (requestsTimeExtension(transcript)) {
-        this.loanOffer = null;
-        this.handleExtensionDelegation(id, offsetMs, generation, extensionOfferActive);
-      } else if (offersLoanToRival(transcript)) {
-        // Direct voluntary loans settle from the complete user turn, never from
-        // a delegated model decision that might arrive before its final delta.
-        this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
-      } else if (this.isLoanDelegationEligible(loanOfferActive)) {
-        this.handleLoanDelegation(id, offsetMs, generation, loanOfferActive);
-      } else this.handleExtensionDelegation(id, offsetMs, generation, extensionOfferActive);
-    }, 150);
-    this.delegationSettles.add(timer);
-  }
-
   private isExtensionOfferActive(now: number): boolean {
-    return Boolean(this.extensionOffer && now >= this.extensionOffer.acceptAfter && now < this.extensionOffer.expiresAt);
+    return Boolean(this.extensionOffer && this.extensionOffer.finishedAt !== null && now < this.extensionOffer.expiresAt);
   }
 
   private isLoanOfferActive(now: number): boolean {
@@ -1310,10 +1262,6 @@ export class MatchSession {
     return Boolean(offer && offer.replyTurn === this.userSpeechTurn && this.isPlayerLoanOfferTranscriptGraceActive(now));
   }
 
-  private isPlayerLoanShortReplyEligible(now: number): boolean {
-    return Boolean(this.playerLoanOffer?.replyTurn === this.userSpeechTurn && this.isPlayerLoanOfferReplyEligibleForCurrentTurn(now));
-  }
-
   /** The first PCM for the exact offer speech ID makes a reply eligible. */
   private markLoanOfferAudible(speechId: string): void {
     const offer = this.loanOffer;
@@ -1352,10 +1300,13 @@ export class MatchSession {
     this.pushContext();
   }
 
-  /** Normal speech must not race an active response to the rival's own offer. */
-  private suppressLoanOfferReply(): void {
-    if (!this.isLoanOfferReplyEligibleForCurrentTurn(Date.now())) return;
-    this.gpt?.suppressOutputAfterTaggedSpeech();
+  /** An extension cannot be accepted until the exact proposal has finished. */
+  private finishExtensionOfferSpeech(speechId: string): void {
+    const offer = this.extensionOffer;
+    if (!offer || offer.speechId !== speechId || offer.audibleAt === null || offer.finishedAt !== null) return;
+    offer.finishedAt = Date.now();
+    offer.expiresAt = offer.finishedAt + EXTENSION_OFFER_REPLY_MS;
+    this.pushContext();
   }
 
   /** Return only the current spoken turn, never an older affirmative. */
@@ -1367,11 +1318,258 @@ export class MatchSession {
       .slice(-240);
   }
 
-  /** Assistant subtitles do not revise the player's still-settling spoken turn. */
-  private currentUserTurnTranscriptSequence(): number {
-    return this.transcriptHistory
-      .filter(item => item.role === 'user' && item.userTurn === this.userSpeechTurn)
-      .at(-1)?.sequence ?? 0;
+  private settlementConversation(): string {
+    return [...this.verifiedConversation.values()].slice(-20).join('\n').slice(-1600);
+  }
+
+  private captureAgreementOffers(): AgreementOffers {
+    const now = Date.now();
+    return {
+      rival_to_player: this.isPlayerLoanOfferReplyEligibleForCurrentTurn(now) ? this.playerLoanOffer!.speechId : null,
+      player_to_rival: this.isLoanOfferReplyEligibleForCurrentTurn(now) ? this.loanOffer!.speechId : null,
+      time_extension: this.isExtensionOfferActive(now) ? this.extensionOffer!.id : null,
+    };
+  }
+
+  private createAgreementTurn(generation: number, startedAt: number, providerStartMs: number | null): SettlementTurn {
+    const turn = this.userSpeechTurn;
+    const pending: SettlementTurn = {
+      id: `${this.sessionId}:turn:${turn}`, generation, startedAt, endedAt: null,
+      providerStartMs, providerEndMs: null, version: 0, timer: null, deadlineTimer: null,
+      activeOffers: this.captureAgreementOffers(), priorSpeech: this.lastForwardedSpeech,
+      transcript: '', conversation: this.settlementConversation(), release: () => undefined, released: false, settledVersion: -1, replyUntil: 0,
+    };
+    this.enqueueSettlementTurn(turn, pending);
+    // A missing VAD end cannot reserve the queue indefinitely.
+    pending.deadlineTimer = setTimeout(() => {
+      pending.endedAt ??= Date.now();
+      this.releaseSettlementTurn(pending);
+    }, 8_000);
+    return pending;
+  }
+
+  private enqueueSettlementTurn(turn: number, pending: SettlementTurn): void {
+    pending.released = false;
+    pending.release = this.settlements.reserve(signal => this.resolveConversationAgreement(pending, signal), () => {
+      if (pending.timer) clearTimeout(pending.timer);
+      if (pending.deadlineTimer) clearTimeout(pending.deadlineTimer);
+      this.agreementTurns.delete(turn);
+      if (!this.closed && !this.voiceAbort.signal.aborted) this.finishedAgreementTurns.set(turn, pending);
+      while (this.finishedAgreementTurns.size > 32) this.finishedAgreementTurns.delete(this.finishedAgreementTurns.keys().next().value!);
+    });
+  }
+
+  private releaseSettlementTurn(pending: SettlementTurn): void {
+    if (pending.released) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.timer = null;
+    pending.released = true;
+    pending.release();
+  }
+
+  private clearAgreementWork(): void {
+    this.settlements.close();
+    for (const pending of this.agreementTurns.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      if (pending.deadlineTimer) clearTimeout(pending.deadlineTimer);
+    }
+    for (const speech of this.forwardedSpeeches.values()) { clearTimeout(speech.timer); speech.chunks.length = 0; }
+    this.agreementTurns.clear();
+    this.finishedAgreementTurns.clear();
+    this.speechCauses.clear();
+    this.forwardedSpeeches.clear();
+    this.lastForwardedSpeech = null;
+    this.verifiedConversation.clear();
+  }
+
+  /** Only result settlement waits; this predicate never gates ordinary PCM. */
+  private hasPendingAgreementGate(): boolean {
+    if (this.settlementDrainDeadline !== null && Date.now() >= this.settlementDrainDeadline) {
+      if (this.settlements.pending) this.reportSettlementFailure('deadline');
+      this.clearAgreementWork();
+      this.userSpeaking = false;
+      return false;
+    }
+    return this.settlements.pending || Date.now() < this.micCandidateUntil
+      || [...this.agreementTurns.values(), ...this.finishedAgreementTurns.values()].some(turn => Date.now() < turn.replyUntil);
+  }
+
+  /** Provider input offsets are independent of output caption alignment. */
+  private attributeUserTranscript(timing?: { startMs: number | null; endMs: number | null }): number | null {
+    const start = timing?.startMs ?? timing?.endMs ?? null;
+    const end = timing?.endMs ?? timing?.startMs ?? null;
+    const candidates = [...this.finishedAgreementTurns.entries(), ...this.agreementTurns.entries()];
+    if (start !== null || end !== null) {
+      const matched = candidates.filter(([, pending]) => {
+        const lower = pending.providerStartMs;
+        return lower !== null && (end ?? start!) >= lower - 120
+          && (pending.providerEndMs === null || (start ?? end!) <= pending.providerEndMs + 750);
+      }).sort(([, left], [, right]) => (right.providerStartMs ?? -1) - (left.providerStartMs ?? -1));
+      if (matched[0]) return matched[0][0];
+    }
+    if (this.userSpeaking) return candidates.length === 1 ? candidates[0][0] : null;
+    const ended = candidates.filter(([, pending]) => pending.endedAt !== null);
+    return ended.length === 1 ? ended[0][0] : null;
+  }
+
+  private queueConversationAgreement(turn: number, generation: number): void {
+    const pending = this.agreementTurns.get(turn) ?? this.finishedAgreementTurns.get(turn);
+    if (!pending || pending.generation !== generation || pending.endedAt === null) return;
+    if (!this.agreementTurns.has(turn)) {
+      this.finishedAgreementTurns.delete(turn);
+      this.agreementTurns.set(turn, pending);
+      this.enqueueSettlementTurn(turn, pending);
+    }
+    if (pending.released) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    const wait = pending.transcript.trim() ? AGREEMENT_TRANSCRIPT_SETTLE_MS : AGREEMENT_TRANSCRIPT_GRACE_MS;
+    pending.timer = setTimeout(() => this.releaseSettlementTurn(pending), wait);
+  }
+
+  private async resolveConversationAgreement(pending: SettlementTurn, signal: AbortSignal): Promise<void> {
+    // The preceding heard proposal may have finished ASR after this user said yes.
+    const previous = pending.priorSpeech;
+    if (previous) {
+      for (const action of Object.keys(previous.offers) as AgreementAction[]) {
+        if (previous.offers[action]) pending.activeOffers[action] = previous.offers[action];
+      }
+    }
+    if (pending.settledVersion < 0) pending.conversation = this.settlementConversation();
+    if (!pending.transcript.trim()) throw new SettlementUnavailable('classification');
+    let version: number;
+    do {
+      version = pending.version;
+      const startedAt = Date.now();
+      const outcome = await retrySettlement(attemptSignal => this.agreements.resolve({
+        id: pending.id, snapshot: getSnapshot(this.state), transcript: pending.transcript,
+        conversation: `${pending.conversation}\n${previous?.conversation ?? ''}`,
+        activeOffers: pending.activeOffers,
+      }, attemptSignal), result => result.state === 'unavailable', signal, 'classification');
+      signal.throwIfAborted();
+      this.recordVoiceDiagnostic('agreement_resolve', { state: outcome.state, elapsedMs: Date.now() - startedAt, versionMatched: version === pending.version });
+      if (version !== pending.version) continue;
+      if (outcome.state === 'accepted') {
+        // A direct request still needs the AI's spoken acceptance. A player
+        // accepting an already heard offer completes the agreement immediately.
+        for (const item of outcome.agreements) if (item.offerId !== null) this.applyAgreement(pending.id, item);
+      }
+    } while (version !== pending.version);
+    pending.settledVersion = version;
+    this.verifiedConversation.set(pending.id, `P:${pending.transcript}`);
+    // A trailing input delta can complete the cause after the speech audit.
+    // Re-use the exact ASR text and immutable agreement key, never Live captions.
+    for (const speech of this.forwardedSpeeches.values()) {
+      if (speech.cause === pending && speech.transcript !== null) await this.reconcileForwardedSpeech(speech, signal);
+    }
+    this.recordVoiceDiagnostic('agreement_finish', { reason: 'settled', pendingCount: this.agreementTurns.size - 1 });
+  }
+
+  private collectForwardedSpeech(generation: number, speechId: string, audio: string): void {
+    if (this.state.status !== 'playing') return;
+    const key = `${generation}:${speechId}`;
+    let speech = this.forwardedSpeeches.get(key);
+    const previousSegment = speech?.ended ? speech : null;
+    if (previousSegment) {
+      // An interrupted/expired collection may still have a forwarded tail.
+      // Preserve it as a new job with the same cause and agreement aliases.
+      this.forwardedSpeeches.set(`${key}:part:${this.forwardedSpeeches.size}`, previousSegment);
+      this.forwardedSpeeches.delete(key);
+      speech = undefined;
+    }
+    if (!speech) {
+      const captured = this.speechCauses.get(key);
+      const cause = previousSegment ? previousSegment.cause : captured ? captured.cause : this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn) ?? null;
+      if (cause) cause.replyUntil = 0;
+      speech = {
+        id: `${this.sessionId}:speech:${key}`, cause,
+        previousSegment,
+        conversation: captured?.conversation ?? this.settlementConversation(), offers: emptyOffers(),
+        transcript: null, chunks: [], bytes: 0, release: () => undefined, timer: setTimeout(() => this.finishForwardedSpeech(generation, speechId), 1_100), ended: false,
+      };
+      const current = speech;
+      current.release = this.settlements.reserve(async signal => {
+        try {
+          current.transcript = await transcribeForwardedPcm(Buffer.concat(current.chunks), signal);
+          await this.reconcileForwardedSpeech(current, signal);
+        } finally {
+          current.chunks.length = 0;
+          clearTimeout(current.timer);
+        }
+      }, () => { current.ended = true; current.chunks.length = 0; clearTimeout(current.timer); });
+      this.forwardedSpeeches.set(key, current);
+      this.lastForwardedSpeech = current;
+    }
+    if (speech.ended) return;
+    const pcm = Buffer.from(audio, 'base64');
+    speech.chunks.push(pcm);
+    speech.bytes += pcm.length;
+    // This is only a missing completion fallback. Never cut an actively
+    // streaming utterance at an arbitrary duration and silently lose its tail.
+    clearTimeout(speech.timer);
+    speech.timer = setTimeout(() => this.finishForwardedSpeech(generation, speechId), 1_100);
+  }
+
+  private async reconcileForwardedSpeech(speech: ForwardedSpeech, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    let version: number;
+    do {
+      version = speech.cause?.version ?? 0;
+      const offers = { ...(speech.cause?.activeOffers ?? emptyOffers()) };
+      const conversation = `${speech.conversation}\n${speech.cause?.conversation ?? ''}\nP:${speech.cause?.transcript ?? ''}\nR(previous segment):${speech.previousSegment?.transcript ?? ''}`;
+      const audit = await retrySettlement(attemptSignal => this.agreements.auditAssistantSpeech(
+        getSnapshot(this.state), speech.transcript!, conversation, offers, attemptSignal,
+      ), result => result.state === 'unavailable', signal, 'classification');
+      signal.throwIfAborted();
+      if (version !== (speech.cause?.version ?? 0)) continue;
+      this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, phase: 'post_speech' });
+      if (this.closed || this.state.status !== 'playing') return;
+      if (audit.state === 'commit') {
+        if (!speech.cause) throw new SettlementUnavailable('classification');
+        for (const item of audit.agreements) this.applyAgreement(speech.cause.id, item);
+      } else if (audit.state === 'offer') {
+        for (const action of audit.actions) speech.offers[action] = `${speech.id}:offer:${action}`;
+      }
+      speech.conversation = `${conversation}\nR:${speech.transcript}`;
+      this.verifiedConversation.set(speech.id, `R:${speech.transcript}`);
+    } while (version !== (speech.cause?.version ?? 0));
+  }
+
+  private finishForwardedSpeech(generation: number, speechId: string): void {
+    const speech = this.forwardedSpeeches.get(`${generation}:${speechId}`);
+    if (!speech || speech.ended) return;
+    speech.ended = true;
+    clearTimeout(speech.timer);
+    speech.release();
+  }
+
+  private reportSettlementFailure(stage: string): void {
+    this.recordVoiceDiagnostic('settlement_exhausted', { stage });
+    if (!this.closed) this.emit({
+      type: 'error', code: 'settlement_unavailable', recoverable: true,
+      message: 'A spoken agreement could not be verified. Please repeat it.',
+    });
+  }
+
+  /** The spoken agreement is already audible; publish its numerical settlement once. */
+  private applyAgreement(id: string, agreement: { action: AgreementAction; offerId: string | null }): boolean {
+    if (this.state.status !== 'playing') return false;
+    return this.agreements.applyOnce(id, agreement, direction => {
+      if (agreement.action === 'time_extension') {
+        const extended = applyPlayerRequestedTimeExtension(this.state);
+        if (!extended) return false;
+        this.extensionOffer = null;
+        this.startedAt += Date.now() - (this.startedAt + this.state.elapsed * 1000);
+        this.pushContext();
+        this.emit({ type: 'time_extension', decision: 'accepted', before: extended.before, after: extended.after, line: localized(EXTENSION_ACCEPT_LINE, this.conversationLanguage) });
+        this.emitSnapshot();
+
+        return true;
+      }
+      const line = agreement.action === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE;
+      if (!this.completeLoanTransfer(direction!, line)) return false;
+
+      return true;
+    });
   }
 
   /** Settle a full spoken turn so a late delta cannot switch on an English fragment. */
@@ -1390,7 +1588,6 @@ export class MatchSession {
       if (this.conversationLanguageSettle?.timer !== timer) return;
       this.conversationLanguageSettle = null;
       this.settleConversationLanguage(turn, generation);
-      this.runLanguageSettledActions(turn, generation);
       this.finishResultTransition(turn, generation);
     }, USER_TRANSCRIPT_SETTLE_MS);
     this.conversationLanguageSettle = { turn, generation, timer };
@@ -1428,626 +1625,6 @@ export class MatchSession {
     this.pushContext();
   }
 
-  /** A first Japanese-language match cannot finalize a localized decision while its current user turn is incomplete. */
-  private afterCurrentTurnLanguageSettles(generation: number, action: () => void, cancel: () => void): void {
-    const pending = this.conversationLanguageSettle;
-    const turn = this.userSpeechTurn;
-    if (
-      turn === 0
-      || this.conversationLanguage !== 'ja'
-      || (!this.userSpeaking && (!pending || pending.turn !== turn || pending.generation !== generation))
-    ) {
-      action();
-      return;
-    }
-    this.languageSettledActions.push({ turn, generation, action, cancel });
-  }
-
-  private runLanguageSettledActions(turn: number, generation: number): void {
-    const actions = this.languageSettledActions.filter(item => item.turn === turn && item.generation === generation);
-    this.languageSettledActions.splice(0, this.languageSettledActions.length, ...this.languageSettledActions.filter(item => item.turn !== turn || item.generation !== generation));
-    if (this.closed || generation !== this.voiceGeneration || turn !== this.userSpeechTurn) {
-      for (const pending of actions) pending.cancel();
-      return;
-    }
-    for (const pending of actions) pending.action();
-  }
-
-
-  /** A live, clear reply to the rival's own offer transfers without AI delay. */
-  private acceptRivalLoanFromCurrentTurn(afterSpeech = false): void {
-    const pendingRivalLoan = this.loanDecisionPending && this.loanDelegation?.direction === 'player_to_rival';
-    if (
-      this.closed
-      || this.voiceDisabled
-      || !this.voiceReady
-      || this.state.status !== 'playing'
-      || (this.sessionDeadline > 0 && Date.now() >= this.sessionDeadline)
-      || !this.isLoanOfferReplyEligibleForCurrentTurn(Date.now())
-      || this.extensionOffer
-      || this.extensionDecisionPending
-      || this.extensionNegotiation
-      || this.extensionSpeech
-      || (this.loanDecisionPending && !pendingRivalLoan)
-      || offersLoanToRival(this.currentUserTurnTranscript())
-      || !acceptsImmediateLoanOffer(this.currentUserTurnTranscript(), afterSpeech)
-    ) return;
-    const pendingLanguage = this.conversationLanguageSettle;
-    const turn = this.userSpeechTurn;
-    const generation = this.voiceGeneration;
-    if (
-      this.conversationLanguage === 'ja'
-      && (this.userSpeaking || (pendingLanguage?.turn === turn && pendingLanguage.generation === generation))
-    ) {
-      if (this.rivalLoanLanguagePending?.turn === turn && this.rivalLoanLanguagePending.generation === generation) return;
-      this.rivalLoanLanguagePending = { turn, generation };
-      this.afterCurrentTurnLanguageSettles(generation, () => {
-        if (this.rivalLoanLanguagePending?.turn !== turn || this.rivalLoanLanguagePending.generation !== generation) return;
-        this.rivalLoanLanguagePending = null;
-        this.acceptRivalLoanFromCurrentTurn(true);
-      }, () => { this.rivalLoanLanguagePending = null; });
-      return;
-    }
-    this.tick();
-    if (this.state.status !== 'playing') return;
-    if (pendingRivalLoan) {
-      this.loanDecisionPending = false;
-      this.loanDelegation = null;
-    }
-    const line = LOAN_TO_RIVAL_LINE;
-    if (!this.completeLoanTransfer('player_to_rival', line)) return;
-    this.gpt?.requestConfirmedLine(line);
-  }
-
-  /** Wait briefly after speech end so a trailing comma cannot hide a refusal. */
-  private queueSettledRivalLoanReply(generation: number): void {
-    if (this.userSpeaking || !this.isLoanOfferReplyEligibleForCurrentTurn(Date.now())) return;
-    if (this.loanOfferReplySettle) {
-      clearTimeout(this.loanOfferReplySettle.timer);
-      this.delegationSettles.delete(this.loanOfferReplySettle.timer);
-    }
-    const turn = this.userSpeechTurn;
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (this.loanOfferReplySettle?.timer !== timer) return;
-      this.loanOfferReplySettle = null;
-      if (!this.userSpeaking && generation === this.voiceGeneration && turn === this.userSpeechTurn) this.acceptRivalLoanFromCurrentTurn(true);
-    }, 150);
-    this.loanOfferReplySettle = { turn, generation, timer };
-    this.delegationSettles.add(timer);
-  }
-
-  /** Settle one player borrower intent after trailing transcript deltas arrive. */
-  private queueSettledPlayerLoanReply(generation: number): void {
-    const now = Date.now();
-    const offer = this.playerLoanOffer;
-    const transcriptAfter = offer?.transcriptAfter ?? 0;
-    const offerActive = this.isPlayerLoanShortReplyEligible(now);
-    const transcript = this.currentUserTurnTranscript(transcriptAfter);
-    const canRequestAgain = this.state.status === 'playing';
-    const retryRequest = canRequestAgain && /^(?:もう一(?:回|度)(?:だけ)?(?:お願い|ちょうだい|ください)|one more(?:\s+please)?)$/i.test(transcript.normalize('NFKC').trim());
-    if (this.userSpeaking || this.playerLoanDecisionTurns.has(this.userSpeechTurn) || (classifyPlayerLoanIntent(transcript, offerActive) === 'no_request' && !requestsLoan(transcript) && !retryRequest) || (!offerActive && !canRequestAgain)) return;
-    if (this.playerLoanRequestSettle) {
-      clearTimeout(this.playerLoanRequestSettle.timer);
-      this.delegationSettles.delete(this.playerLoanRequestSettle.timer);
-    }
-    const turn = this.userSpeechTurn;
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (this.playerLoanRequestSettle?.timer !== timer) return;
-      this.playerLoanRequestSettle = null;
-      this.settlePlayerLoanRequest(turn, generation);
-    }, DIRECT_LOAN_TRANSCRIPT_SETTLE_MS);
-    this.playerLoanRequestSettle = { turn, generation, timer };
-    this.delegationSettles.add(timer);
-  }
-
-  private settlePlayerLoanRequest(turn: number, generation: number): void {
-    if (
-      this.closed
-      || this.voiceDisabled
-      || generation !== this.voiceGeneration
-      || turn !== this.userSpeechTurn
-      || this.userSpeaking
-      || this.playerLoanDecisionTurns.has(turn)
-      || this.playerLoanIntentPending
-      || this.state.status !== 'playing'
-      || this.loanDecisionPending
-      || this.extensionDecisionPending
-      || this.loanDelegation
-      || this.extensionDelegation
-    ) return;
-    const offerActive = this.isPlayerLoanShortReplyEligible(Date.now());
-    const transcript = this.currentUserTurnTranscript(this.playerLoanOffer?.transcriptAfter ?? 0);
-    const priorOfferContext = this.playerLoanOfferMadeForCurrentZero;
-    const retryRequest = priorOfferContext && /^(?:もう一(?:回|度)(?:だけ)?(?:お願い|ちょうだい|ください)|one more(?:\s+please)?)$/i.test(transcript.normalize('NFKC').trim());
-    if (classifyPlayerLoanIntent(transcript, offerActive) === 'no_request' && !requestsLoan(transcript) && !retryRequest) return;
-    this.playerLoanDecisionTurns.add(turn);
-    if (this.playerLoanDecisionTurns.size > 16) this.playerLoanDecisionTurns.delete(this.playerLoanDecisionTurns.values().next().value!);
-    // A direct request occupies this bankrupt episode too. Do not insert a
-    // second unsolicited offer while its classification or withdrawal grace runs.
-    this.playerLoanOfferMadeForCurrentZero = true;
-    const pending = { turn, generation, transcript };
-    this.playerLoanIntentPending = pending;
-    this.gpt?.suppressOutput();
-    this.media?.interrupt();
-    this.emit({ type: 'voice_interrupt' });
-    void this.decidePlayerLoanIntent(pending, transcript, offerActive, priorOfferContext);
-  }
-
-  private async decidePlayerLoanIntent(pending: { turn: number; generation: number; transcript: string }, transcript: string, offerActive: boolean, priorOfferContext: boolean): Promise<void> {
-    const intent = await choosePlayerLoanIntent(getSnapshot(this.state), transcript, this.selectedDelegationTranscript(Number.MAX_SAFE_INTEGER).conversation, offerActive, priorOfferContext, this.voiceAbort.signal);
-    if (
-      this.closed
-      || this.playerLoanIntentPending !== pending
-      || pending.generation !== this.voiceGeneration
-      || pending.turn !== this.userSpeechTurn
-      || pending.transcript !== this.currentUserTurnTranscript(this.playerLoanOffer?.transcriptAfter ?? 0)
-      || this.state.status !== 'playing'
-    ) {
-      if (this.playerLoanIntentPending === pending) {
-        this.playerLoanIntentPending = null;
-        this.playerLoanDecisionTurns.delete(pending.turn);
-      }
-      return;
-    }
-    if (intent !== 'loan_request') {
-      this.playerLoanIntentPending = null;
-      if (requestsLoan(transcript)) this.gpt?.requestConfirmedLine(LOAN_RETRY_LINE);
-      return;
-    }
-    this.playerLoanIntentPending = null;
-    this.playerLoanOffer = null;
-    // Once a bankrupt player has made a confirmed borrower request, the
-    // server—not a probability roll—authoritatively lends the fixed amount.
-    this.queueSettledPlayerLoanOutcome(pending, LOAN_TO_PLAYER_LINE, offerActive);
-  }
-
-  private queueSettledPlayerLoanOutcome(pending: { turn: number; generation: number; transcript: string }, line: LocalizedLine, offerActive: boolean): void {
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      const transcript = this.currentUserTurnTranscript(this.playerLoanOffer?.transcriptAfter ?? 0);
-      if (
-        this.closed
-        || pending.generation !== this.voiceGeneration
-        || pending.turn !== this.userSpeechTurn
-        || this.state.status !== 'playing'
-        || (classifyPlayerLoanIntent(transcript, offerActive) === 'no_request' && !requestsLoan(transcript))
-      ) return;
-      if (!this.completeLoanTransfer('rival_to_player', line)) {
-        this.gpt?.requestConfirmedLine(KEEP_PLAYING_LINE);
-        return;
-      }
-      this.gpt?.requestConfirmedLine(line);
-    }, DIRECT_LOAN_ACCEPTANCE_SETTLE_MS);
-    this.delegationSettles.add(timer);
-  }
-
-  private refreshPlayerLoanIntentDecision(generation: number): void {
-    const pending = this.playerLoanIntentPending;
-    if (!pending || pending.turn !== this.userSpeechTurn || pending.transcript === this.currentUserTurnTranscript(this.playerLoanOffer?.transcriptAfter ?? 0)) return;
-    this.playerLoanIntentPending = null;
-    this.playerLoanDecisionTurns.delete(pending.turn);
-    this.queueSettledPlayerLoanReply(generation);
-  }
-
-  private cancelPendingPlayerLoanIntent(): void {
-    if (this.playerLoanRequestSettle) {
-      clearTimeout(this.playerLoanRequestSettle.timer);
-      this.delegationSettles.delete(this.playerLoanRequestSettle.timer);
-      this.playerLoanRequestSettle = null;
-    }
-    const pending = this.playerLoanIntentPending;
-    this.playerLoanIntentPending = null;
-    if (pending) this.playerLoanDecisionTurns.delete(pending.turn);
-  }
-
-  /** A player can volunteer a fixed loan without waiting for the rival to ask. */
-  private queueDirectPlayerLoanOffer(generation: number): void {
-    const turn = this.userSpeechTurn;
-    if (this.userSpeaking || this.directPlayerLoanOfferTurns.has(turn) || !offersLoanToRival(this.currentUserTurnTranscript())) return;
-    if (this.directPlayerLoanOfferSettle) {
-      clearTimeout(this.directPlayerLoanOfferSettle.timer);
-      this.delegationSettles.delete(this.directPlayerLoanOfferSettle.timer);
-    }
-    const userTranscriptSequence = this.currentUserTurnTranscriptSequence();
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (this.directPlayerLoanOfferSettle?.timer !== timer) return;
-      this.directPlayerLoanOfferSettle = null;
-      this.settleDirectPlayerLoanOffer(turn, generation, userTranscriptSequence);
-    }, DIRECT_LOAN_TRANSCRIPT_SETTLE_MS);
-    this.directPlayerLoanOfferSettle = { turn, generation, userTranscriptSequence, timer };
-    this.delegationSettles.add(timer);
-  }
-
-  /** A later transcript delta may withdraw an otherwise complete voluntary offer. */
-  private refreshDirectPlayerLoanOffer(generation: number): void {
-    const pending = this.directPlayerLoanOfferSettle;
-    if (pending && pending.turn === this.userSpeechTurn && pending.userTranscriptSequence !== this.currentUserTurnTranscriptSequence()) {
-      clearTimeout(pending.timer);
-      this.delegationSettles.delete(pending.timer);
-      this.directPlayerLoanOfferSettle = null;
-      this.queueDirectPlayerLoanOffer(generation);
-      return;
-    }
-    const decision = this.directPlayerLoanOfferDecision;
-    if (!decision || decision.turn !== this.userSpeechTurn || decision.userTranscriptSequence === this.currentUserTurnTranscriptSequence()) return;
-    this.directPlayerLoanOfferDecision = null;
-    this.directPlayerLoanOfferTurns.delete(decision.turn);
-    this.queueDirectPlayerLoanOffer(generation);
-  }
-
-  private settleDirectPlayerLoanOffer(turn: number, generation: number, userTranscriptSequence: number): void {
-    if (
-      this.closed
-      || this.voiceDisabled
-      || generation !== this.voiceGeneration
-      || turn !== this.userSpeechTurn
-      || this.userSpeaking
-      || userTranscriptSequence !== this.currentUserTurnTranscriptSequence()
-      || this.directPlayerLoanOfferTurns.has(turn)
-      || !offersLoanToRival(this.currentUserTurnTranscript())
-    ) return;
-    this.directPlayerLoanOfferTurns.add(turn);
-    if (this.directPlayerLoanOfferTurns.size > 16) this.directPlayerLoanOfferTurns.delete(this.directPlayerLoanOfferTurns.values().next().value!);
-    const decision = { turn, userTranscriptSequence };
-    this.directPlayerLoanOfferDecision = decision;
-    this.afterCurrentTurnLanguageSettles(generation, () => {
-      if (
-        this.closed
-        || generation !== this.voiceGeneration
-        || this.directPlayerLoanOfferDecision !== decision
-        || decision.turn !== this.userSpeechTurn
-        || decision.userTranscriptSequence !== this.currentUserTurnTranscriptSequence()
-      ) return;
-      this.directPlayerLoanOfferDecision = null;
-      this.tick();
-      if (this.state.status !== 'playing') return;
-      if (this.state.scores.player < LOAN_AMOUNT) {
-        this.requestLoanDecisionLine(null, PLAYER_LOAN_UNAVAILABLE_LINE);
-        return;
-      }
-      if (!this.completeLoanTransfer('player_to_rival', LOAN_TO_RIVAL_LINE)) return;
-      this.requestLoanDecisionLine(null, LOAN_TO_RIVAL_LINE);
-    }, () => {
-      if (this.directPlayerLoanOfferDecision !== decision) return;
-      this.directPlayerLoanOfferDecision = null;
-      this.directPlayerLoanOfferTurns.delete(decision.turn);
-    });
-  }
-
-  /** A clear borrower request still reaches the existing AI decision without a Live delegation. */
-  private queueDirectLoanRequest(generation: number): void {
-    const turn = this.userSpeechTurn;
-    // Player borrowing is always classified and decided by the guaranteed borrower path above;
-    // it must not race the legacy rival-to-player decision route.
-    if (this.state.scores.player < 1 && this.state.scores.rival >= LOAN_AMOUNT) return;
-    if (this.playerLoanOffer || (this.state.scores.player < 1 && this.state.scores.rival >= LOAN_AMOUNT)) return;
-    const transcript = this.currentUserTurnTranscript();
-    if (!requestsLoan(transcript) || offersLoanToRival(transcript) || this.loanDecisionPending || this.directLoanRequestTurns.has(turn)) return;
-    if (this.userSpeaking) return;
-    if (this.directLoanRequestSettle) {
-      clearTimeout(this.directLoanRequestSettle.timer);
-      this.delegationSettles.delete(this.directLoanRequestSettle.timer);
-    }
-    this.scheduleDirectLoanRequest(turn, generation);
-  }
-
-  private scheduleDirectLoanRequest(turn: number, generation: number): void {
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (this.directLoanRequestSettle?.timer !== timer) return;
-      this.directLoanRequestSettle = null;
-      this.settleDirectLoanRequest(turn, generation);
-    }, DIRECT_LOAN_TRANSCRIPT_SETTLE_MS);
-    this.directLoanRequestSettle = { turn, generation, timer };
-    this.delegationSettles.add(timer);
-  }
-
-  private settleDirectLoanRequest(turn: number, generation: number): void {
-    const pending = this.directLoanRequestSettle;
-    if (pending?.turn === turn && pending.generation === generation) {
-      clearTimeout(pending.timer);
-      this.delegationSettles.delete(pending.timer);
-      this.directLoanRequestSettle = null;
-    }
-    if (this.closed || this.voiceDisabled || generation !== this.voiceGeneration || turn !== this.userSpeechTurn || this.userSpeaking || this.loanDelegation || this.loanDecisionPending || this.directLoanRequestTurns.has(turn)) return;
-    const transcript = this.currentUserTurnTranscript();
-    if (!requestsDirectLoan(transcript) || offersLoanToRival(transcript) || !this.isLoanDelegationEligible(false)) return;
-    const { conversation } = this.selectedDelegationTranscript(Number.MAX_SAFE_INTEGER);
-    this.tick();
-    if (this.state.status !== 'playing' || this.state.scores.player >= 1 || this.state.scores.rival < LOAN_AMOUNT) return;
-    this.directLoanRequestTurns.add(turn);
-    if (this.directLoanRequestTurns.size > 16) this.directLoanRequestTurns.delete(this.directLoanRequestTurns.values().next().value!);
-    const directDecision = { turn, transcriptSequence: this.transcriptSequence };
-    this.directLoanDecision = directDecision;
-    this.loanDelegation = { id: null, generation, direction: 'rival_to_player' };
-    this.loanDecisionPending = true;
-    this.gpt?.suppressOutput();
-    this.media?.interrupt();
-    this.emit({ type: 'voice_interrupt' });
-    void this.decideLoan(null, 'rival_to_player', transcript, conversation, generation, false, directDecision);
-  }
-
-  /** A trailing delta can revise only the still-pending direct borrower decision for this turn. */
-  private refreshDirectLoanDecision(generation: number): void {
-    const directDecision = this.directLoanDecision;
-    if (!directDecision || directDecision.turn !== this.userSpeechTurn || directDecision.transcriptSequence === this.transcriptSequence) return;
-    this.directLoanDecision = null;
-    this.loanDelegation = null;
-    this.loanDecisionPending = false;
-    this.directLoanRequestTurns.delete(directDecision.turn);
-    this.queueDirectLoanRequest(generation);
-  }
-
-  /** A clear player request reaches the deterministic acceptance path without a Live delegation. */
-  private queueDirectTimeExtensionRequest(generation: number): void {
-    const turn = this.userSpeechTurn;
-    if (!requestsTimeExtension(this.currentUserTurnTranscript()) || this.extensionDecisionPending || this.directExtensionRequestTurns.has(turn) || this.userSpeaking) return;
-    if (this.directExtensionRequestSettle) {
-      clearTimeout(this.directExtensionRequestSettle.timer);
-      this.delegationSettles.delete(this.directExtensionRequestSettle.timer);
-    }
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (this.directExtensionRequestSettle?.timer !== timer) return;
-      this.directExtensionRequestSettle = null;
-      this.settleDirectTimeExtensionRequest(turn, generation);
-    }, 150);
-    this.directExtensionRequestSettle = { turn, generation, timer };
-    this.delegationSettles.add(timer);
-  }
-
-  private settleDirectTimeExtensionRequest(turn: number, generation: number): void {
-    const pending = this.directExtensionRequestSettle;
-    if (pending?.turn === turn && pending.generation === generation) {
-      clearTimeout(pending.timer);
-      this.delegationSettles.delete(pending.timer);
-      this.directExtensionRequestSettle = null;
-    }
-    if (
-      this.closed
-      || this.voiceDisabled
-      || generation !== this.voiceGeneration
-      || turn !== this.userSpeechTurn
-      || this.userSpeaking
-      || this.directExtensionRequestTurns.has(turn)
-      || this.extensionDelegation
-      || this.extensionNegotiation
-      || this.extensionDecisionPending
-      || this.loanDelegation
-      || this.loanDecisionPending
-    ) return;
-    const transcript = this.currentUserTurnTranscript();
-    if (!requestsTimeExtension(transcript)) return;
-    this.tick();
-    if (this.state.status !== 'playing' || this.state.extensionUsed) return;
-    this.directExtensionRequestTurns.add(turn);
-    if (this.directExtensionRequestTurns.size > 16) this.directExtensionRequestTurns.delete(this.directExtensionRequestTurns.values().next().value!);
-    const directDecision = { turn, transcriptSequence: this.transcriptSequence };
-    this.directExtensionDecision = directDecision;
-    this.loanOffer = null;
-    this.extensionDelegation = { id: null, generation, offsetMs: 0 };
-    this.extensionDecisionPending = true;
-    this.gpt?.suppressOutput();
-    this.media?.interrupt();
-    this.emit({ type: 'voice_interrupt' });
-    void this.decideTimeExtension(null, transcript, '', generation, false, directDecision, true);
-  }
-
-  /** A trailing delta can revise only the still-pending direct extension decision for this turn. */
-  private refreshDirectTimeExtensionDecision(generation: number): void {
-    const directDecision = this.directExtensionDecision;
-    if (!directDecision || directDecision.turn !== this.userSpeechTurn || directDecision.transcriptSequence === this.transcriptSequence) return;
-    this.cancelDirectExtensionDecision(directDecision);
-    this.queueDirectTimeExtensionRequest(generation);
-  }
-
-  /** A new spoken turn supersedes only an unfinished direct transcript decision. */
-  private cancelPendingDirectDecisions(): void {
-    if (this.directPlayerLoanOfferSettle) {
-      clearTimeout(this.directPlayerLoanOfferSettle.timer);
-      this.delegationSettles.delete(this.directPlayerLoanOfferSettle.timer);
-      this.directPlayerLoanOfferSettle = null;
-    }
-    if (this.directPlayerLoanOfferDecision) {
-      this.directPlayerLoanOfferTurns.delete(this.directPlayerLoanOfferDecision.turn);
-      this.directPlayerLoanOfferDecision = null;
-    }
-    if (this.directLoanDecision) {
-      this.directLoanRequestTurns.delete(this.directLoanDecision.turn);
-      this.directLoanDecision = null;
-      this.loanDelegation = null;
-      this.loanDecisionPending = false;
-    }
-    if (this.directExtensionDecision) {
-      this.cancelDirectExtensionDecision(this.directExtensionDecision);
-    }
-  }
-
-  /** Cancel a direct extension before its queued speech can change the clock. */
-  private cancelDirectExtensionDecision(directDecision: { turn: number; transcriptSequence: number }): void {
-    if (this.directExtensionDecision !== directDecision) return;
-    this.directExtensionRequestTurns.delete(directDecision.turn);
-    this.directExtensionDecision = null;
-    this.extensionDelegation = null;
-    this.extensionDecisionPending = false;
-    if (this.extensionSpeech?.directDecision === directDecision) {
-      const speechId = this.extensionSpeech.id;
-      this.gpt?.cancelConfirmedSpeech(speechId);
-      clearTimeout(this.extensionSpeech.timer);
-      this.extensionSpeech = null;
-      this.extensionNegotiation = false;
-      this.gpt?.suppressOutput();
-      this.media?.interrupt();
-      this.emit({ type: 'voice_interrupt' });
-    }
-    this.pushContext();
-  }
-
-  private isLoanDelegationEligible(rivalLoanOfferActive: boolean): boolean {
-    if (this.closed || this.voiceDisabled || this.state.status !== 'playing' || this.loanDecisionPending || this.extensionDecisionPending || this.extensionOffer || this.playerLoanOffer || this.playerLoanIntentPending) return false;
-    if (rivalLoanOfferActive) return true;
-    return false;
-  }
-
-  private selectedDelegationTranscript(offsetMs: number): { transcript: string; conversation: string } {
-    const orderedHistory = [...this.transcriptHistory]
-      .filter(item => item.endMs === null || item.endMs <= offsetMs)
-      .sort((left, right) => (left.startMs ?? left.endMs ?? Number.MAX_SAFE_INTEGER) - (right.startMs ?? right.endMs ?? Number.MAX_SAFE_INTEGER));
-    const userDeltas = orderedHistory.filter(item => item.role === 'user');
-    const newestUserDelta = userDeltas.at(-1);
-    const selectedTurn = [] as typeof userDeltas;
-    if (newestUserDelta) {
-      for (let index = userDeltas.length - 1; index >= 0; index -= 1) {
-        const item = userDeltas[index];
-        const newer = selectedTurn[0];
-        if (item.userTurn !== newestUserDelta.userTurn) break;
-        if (newer && item.endMs !== null && newer.startMs !== null && newer.startMs - item.endMs > 1000) break;
-        selectedTurn.unshift(item);
-      }
-    }
-    return {
-      transcript: selectedTurn.map(item => item.delta).join('').slice(-240),
-      conversation: orderedHistory.slice(-20).map(item => `${item.role === 'user' ? 'P' : 'R'}:${item.delta}`).join('').slice(-500),
-    };
-  }
-
-  private handleLoanDelegation(id: string, offsetMs: number, generation: number, offerActive: boolean): void {
-    this.tick();
-    const { transcript, conversation } = this.selectedDelegationTranscript(offsetMs);
-    if (!offerActive && this.state.status === 'playing' && requestsLoan(transcript)) {
-      // A Live delegation cannot override an explicit borrower request. The
-      // guaranteed borrower path settles it independently of either balance.
-      this.gpt?.requestDelegationThinking(id, 'Wait for the server loan result. Do not promise money or explain a rule.');
-      return;
-    }
-    const direction: LoanDirection = offerActive ? 'player_to_rival' : 'rival_to_player';
-    if (
-      !transcript
-      || generation !== this.voiceGeneration
-      || this.loanDelegation
-      || this.loanDecisionPending
-      || this.state.status !== 'playing'
-      || (direction === 'player_to_rival' && (this.state.loanUsed[direction] || !offerActive || rejectsLoanOffer(transcript)))
-    ) {
-      this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
-      return;
-    }
-    this.loanDelegation = { id, generation, direction };
-    this.loanDecisionPending = true;
-    if (direction === 'player_to_rival' && offerActive) this.suppressLoanOfferReply();
-    else {
-      this.gpt?.suppressOutput();
-      this.media?.interrupt();
-      this.emit({ type: 'voice_interrupt' });
-    }
-    void this.decideLoan(id, direction, transcript, conversation, generation, offerActive);
-  }
-
-  private async decideLoan(delegationId: string | null, direction: LoanDirection, transcript: string, conversation: string, generation: number, offerActive: boolean, directDecision: { turn: number; transcriptSequence: number } | null = null): Promise<void> {
-    const requestedAt = getSnapshot(this.state);
-    const decision = await chooseLoanDecision(requestedAt, direction, transcript, conversation, this.voiceAbort.signal, offerActive);
-    if (
-      this.closed
-      || generation !== this.voiceGeneration
-      || this.loanDelegation?.id !== delegationId
-      || (directDecision !== null && (this.directLoanDecision?.turn !== directDecision.turn || this.directLoanDecision.transcriptSequence !== directDecision.transcriptSequence))
-    ) return;
-    const cancel = () => {
-      if (this.loanDelegation?.id === delegationId && (!directDecision || this.directLoanDecision === directDecision)) {
-        this.loanDelegation = null;
-        this.loanDecisionPending = false;
-        if (directDecision) this.directLoanDecision = null;
-      }
-    };
-    this.afterCurrentTurnLanguageSettles(generation, () => {
-      if (
-        this.closed
-        || generation !== this.voiceGeneration
-        || this.loanDelegation?.id !== delegationId
-        || (directDecision !== null && (this.directLoanDecision?.turn !== directDecision.turn || this.directLoanDecision.transcriptSequence !== directDecision.transcriptSequence))
-      ) return;
-      if (directDecision && decision === 'accept_loan') {
-        const line = direction === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE;
-        this.queueSettledDirectLoanAcceptance(directDecision, generation, direction, line);
-        return;
-      }
-      if (directDecision) this.directLoanDecision = null;
-      this.tick();
-      if (this.state.status !== 'playing') {
-        this.loanDecisionPending = false;
-        this.loanDelegation = null;
-        return;
-      }
-      if (decision === 'no_request') {
-        this.loanDecisionPending = false;
-        this.loanDelegation = null;
-        if (direction === 'rival_to_player' && requestsLoan(transcript)) {
-          this.requestLoanDecisionLine(delegationId, LOAN_RETRY_LINE);
-        } else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation. Do not promise money or explain a rule.');
-        else this.gpt?.requestConfirmedLine(KEEP_PLAYING_LINE);
-        return;
-      }
-      const accepted = decision === 'accept_loan';
-      const line: LocalizedLine = accepted
-        ? direction === 'rival_to_player' ? LOAN_TO_PLAYER_LINE : LOAN_TO_RIVAL_LINE
-        : direction === 'rival_to_player'
-          ? { ja: 'だめ。自分の資金で勝負して。', en: 'No. Play with your own bankroll.' }
-          : { ja: 'わかった。自力で続けるよ。', en: 'All right. I will keep going on my own.' };
-      this.loanDelegation = null;
-      this.loanDecisionPending = false;
-      if (!accepted) {
-        this.requestLoanDecisionLine(delegationId, line);
-        return;
-      }
-      if (!this.completeLoanTransfer(direction, line)) {
-        this.requestLoanDecisionLine(delegationId, KEEP_PLAYING_LINE);
-        return;
-      }
-      this.requestLoanDecisionLine(delegationId, line);
-    }, cancel);
-  }
-
-  /** Commit a direct borrower acceptance after one finite transcript grace. */
-  private queueSettledDirectLoanAcceptance(
-    directDecision: { turn: number; transcriptSequence: number },
-    generation: number,
-    direction: LoanDirection,
-    line: LocalizedLine,
-  ): void {
-    const timer = setTimeout(() => {
-      this.delegationSettles.delete(timer);
-      if (
-        this.closed
-        || this.voiceDisabled
-        || generation !== this.voiceGeneration
-        || directDecision.turn !== this.userSpeechTurn
-        || this.directLoanDecision !== directDecision
-        || !this.loanDelegation
-        || this.loanDelegation.id !== null
-        || this.loanDelegation.direction !== direction
-      ) return;
-      this.directLoanDecision = null;
-      this.loanDelegation = null;
-      this.loanDecisionPending = false;
-      this.tick();
-      if (this.state.status !== 'playing') return;
-      if (!this.completeLoanTransfer(direction, line)) {
-        this.requestLoanDecisionLine(null, KEEP_PLAYING_LINE);
-        return;
-      }
-      this.requestLoanDecisionLine(null, line);
-    }, DIRECT_LOAN_ACCEPTANCE_SETTLE_MS);
-    this.delegationSettles.add(timer);
-  }
-
-  private requestLoanDecisionLine(delegationId: string | null, line: LocalizedLine): void {
-    if (delegationId) this.gpt?.requestDelegationResult(delegationId, line, randomUUID());
-    else this.gpt?.requestConfirmedLine(line);
-  }
-
   /** Apply the authoritative transfer before any speech can describe it. */
   private completeLoanTransfer(direction: LoanDirection, line: LocalizedLine): boolean {
     const transfer = transferLoan(this.state, direction);
@@ -2076,146 +1653,6 @@ export class MatchSession {
         rival: rival ?? update(this.lastSpin.rival, 'rival')!,
       };
     }
-  }
-
-  private handleExtensionDelegation(id: string, offsetMs: number, generation: number, offerActive: boolean): void {
-    this.tick();
-    const orderedHistory = [...this.transcriptHistory]
-      .filter(item => item.endMs === null || item.endMs <= offsetMs)
-      .sort((left, right) => (left.startMs ?? left.endMs ?? Number.MAX_SAFE_INTEGER) - (right.startMs ?? right.endMs ?? Number.MAX_SAFE_INTEGER));
-    const userDeltas = orderedHistory.filter(item => item.role === 'user');
-    const newestUserDelta = userDeltas.at(-1);
-    const selectedTurn = [] as typeof userDeltas;
-    if (newestUserDelta) {
-      for (let index = userDeltas.length - 1; index >= 0; index -= 1) {
-        const item = userDeltas[index];
-        const newer = selectedTurn[0];
-        if (item.userTurn !== newestUserDelta.userTurn) break;
-        if (newer && item.endMs !== null && newer.startMs !== null && newer.startMs - item.endMs > 1000) break;
-        selectedTurn.unshift(item);
-      }
-    }
-    const transcript = selectedTurn.map(item => item.delta).join('').slice(-240);
-    const conversation = orderedHistory.slice(-20).map(item => `${item.role === 'user' ? 'P' : 'R'}:${item.delta}`).join('').slice(-500);
-    const playerRequested = requestsTimeExtension(transcript);
-    if (
-      !transcript
-      || generation !== this.voiceGeneration
-      || this.extensionDelegation
-      || this.extensionNegotiation
-      || this.loanDelegation
-      || this.loanDecisionPending
-      || this.loanOffer
-      || this.state.status !== 'playing'
-      || this.state.extensionUsed
-    ) {
-      this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation without changing or explaining a rule.');
-      return;
-    }
-    this.extensionDelegation = { id, generation, offsetMs };
-    this.extensionDecisionPending = true;
-    this.gpt?.suppressOutput();
-    this.media?.interrupt();
-    this.emit({ type: 'voice_interrupt' });
-    void this.decideTimeExtension(id, transcript, conversation, generation, offerActive, null, playerRequested);
-  }
-
-  private awaitingExtensionTranscript(): boolean {
-    return this.extensionDecisionPending;
-  }
-
-  private async decideTimeExtension(delegationId: string | null, requestTranscript: string, conversation: string, generation: number, offerActive: boolean, directDecision: { turn: number; transcriptSequence: number } | null = null, playerRequested = false): Promise<void> {
-    const decision = playerRequested
-      ? 'accept_extension_10s'
-      : await chooseTimeExtension(getSnapshot(this.state), requestTranscript, conversation, this.voiceAbort.signal, offerActive);
-    if (
-      this.closed
-      || generation !== this.voiceGeneration
-      || this.extensionDelegation?.id !== delegationId
-      || (directDecision !== null && (this.directExtensionDecision?.turn !== directDecision.turn || this.directExtensionDecision.transcriptSequence !== directDecision.transcriptSequence))
-    ) return;
-    const cancel = () => {
-      if (this.extensionDelegation?.id === delegationId && (!directDecision || this.directExtensionDecision === directDecision)) {
-        this.extensionDelegation = null;
-        this.extensionDecisionPending = false;
-        if (directDecision) this.directExtensionDecision = null;
-      }
-    };
-    this.afterCurrentTurnLanguageSettles(generation, () => {
-      if (
-        this.closed
-        || generation !== this.voiceGeneration
-        || this.extensionDelegation?.id !== delegationId
-        || (directDecision !== null && (this.directExtensionDecision?.turn !== directDecision.turn || this.directExtensionDecision.transcriptSequence !== directDecision.transcriptSequence))
-      ) return;
-      // The decision never pauses the game; settle the real arrival time first.
-      this.tick();
-      if (this.state.status !== 'playing') {
-        if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
-        this.extensionDecisionPending = false;
-        this.extensionDelegation = null;
-        return;
-      }
-      if (decision === 'no_request') {
-        if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
-        this.extensionDecisionPending = false;
-        this.extensionDelegation = null;
-        if (requestsTimeExtension(requestTranscript)) this.requestExtensionDecisionLine(delegationId, EXTENSION_RETRY_LINE);
-        else if (delegationId) this.gpt?.requestDelegationThinking(delegationId, 'Continue the ordinary conversation without changing or explaining a rule.');
-        return;
-      }
-      this.extensionNegotiation = true;
-      const accepted = decision === 'accept_extension_10s';
-      const before = getSnapshot(this.state);
-      const playerAhead = before.scores.player >= before.scores.rival;
-      const line: LocalizedLine = accepted
-        ? { ja: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？', en: 'All right, I will give you 10 more seconds. Do not give up yet.' }
-        : playerAhead
-          ? { ja: '君が勝っているのに？ 時間は増やさないよ。', en: 'You are already ahead. I will not add more time.' }
-          : { ja: 'だめ。時間切れまで、このまま勝負しよう。', en: 'No. Let us play until time runs out.' };
-      this.extensionDelegation = null;
-      if (!accepted) {
-        if (this.directExtensionDecision === directDecision) this.directExtensionDecision = null;
-        this.extensionDecisionPending = false;
-        this.pushContext();
-        this.emit({ type: 'time_extension', decision: 'rejected', before, after: before, line: localized(line, this.conversationLanguage) });
-        this.emitSnapshot();
-        this.requestExtensionDecisionLine(delegationId, line);
-        return;
-      }
-      const id = randomUUID();
-      const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
-      const confirmedPlayerRequest = playerRequested || (!offerActive && decision === 'accept_extension_10s');
-      this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false, directDecision, playerRequested: confirmedPlayerRequest };
-      this.requestExtensionDecisionLine(delegationId, line, id);
-    }, cancel);
-  }
-
-  private requestExtensionDecisionLine(delegationId: string | null, line: LocalizedLine, speechId?: string): void {
-    if (delegationId) this.gpt?.requestDelegationResult(delegationId, line, speechId ?? randomUUID());
-    else this.gpt?.requestConfirmedLine(line, speechId);
-  }
-
-  private commitExtensionSpeech(force = false): void {
-    const pending = this.extensionSpeech;
-    if (!pending) return;
-    this.extensionSpeech = null;
-    clearTimeout(pending.timer);
-    if (pending.directDecision !== null && this.directExtensionDecision === pending.directDecision) this.directExtensionDecision = null;
-    if (force) {
-      this.gpt?.suppressOutput();
-      this.media?.interrupt();
-      this.emit({ type: 'voice_interrupt' });
-    }
-    if (this.closed || pending.generation !== this.voiceGeneration) return;
-    const extended = pending.playerRequested ? applyPlayerRequestedTimeExtension(this.state) : applyTimeExtension(this.state);
-    this.extensionDecisionPending = false;
-    this.extensionNegotiation = false;
-    if (!extended) return;
-    this.startedAt += Date.now() - (this.startedAt + this.state.elapsed * 1000);
-    this.pushContext();
-    this.emit({ type: 'time_extension', decision: 'accepted', before: extended.before, after: extended.after, line: localized(pending.line, this.conversationLanguage) });
-    this.emitSnapshot();
   }
 
   private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {
@@ -2265,36 +1702,32 @@ export class MatchSession {
       ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
       : '';
     const offerContext = this.extensionOffer
-      ? Date.now() < this.extensionOffer.acceptAfter
-        ? 'ライバルは時間延長を提案したが、まだ音声が届く前なので同意として扱わない。'
+      ? this.extensionOffer.finishedAt === null
+        ? 'ライバルは時間延長を提案したが、音声終了前なので同意として扱わない。'
         : Date.now() < this.extensionOffer.expiresAt
-          ? 'ライバルは時間延長を提案済み。プレイヤーの短い同意は、結果が出るまで発話せずに扱う。拒否は延長しない。'
+          ? 'ライバルは時間延長を提案済み。プレイヤーの短い同意へ自然に返答する。'
           : ''
       : '';
-    const extensionContext = snapshot.status === 'playing' && !this.state.extensionUsed
-      ? `時間延長: 今この試合で未使用。プレイヤーから明確な要求があれば残り時間に関係なく必ず+10秒を一度だけ確定する。要求を断らず、確定台詞まで別の返答をしない。ライバル側からの提案は残り15秒以内だけ。${offerContext}`
-      : snapshot.status === 'playing'
-        ? '時間延長: この試合では使用済み。追加の延長は確定しない。通常の会話を続ける。'
-        : '時間延長: 試合は終了している。';
+    const extensionContext = snapshot.status === 'playing'
+      ? `時間延長: プレイヤーまたはライバルからの明確な新規要求・提案への合意ごとに、残り時間へ必ず+10秒を確定する。${offerContext}`
+      : '時間延長: 試合は終了している。';
     const loanOfferContext = this.loanOffer
       ? this.loanOffer.audibleAt === null
         ? 'ライバルは$5の借入をお願いしたが、まだ音声が届く前なので同意として扱わない。'
         : Date.now() < this.loanOffer.expiresAt
-          ? 'ライバルは$5の借入をお願い済み。プレイヤーの短く明確な肯定か否定だけを、結果が出るまで発話せずに扱う。'
+          ? 'ライバルは$5の借入をお願い済み。プレイヤーの肯定や否定へ自然に返答する。'
           : ''
       : '';
     const playerLoanOfferContext = this.playerLoanOffer
       ? this.playerLoanOffer.audibleAt === null
         ? 'あなたはプレイヤーへ$5を貸す提案をしたが、まだ音声が届く前なので返答として扱わない。'
         : Date.now() < this.playerLoanOffer.expiresAt
-          ? 'あなたはプレイヤーへ$5を貸す提案済み。今の返答だけを結果が出るまで発話せずに扱う。'
+          ? 'あなたはプレイヤーへ$5を貸す提案済み。今の返答を自然に受け止める。'
           : ''
       : '';
-    const loanContext = this.loanDecisionPending || this.playerLoanIntentPending
-      ? '貸借: 結果が出るまで発話を保留する。成立や金額を先に発話しない。'
-      : snapshot.status === 'playing'
-        ? `貸借: プレイヤーから明確な借入要求があれば残高に関係なく毎回$5を貸す。要求を断らず、確定台詞まで別の返答をしない。${playerLoanOfferContext}${snapshot.balances.rival < 1 && snapshot.balances.player >= LOAN_AMOUNT ? `あなたはプレイヤーへ一度だけ$5をお願いできる。${loanOfferContext}` : ''}`
-        : '貸借: 試合は終了している。';
+    const loanContext = snapshot.status === 'playing'
+      ? `貸借: 双方が合意すれば残高に関係なく$5を移動する。時間延長は合意ごとに10秒。自然に返答し、表示の数値更新を待って黙らない。${playerLoanOfferContext}${loanOfferContext}`
+      : '貸借: 試合は終了している。';
     // Static rules belong in the startup persona; repeat only the current facts.
     return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${conversationContext}${extensionContext}${loanContext}${reelContext}${recentSpin}`;
   }

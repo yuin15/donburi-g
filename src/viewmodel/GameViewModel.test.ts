@@ -71,7 +71,7 @@ function playingSnapshot(last?: RoundPair, result = false): MatchSnapshot {
   if (last) {
     snapshot.round = last.player.round;
     snapshot.rounds = { player: last.player.round, rival: last.rival.round };
-    snapshot.scores = { player: last.player.total, rival: last.rival.total };
+    snapshot.scores = snapshot.balances = { player: last.player.total, rival: last.rival.total };
     snapshot.stats = {
       player: { wins: { cherry: 0, bell: 0, seven: snapshot.round }, bestSpin: { round: 1, payout: 1200 } },
       rival: { wins: { cherry: snapshot.round, bell: 0, seven: 0 }, bestSpin: { round: 1, payout: 120 } },
@@ -403,7 +403,7 @@ describe('game view model', () => {
     expect(h.clock.timers.size).toBe(0);
   });
 
-  it('holds the pre-change timer briefly while applying an authoritative +10 second extension', async () => {
+  it('restarts the change indicator while applying repeated authoritative +10 second extensions', async () => {
     const h = setup();
     const session = await beginLive(h);
     const before = playingSnapshot();
@@ -412,9 +412,12 @@ describe('game view model', () => {
     session.emit({ type: 'time_extension', decision: 'accepted', before, after, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
     expect(h.vm.state).toMatchObject({ snapshot: { duration: 70, remaining: 16 }, timeExtension: { before: 6, after: 16 }, line: 'しょうがないな、10秒伸ばしてあげる。まだ諦めないでよ？' });
     expect(h.presentation.playSound).toHaveBeenCalledWith('ruleChange');
+    const extendedAgain = { ...after, duration: 80 as const, remaining: 26 };
+    session.emit({ type: 'time_extension', decision: 'accepted', before: after, after: extendedAgain, line: 'もう10秒。今度こそ決めて。' });
+    expect(h.vm.state).toMatchObject({ snapshot: { duration: 80, remaining: 26 }, timeExtension: { before: 16, after: 26 }, line: 'もう10秒。今度こそ決めて。' });
     await h.clock.advance(1350);
     expect(h.vm.state.timeExtension).toBeNull();
-    expect(h.vm.state.snapshot.remaining).toBe(16);
+    expect(h.vm.state.snapshot.remaining).toBe(26);
     h.vm.dispose();
   });
 
@@ -437,6 +440,49 @@ describe('game view model', () => {
     session.emit({ type: 'side_spin', spin: later });
     h.rounds[1].stopped();
     expect(h.vm.state.scores.player).toBe(19);
+    h.vm.dispose();
+  });
+
+  it('recovers missed loans from duplicate same-round snapshots without revealing the payout or rewinding on stop', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const player: SpinView = { side: 'player', round: 1, symbols: ['cherry', 'cherry', 'cherry'], payout: 6, total: 35 };
+    const rival: SpinView = { side: 'rival', round: 1, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 25 };
+    session.emit({ type: 'side_spin', spin: player });
+    session.emit({ type: 'side_spin', spin: rival });
+    expect(h.vm.state.scores).toEqual({ player: 29, rival: 25 });
+
+    const recovered = playingSnapshot({ player: { ...player, total: 30 }, rival: { ...rival, total: 30 } });
+    recovered.elapsed = 8; recovered.remaining = 52;
+    session.emit({ type: 'snapshot', snapshot: recovered, lastSpins: { player: { ...player, total: 30 }, rival: { ...rival, total: 30 } } });
+    expect(h.vm.state.scores).toEqual({ player: 24, rival: 30 });
+    session.emit({ type: 'snapshot', snapshot: recovered, lastSpins: { player: { ...player, total: 30 }, rival: { ...rival, total: 30 } } });
+    expect(h.rounds).toHaveLength(1);
+    expect(h.rivalRounds).toHaveLength(1);
+    expect(h.vm.state.scores).toEqual({ player: 24, rival: 30 });
+    h.rounds[0].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 30, rival: 30 });
+    h.rivalRounds[0].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 30, rival: 30 });
+    h.vm.dispose();
+  });
+
+  it('recovers a missing side balance from partial or empty last-spins snapshots', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const rival: SpinView = { side: 'rival', round: 1, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 35 };
+    const recovered = {
+      ...readySnapshot(), status: 'playing' as const, elapsed: 8, remaining: 52, round: 1,
+      rounds: { player: 0, rival: 1 }, balances: { player: 25, rival: 35 }, scores: { player: 25, rival: 35 },
+    };
+    session.emit({ type: 'snapshot', snapshot: recovered, lastSpins: { rival } });
+    expect(h.vm.state.scores).toEqual({ player: 25, rival: 35 });
+    expect(h.rivalRounds).toHaveLength(1);
+    session.emit({ type: 'snapshot', snapshot: recovered, lastSpins: {} });
+    expect(h.vm.state.scores).toEqual({ player: 25, rival: 35 });
+    expect(h.rivalRounds).toHaveLength(1);
+    h.rivalRounds[0].stopped();
+    expect(h.vm.state.scores).toEqual({ player: 25, rival: 35 });
     h.vm.dispose();
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ServerEnvelope, ServerMessage } from '../../shared/protocol';
-import { MANUAL_SPIN_INTERVAL, MAX_MATCH_ROUNDS } from '../../shared/protocol';
+import { MANUAL_SPIN_INTERVAL, MAX_MATCH_ROUNDS, MAX_MATCH_SECONDS } from '../../shared/protocol';
 import { parseServerEnvelope } from '../../shared/wire';
 import { advanceMatch, applyTimeExtension, createMatch, getSnapshot, requestManualSpin, startMatch, type MatchState } from '../domain/game';
 import { LiveSync } from './LiveSync';
@@ -13,12 +13,12 @@ function createFundedMatch(spinMode: 'automatic' | 'manual' = 'automatic'): Matc
   state.scores = { ...state.balances };
   return state;
 }
-function runMaximumManualMatch(state: MatchState): ReturnType<typeof requestManualSpin> {
+function runSingleExtensionManualMatch(state: MatchState): ReturnType<typeof requestManualSpin> {
   const events = Array.from({ length: Math.ceil(45 / MANUAL_SPIN_INTERVAL) }, (_, round) => requestManualSpin(state, round * MANUAL_SPIN_INTERVAL)).flat();
   events.push(...advanceMatch(state, 45));
   expect(applyTimeExtension(state)).not.toBeNull();
-  events.push(...Array.from({ length: MAX_MATCH_ROUNDS - state.rounds.player }, (_, index) => requestManualSpin(state, (Math.ceil(45 / MANUAL_SPIN_INTERVAL) + index) * MANUAL_SPIN_INTERVAL)).flat());
-  events.push(...advanceMatch(state, 70));
+  events.push(...Array.from({ length: Math.ceil(state.duration / MANUAL_SPIN_INTERVAL) - state.rounds.player }, (_, index) => requestManualSpin(state, (Math.ceil(45 / MANUAL_SPIN_INTERVAL) + index) * MANUAL_SPIN_INTERVAL)).flat());
+  events.push(...advanceMatch(state, state.duration));
   return events;
 }
 const fixtureState = createFundedMatch();
@@ -108,11 +108,11 @@ describe('live wire validation and recovery', () => {
     expect(parseServerEnvelope(JSON.stringify(invalid))).toBeNull();
   });
 
-  it.each([0, MAX_MATCH_ROUNDS])('recovers %i player spins and the authoritative rival spins across a stream gap', (rounds) => {
+  it.each(['unspun', 'one-extension'])('recovers %s player spins and the authoritative rival spins across a stream gap', (scenario) => {
     const state = createFundedMatch('manual');
     startMatch(state);
-    const events = rounds === MAX_MATCH_ROUNDS
-      ? runMaximumManualMatch(state)
+    const events = scenario === 'one-extension'
+      ? runSingleExtensionManualMatch(state)
       : advanceMatch(state, 60);
     const latest: Partial<Record<'player' | 'rival', import('../../shared/protocol').SpinView>> = {};
     for (const event of events) if (event.type === 'side_spin') latest[event.spin.side] = event.spin;
@@ -121,7 +121,9 @@ describe('live wire validation and recovery', () => {
     const parsed = parseServerEnvelope(JSON.stringify(wrap(message, 4)));
     expect(parsed).not.toBeNull();
     expect(sync.accept(parsed!).message).toEqual(message);
-    expect(state.rounds).toEqual({ player: rounds, rival: rounds === MAX_MATCH_ROUNDS ? 35 : 30 });
+    const expectedPlayerRounds = scenario === 'one-extension' ? Math.ceil(state.duration / MANUAL_SPIN_INTERVAL) : 0;
+    expect(state.rounds).toEqual({ player: expectedPlayerRounds, rival: state.duration / 2 });
+    if (scenario === 'one-extension') expect(state.duration).toBe(70);
     expect(state.status).toBe('result');
     expect(latest.rival!.upgrades).toBeUndefined();
     expect(parseServerEnvelope(JSON.stringify(wrap({ type: 'match_ended', snapshot: getSnapshot(state) }, 5)))).not.toBeNull();
@@ -131,13 +133,21 @@ describe('live wire validation and recovery', () => {
     expect(parseServerEnvelope(JSON.stringify(wrap(wrong, 5)))).toBeNull();
   });
 
-  it('accepts a complete maximum-manual snapshot and rejects rounds beyond the match limit', () => {
+  it('accepts a bounded wire-limit snapshot and rejects rounds beyond the match limit', () => {
     const state = createFundedMatch('manual');
     startMatch(state);
-    const events = runMaximumManualMatch(state);
+    const events = runSingleExtensionManualMatch(state);
     const latest: Partial<Record<'player' | 'rival', import('../../shared/protocol').SpinView>> = {};
     for (const event of events) if (event.type === 'side_spin') latest[event.spin.side] = event.spin;
     const maximum: ServerMessage = { type: 'snapshot', snapshot: getSnapshot(state), lastSpins: latest };
+    maximum.snapshot.duration = MAX_MATCH_SECONDS;
+    maximum.snapshot.elapsed = MAX_MATCH_SECONDS;
+    maximum.snapshot.remaining = 0;
+    maximum.snapshot.round = MAX_MATCH_ROUNDS;
+    maximum.snapshot.rounds = { player: MAX_MATCH_ROUNDS, rival: MAX_MATCH_ROUNDS };
+    maximum.lastSpins!.player!.round = MAX_MATCH_ROUNDS;
+    maximum.lastSpins!.rival!.round = MAX_MATCH_ROUNDS;
+    expect(Object.values(maximum.snapshot.scores).every(score => Math.abs(score) <= 10_000)).toBe(true);
     expect(parseServerEnvelope(JSON.stringify(wrap(maximum, 2)))).not.toBeNull();
     const excessive = structuredClone(maximum);
     excessive.snapshot.round += 1;

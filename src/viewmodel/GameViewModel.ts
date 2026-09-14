@@ -591,9 +591,9 @@ export class GameViewModel implements GameCommands {
     this.emit();
   }
 
-  private handleSpin(spin: SpinView, upgrades = this.snapshot.upgrades): void {
+  private handleSpin(spin: SpinView, upgrades = this.snapshot.upgrades): boolean {
     const confirmed = { ...spin, upgrades: [...(spin.upgrades ?? upgrades[spin.side])] };
-    if (!this.rounds.spin(confirmed)) return;
+    if (!this.rounds.spin(confirmed)) return false;
     // `play` may settle synchronously. Read the presentation's authoritative
     // current value so an accepted spin shows its paid BET before stopping, but
     // a synchronous stop remains at its confirmed total.
@@ -609,6 +609,7 @@ export class GameViewModel implements GameCommands {
       this.spinRequestTimer = undefined;
       this.deps.presentation.playSound('spin');
     }
+    return true;
   }
 
   private revealSpin(spin: SpinView, celebrate: boolean): void {
@@ -811,9 +812,26 @@ export class GameViewModel implements GameCommands {
       const last = message.lastSpins ?? message.lastSpin;
       this.syncPurchases(message.snapshot);
       if (last) for (const side of ['player', 'rival'] as const) {
-        if (last[side]) this.handleSpin(last[side], message.snapshot.upgrades);
+        const spin = last[side];
+        // A partial recovery has no pending payout for its missing side. Its
+        // authoritative balance can still include a loan made during the gap.
+        if (!spin) {
+          this.displayBalances[side] = message.snapshot.balances[side];
+          continue;
+        }
+        if (!this.handleSpin(spin, message.snapshot.upgrades)) {
+          // `spin` rejects an already-presented round. It can nevertheless
+          // carry a transfer which happened during a stream gap, so replace
+          // the running reel's final total without replaying it.
+          if (this.rounds.syncRecoveredSpin(spin)) this.displayBalances[side] = this.rounds.scores[side];
+          else this.displayBalances[side] = message.snapshot.balances[side];
+        }
       }
       this.consumeSnapshot(message.snapshot);
+      // A snapshot with no reel detail has no pending payout to preserve.
+      if (!last) {
+        this.displayBalances = { ...message.snapshot.balances };
+      }
       if (message.snapshot.status === 'playing') this.awaitingStart = false;
       if (message.snapshot.status === 'result') this.rounds.end(message.snapshot);
       if (enteringPlay) { this.emit(); this.deps.presentation.focus('start'); }
