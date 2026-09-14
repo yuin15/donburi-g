@@ -1,0 +1,62 @@
+/* Ivory keys remain readable before interaction; gold marks the selected bet. */
+#betControls {
+  display: flex; align-items: center; gap: .55cqw; padding: .35cqw .5cqw .5cqw;
+  z-index: 2; border: 1px solid #a9824b; border-radius: .7cqw;
+  background: linear-gradient(#160e0c, #29130f); box-shadow: inset 0 2px 6px #000c, 0 1px #e5bd7566;
+}
+#betControls > small {
+  position: absolute; right: calc(100% + .5cqw); top: 50%; transform: translateY(-50%);
+  padding: .3cqw .4cqw; color: #fff1c3; background: #211710; border: 1px solid #c69b57;
+  border-radius: .2cqw; font: 800 .8cqw/1 system-ui; letter-spacing: .08em; text-shadow: 0 1px #000;
+}
+#betControls button {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: .55cqw;
+  flex: 1; min-width: 0; height: 100%; padding: .15cqw .6cqw;
+  border: 2px solid #f2dfad; border-radius: .6cqw;
+  background: linear-gradient(#fff8e0, #eedcb2); color: #68192a;
+  box-shadow: inset 0 1px 0 #fffdf3, 0 3px 0 #8e6939, 0 4px 6px #000b;
+  text-align: center; text-shadow: none; transition: transform .12s, box-shadow .12s;
+}
+#betControls .bet-label { display: block; min-width: 0; }
+#betControls strong { display: block; font: 800 1.5cqw/1 Georgia, serif; }
+#betControls em { display: block; margin-top: .16cqw; font: 800 .88cqw/1 system-ui; font-style: normal; white-space: nowrap; }
+#betControls .bet-diagram { width: 2.55cqw; height: 1.88cqw; flex: 0 0 auto; overflow: visible; }
+#betControls .bet-grid { fill: none; stroke: currentColor; stroke-width: .7; opacity: .25; }
+#betControls .bet-lines { fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
+#betControls .bet-selected { position: absolute; right: .24cqw; top: .12cqw; font: 800 .8cqw/1 system-ui; visibility: hidden; }
+#betControls button[data-active=true] {
+  color: #392400; border-color: #fff1b3; background: linear-gradient(#ffe29a, #d2a038);
+  box-shadow: inset 0 1px #fff8d4, 0 1px #805510, 0 0 11px #ffd76b55; transform: translateY(2px);
+}
+#betControls button[data-active=true] .bet-selected { visibility: visible; }
+#betControls button:hover:not(:disabled) { border-color: #fffdf2; box-shadow: inset 0 1px #fffdf3, 0 2px #946a36, 0 0 9px #fce4a575; }
+#betControls button:active:not(:disabled) { transform: translateY(3px); }
+#betControls button:disabled { opacity: .5; box-shadow: none; transform: none; }
+
+/* Keep the amounts horizontal, including the two diagonal entry markers. */
+#lineIndicators { z-index: 2; pointer-events: none; }
+.line-indicator { position: absolute; left: 0; width: 100%; height: 10%; overflow: visible; transform: translateY(-50%); }
+.line-indicator.top { top: 13.7%; }
+.line-indicator.middle { top: 50%; }
+.line-indicator.bottom { top: 86.3%; }
+.line-indicator.diagonal-down { top: -4%; }
+.line-indicator.diagonal-up { top: 104%; }
+.line-plate { fill: #15291f; stroke: #a78e57; stroke-width: 2; filter: drop-shadow(0 1px 2px #000c); }
+.line-indicator text { fill: #dfcca0; font: 800 25px Arial, sans-serif; font-variant-numeric: tabular-nums; text-anchor: middle; dominant-baseline: middle; }
+.line-direction { fill: none; stroke: #dfcca0; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
+.line-lamp { fill: #263c2e; stroke: #a78e57; stroke-width: 1.2; }
+.line-indicator[data-active=true] .line-plate { fill: #ebc46b; stroke: #fff0b7; filter: drop-shadow(0 0 4px #edb84280); }
+.line-indicator[data-active=true] text { fill: #392700; }
+.line-indicator[data-active=true] .line-direction { stroke: #392700; }
+.line-indicator[data-active=true] .line-lamp { fill: #fff8dc; stroke: #8e641a; }
+#stageArt[data-win=true] ~ .machine .line-indicator[data-winning=true] .line-plate { fill: #fff0ba; stroke: #fff9db; filter: drop-shadow(0 0 8px #ffd36a); }
+#stageArt[data-win=true] ~ .machine .line-indicator[data-winning=true] { animation: line-indicator-hit .14s steps(2, end) infinite alternate; }
+@keyframes line-indicator-hit { from { opacity: 1; } to { opacity: .3; } }
+
+#betLinePreview { overflow: visible; pointer-events: none; z-index: 1; }
+#betLinePreview > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#betLinePreview path { fill: none; stroke: #ffe19b; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 2px #a75d0c) drop-shadow(0 0 5px #ffcc45); opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #betControls button { transition: none; }
+  #stageArt[data-win=true] ~ .machine .line-indicator[data-winning=true] { animation: none; }
+}
