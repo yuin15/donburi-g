@@ -180,6 +180,49 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it.each(['rival_to_player', 'player_to_rival'] as const)('requires the spoken loan direction %s to match the player request', async auditDirection => {
+    const actual = await vi.importActual<typeof import('./conversationAgreement')>('./conversationAgreement');
+    const { session, messages } = setup('loan-direction', 'manual', 'audio');
+    (session as unknown as { agreements: InstanceType<typeof actual.ConversationAgreementCoordinator> }).agreements = new actual.ConversationAgreementCoordinator();
+    const request = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      if (body.text.format.name === 'conversation_agreement') {
+        expect(JSON.parse(body.input).newestPlayerTurn).toBe('5ドル貸して');
+        return Response.json({ status: 'completed', output_text: JSON.stringify({ result: 'accept', agreements: [{ action: 'rival_to_player', offerId: null }] }) });
+      }
+      const input = JSON.parse(body.input);
+      expect(input.playerLoanDirection).toBe('rival_to_player');
+      expect(input.spokenAssistantSpeech).toEqual({ speaker: 'AI rival', text: 'しょうがないな、5ドル貸すよ。' });
+      expect(input.recentConversation).toContain('P:5ドル貸して');
+      return Response.json({ status: 'completed', output_text: JSON.stringify({ state: 'commit', agreements: [{ action: auditDirection, offerId: null }], offers: [] }) });
+    });
+    vi.stubGlobal('fetch', request);
+    asr.transcribe.mockResolvedValue('しょうがないな、5ドル貸すよ。');
+    try {
+      await session.initialize(); session.handleRaw('{"type":"start"}');
+      const state = (session as unknown as { state: MatchState }).state;
+      state.scores.player = 0; state.scores.rival = 10;
+      completeAgreementTurn('request', '5ドル貸して', 0, 100);
+      await vi.advanceTimersByTimeAsync(350);
+      expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+      provider.events!.onNormalSpeechStarted!('acceptance');
+      provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'acceptance', 'normal');
+      provider.events!.onSpeechAudioEnded('acceptance');
+      await vi.advanceTimersByTimeAsync(1);
+      const transfers = messages.filter(message => message.type === 'loan_transfer');
+      if (auditDirection === 'rival_to_player') {
+        expect(transfers).toHaveLength(1);
+        expect(transfers[0]).toMatchObject({ direction: 'rival_to_player', after: { scores: { player: 5, rival: 5 } } });
+        expect(parseServerEnvelope(JSON.stringify(transfers[0]))).not.toBeNull();
+      } else {
+        expect(transfers).toHaveLength(0);
+        expect(state.scores).toEqual({ player: 0, rival: 10 });
+        expect(request).toHaveBeenCalledTimes(3); // one request classification, two bounded speech audits
+        expect(messages).toContainEqual(expect.objectContaining({ type: 'error', code: 'settlement_unavailable' }));
+      }
+    } finally { await session.shutdown('test_finished'); }
+  });
+
   it.each(['audio', 'avatar'] as const)('keeps %s game reactions without adding silence-triggered questions during a 60-second match', async voiceMode => {
     const { session, messages } = setup('event-driven-conversation', 'manual', voiceMode, () => 0.5, true);
     await session.initialize();
@@ -190,6 +233,72 @@ describe('provider status lifecycle', () => {
     await vi.advanceTimersByTimeAsync(55_000);
     expect(messages.some(message => message.type === 'match_ended')).toBe(true);
     expect(provider.conversationInvitation).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('retries a reversed spoken acceptance and transfers only the corrected direction', async () => {
+    agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }));
+    agreement.auditAssistantSpeech
+      .mockResolvedValueOnce({ state: 'commit', agreements: [{ action: 'player_to_rival', offerId: null }] })
+      .mockResolvedValueOnce({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }] });
+    const { session, messages } = setup('corrected-direction', 'manual', 'audio');
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0; state.scores.rival = 10;
+    completeAgreementTurn('request', '5ドル貸して', 0, 100);
+    await settleAgreement();
+    provider.events!.onNormalSpeechStarted!('reply');
+    provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'reply', 'normal');
+    provider.events!.onSpeechAudioEnded('reply');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(2);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toEqual([
+      expect.objectContaining({ direction: 'rival_to_player', after: expect.objectContaining({ scores: { player: 5, rival: 5 } }) }),
+    ]);
+    expect(messages.some(message => message.type === 'error')).toBe(false);
+    await session.shutdown('test_finished');
+  });
+
+  it.each(['none', 'rejected', 'opposing'] as const)('does not fund an assistant-only loan when the player request is %s', async result => {
+    agreement.resolve.mockImplementationOnce(async turn => result === 'opposing'
+      ? { state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'player_to_rival', offerId: null }] }
+      : { state: result, id: turn.id });
+    agreement.auditAssistantSpeech.mockResolvedValue({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }] });
+    const { session, messages } = setup('unsupported-loan', 'manual', 'audio');
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0; state.scores.rival = 10;
+    completeAgreementTurn('request', 'synthetic ambiguous or withdrawn request', 0, 100);
+    await settleAgreement();
+    provider.events!.onNormalSpeechStarted!('reply');
+    provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'reply', 'normal');
+    provider.events!.onSpeechAudioEnded('reply');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(state.scores).toEqual({ player: 0, rival: 10 });
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'error', code: 'settlement_unavailable' }));
+    await session.shutdown('test_finished');
+  });
+
+  it('discards an in-flight loan acceptance after a trailing player withdrawal', async () => {
+    const audit = deferred<{ state: 'commit'; agreements: [{ action: 'rival_to_player'; offerId: null }] }>();
+    agreement.resolve
+      .mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }))
+      .mockImplementationOnce(async turn => ({ state: 'rejected', id: turn.id }));
+    agreement.auditAssistantSpeech.mockReturnValueOnce(audit.promise).mockResolvedValue({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }] });
+    const { session, messages } = setup('withdrawn-loan', 'manual', 'audio');
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    completeAgreementTurn('request', '5ドル貸して', 0, 100);
+    await settleAgreement();
+    provider.events!.onNormalSpeechStarted!('reply');
+    provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'reply', 'normal');
+    provider.events!.onSpeechAudioEnded('reply');
+    await vi.advanceTimersByTimeAsync(1);
+    provider.events!.onTranscript('user', '、やっぱり借りない', { startMs: 0, endMs: 100 });
+    audit.resolve({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }] });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(agreement.resolve).toHaveBeenCalledTimes(2);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await session.shutdown('test_finished');
   });
 
@@ -1222,6 +1331,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
   it('streams ordinary PCM and captions while ASR is unresolved, then settles compound acceptance once after a new VAD', async () => {
+    agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'time_extension', offerId: null }] }));
     const transcription = deferred<string>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
     agreement.auditAssistantSpeech.mockResolvedValue({
@@ -1260,6 +1370,7 @@ describe('live match cleanup', () => {
   });
 
   it('preserves forwarded compound settlement while repeated Avatar interruptions await a shared ACK', async () => {
+    agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'time_extension', offerId: null }] }));
     const transcription = deferred<string>();
     const clearing = deferred<boolean>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
@@ -1352,6 +1463,7 @@ describe('live match cleanup', () => {
     provider.events!.onSpeechAudioEnded('reply');
     await vi.advanceTimersByTimeAsync(1);
     expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(1);
+    agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }));
     agreement.auditAssistantSpeech.mockResolvedValue({
       state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }],
     });
@@ -1364,6 +1476,7 @@ describe('live match cleanup', () => {
   });
 
   it('drains a delayed spoken agreement before freezing the result and does not require playback ACK', async () => {
+    agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }));
     const transcription = deferred<string>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
     agreement.auditAssistantSpeech.mockResolvedValue({
@@ -1403,6 +1516,7 @@ describe('live match cleanup', () => {
   });
 
   it.each(['rival_to_player', 'player_to_rival', 'time_extension'] as const)('applies each distinct direct %s agreement, preserving negative-bankroll transfers', async action => {
+    agreement.resolve.mockImplementation(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action, offerId: null }] }));
     const { session, messages } = setup('repeat-direct', 'manual', 'audio');
     await session.initialize(); session.handleRaw('{"type":"start"}');
     const state = (session as unknown as { state: MatchState }).state;
@@ -1443,6 +1557,7 @@ describe('live match cleanup', () => {
   });
 
   it('reconciles a forwarded tail with the same cause after its earlier collection completed', async () => {
+    agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }));
     const { session, messages } = setup('forwarded-tail', 'manual', 'audio');
     await session.initialize(); session.handleRaw('{"type":"start"}');
     completeAgreementTurn('request', 'synthetic request', 0, 100); await settleAgreement();

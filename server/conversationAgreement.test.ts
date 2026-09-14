@@ -86,6 +86,19 @@ describe('ConversationAgreementCoordinator', () => {
     expect(await coordinator.resolve(turn('none'))).toEqual({ state: 'none', id: 'none' });
   });
 
+  it('never applies opposite loan directions for one turn, including later offer aliases', () => {
+    const coordinator = new ConversationAgreementCoordinator();
+    const apply = vi.fn(() => true);
+    expect(coordinator.applyOnce('turn-1', { action: 'rival_to_player', offerId: null }, apply)).toBe(true);
+    expect(coordinator.applyOnce('turn-1', { action: 'player_to_rival', offerId: 'another-offer' }, apply)).toBe(false);
+    expect(coordinator.applyOnce('turn-1', { action: 'time_extension', offerId: null }, apply)).toBe(true);
+    // Rejecting an unrelated opposite offer did not consume it for later turns.
+    expect(coordinator.applyOnce('turn-2', { action: 'player_to_rival', offerId: 'another-offer' }, apply)).toBe(true);
+    expect(coordinator.applyOnce('turn-3', { action: 'player_to_rival', offerId: 'another-offer' }, apply)).toBe(false);
+    expect(coordinator.applyOnce('turn-3', { action: 'rival_to_player', offerId: null }, apply)).toBe(false);
+    expect(apply.mock.calls).toEqual([['rival_to_player'], [], ['player_to_rival']]);
+  });
+
   it('allows a delayed transcript revision to reclassify a prior none for the same turn', async () => {
     request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"none","agreements":[]}' }));
     request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"player_to_rival","offerId":"offer-player"}]}' }));

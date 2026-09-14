@@ -38,6 +38,7 @@ interface SettlementTurn {
   id: string; generation: number; version: number; timer: NodeJS.Timeout | null; deadlineTimer: NodeJS.Timeout | null;
   startedAt: number; endedAt: number | null; providerStartMs: number | null; providerEndMs: number | null;
   activeOffers: AgreementOffers; priorSpeech: ForwardedSpeech | null; transcript: string; conversation: string;
+  playerLoanDirection: LoanDirection | null;
   release: () => void; released: boolean; settledVersion: number; replyUntil: number;
 }
 interface ForwardedSpeech {
@@ -1339,7 +1340,8 @@ export class MatchSession {
       id: `${this.sessionId}:turn:${turn}`, generation, startedAt, endedAt: null,
       providerStartMs, providerEndMs: null, version: 0, timer: null, deadlineTimer: null,
       activeOffers: this.captureAgreementOffers(), priorSpeech: this.lastForwardedSpeech,
-      transcript: '', conversation: this.settlementConversation(), release: () => undefined, released: false, settledVersion: -1, replyUntil: 0,
+      transcript: '', conversation: this.settlementConversation(), playerLoanDirection: null,
+      release: () => undefined, released: false, settledVersion: -1, replyUntil: 0,
     };
     this.enqueueSettlementTurn(turn, pending);
     // A missing VAD end cannot reserve the queue indefinitely.
@@ -1450,10 +1452,18 @@ export class MatchSession {
       signal.throwIfAborted();
       this.recordVoiceDiagnostic('agreement_resolve', { state: outcome.state, elapsedMs: Date.now() - startedAt, versionMatched: version === pending.version });
       if (version !== pending.version) continue;
+      const loanDirections = new Set(outcome.state === 'accepted'
+        ? outcome.agreements.map(item => item.action).filter(action => action !== 'time_extension')
+        : []);
+      // One player turn establishes one loan direction. Keep it for the
+      // spoken acceptance; an ambiguous or withdrawn request authorizes none.
+      pending.playerLoanDirection = loanDirections.size === 1 ? [...loanDirections][0] : null;
       if (outcome.state === 'accepted') {
         // A direct request still needs the AI's spoken acceptance. A player
         // accepting an already heard offer completes the agreement immediately.
-        for (const item of outcome.agreements) if (item.offerId !== null) this.applyAgreement(pending.id, item);
+        for (const item of outcome.agreements) {
+          if (item.offerId !== null && (item.action === 'time_extension' || item.action === pending.playerLoanDirection)) this.applyAgreement(pending.id, item);
+        }
       }
     } while (version !== pending.version);
     pending.settledVersion = version;
@@ -1516,11 +1526,21 @@ export class MatchSession {
     let version: number;
     do {
       version = speech.cause?.version ?? 0;
+      // A trailing player transcript can be queued behind this speech. Its
+      // resolver will reconcile the same ASR again once that revision settles.
+      if (speech.cause && speech.cause.settledVersion !== version) return;
       const offers = { ...(speech.cause?.activeOffers ?? emptyOffers()) };
+      const playerLoanDirection = speech.cause?.playerLoanDirection ?? null;
       const conversation = `${speech.conversation}\n${speech.cause?.conversation ?? ''}\nP:${speech.cause?.transcript ?? ''}\nR(previous segment):${speech.previousSegment?.transcript ?? ''}`;
       const audit = await retrySettlement(attemptSignal => this.agreements.auditAssistantSpeech(
-        getSnapshot(this.state), speech.transcript!, conversation, offers, attemptSignal,
-      ), result => result.state === 'unavailable', signal, 'classification');
+        getSnapshot(this.state), speech.transcript!, conversation, offers, attemptSignal, playerLoanDirection,
+      ), result => {
+        if (result.state === 'unavailable') return true;
+        if (result.state !== 'commit') return false;
+        const conflict = result.agreements.some(item => item.action !== 'time_extension' && item.action !== playerLoanDirection);
+        if (conflict) this.recordVoiceDiagnostic('agreement_loan_conflict', { playerLoanDirection });
+        return conflict;
+      }, signal, 'classification');
       signal.throwIfAborted();
       if (version !== (speech.cause?.version ?? 0)) continue;
       this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, phase: 'post_speech' });
