@@ -134,7 +134,6 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
 
   const showResult = (snapshot: MatchSnapshot) => {
     clearTimers();
-    view.stopScene();
     render({
       snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
       sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },

@@ -103,6 +103,7 @@ export class ReelScene {
   private rivalDistracted = false;
   private cabinetOverlays: Array<{ element: HTMLElement; depth: number }> = [];
   private wasPosing = false;
+  private pendingResult: { winner: Side | 'draw'; at: number } | null = null;
   private overlayOrigin = new THREE.Vector3();
   private overlayRight = new THREE.Vector3();
   private overlayDown = new THREE.Vector3();
@@ -433,9 +434,21 @@ export class ReelScene {
   /** Decorate the confirmed result without changing the settled reels or payout. */
   celebrateResult(winner: 'player' | 'rival' | 'draw'): void {
     if (this.disposed) return;
-    this.cabinet.stop();
+    const now = performance.now();
+    const at = this.cabinet.jackpotPoseEnd;
+    // The last reel's callback can request the result at pose progress zero.
+    if (!this.motionPreference.matches && !document.hidden && now < at) {
+      this.pendingResult = { winner, at };
+      this.requestRender();
+      return;
+    }
+    this.finishResult(winner, now);
+  }
+
+  private finishResult(winner: Side | 'draw', started: number): void {
+    this.stop();
     if (winner === 'player' && !this.motionPreference.matches && !document.hidden) {
-      this.cabinet.celebrateResult(performance.now());
+      this.cabinet.celebrateResult(started);
     }
     this.requestRender();
   }
@@ -483,6 +496,7 @@ export class ReelScene {
   }
 
   private clearWin(stopCabinet = true): void {
+    this.pendingResult = null;
     this.clearPlayerWin();
     this.clearRivalWin();
     if (stopCabinet) this.cabinet.stop();
@@ -559,6 +573,11 @@ export class ReelScene {
     this.frame = 0;
     if (this.disposed || document.hidden) return;
     const now = performance.now();
+    if (this.pendingResult && (now >= this.pendingResult.at || this.motionPreference.matches)) {
+      const { winner, at } = this.pendingResult;
+      // Keep the original timeline if a hidden tab resumes after the pose.
+      this.finishResult(winner, at);
+    }
     const completions: Array<() => void> = [];
     for (const side of ['player', 'rival'] as const) {
       const pending = this.pending[side];

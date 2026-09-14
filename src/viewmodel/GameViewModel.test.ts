@@ -271,9 +271,11 @@ describe('game view model', () => {
     expect(h.rivalRounds).toHaveLength(17);
     expect(h.vm.state.startControl.label).toBe('LAST SPIN');
     expect(h.vm.state.result).toBeNull();
+    const stopsBeforeResult = vi.mocked(h.presentation.stopScene).mock.calls.length;
     h.rivalRounds.at(-1)!.stopped();
     expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 17 }, scores: { player: 30, rival: h.rivalRounds.at(-1)!.spin.total } });
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
+    expect(h.presentation.stopScene).toHaveBeenCalledTimes(stopsBeforeResult);
     unsubscribe();
     h.vm.dispose();
     expect(h.clock.timers.size).toBe(0);
@@ -347,6 +349,7 @@ describe('game view model', () => {
     session.emit({ type: 'match_ended', snapshot: final });
     session.emit({ type: 'snapshot', snapshot: final, lastSpin: last });
     session.emit({ type: 'transcript', role: 'assistant', delta: '勝負だったね。' });
+    const stopsBeforeResult = vi.mocked(h.presentation.stopScene).mock.calls.length;
     h.rounds[0].stopped();
     expect(h.vm.state.result).toBeNull();
     h.rivalRounds[0].stopped();
@@ -354,6 +357,7 @@ describe('game view model', () => {
     expect(h.vm.state.result).toEqual(final);
     expect(h.vm.state.line).toBe('いい勝負だったね。');
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
+    expect(h.presentation.stopScene).toHaveBeenCalledTimes(stopsBeforeResult);
     await h.clock.advance(3000);
     expect(h.vm.state.line).toBe('いい勝負だったね。');
     session.emit({ type: 'voice_status', status: 'closed' });

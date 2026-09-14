@@ -674,7 +674,7 @@ export class GameViewModel implements GameCommands {
     this.reactionUntil = Infinity;
     if (!this.voiceReady) this.showResultLine(snapshot);
     this.emit();
-    this.deps.presentation.stopScene();
+    // The view finishes any final jackpot pose before replacing its effects.
     this.deps.presentation.celebrateResult(snapshot.winner ?? 'draw');
     this.deps.presentation.stopSound();
     this.deps.presentation.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');

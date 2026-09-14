@@ -17,6 +17,7 @@ type Burst = { started: number; until: number; jackpot: boolean; still: boolean;
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
 const sides: Side[] = ['player', 'rival'];
 const REST_YAW = .095;
+const JACKPOT_POSE_DURATION = 1100;
 // Make room for a full turn, then pop forward and settle home.
 const JACKPOT_POSES = [
   { at: 0, y: 0, z: 0, pitch: 0, scale: 1 },
@@ -66,6 +67,12 @@ export class CabinetArt {
   private readonly posedPivot = new THREE.Vector3();
   posing = false;
   get frontFacing(): boolean { return Math.cos(this.machine.rotation.y) * Math.cos(this.machine.rotation.x) > 0; }
+  get jackpotPoseEnd(): number {
+    const burst = this.bursts.player;
+    return burst.jackpot && !burst.still
+      ? Math.min(burst.until, burst.started + JACKPOT_POSE_DURATION * JACKPOT_POSES[JACKPOT_POSES.length - 1].at)
+      : 0;
+  }
 
   constructor() {
     this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
@@ -358,7 +365,7 @@ export class CabinetArt {
       if (side === 'player' && winning && !reducedMotion) {
         const recoil = Math.sin(progress * Math.PI * 3) * Math.exp(-progress * 5) * (burst.jackpot ? 1 : .45);
         // Finish before the next possible result, even during fast consecutive spins.
-        if (burst.jackpot) this.poseJackpot(burst.still ? .70 : (time - burst.started) / 1100);
+        if (burst.jackpot) this.poseJackpot(burst.still ? .70 : (time - burst.started) / JACKPOT_POSE_DURATION);
         else {
           this.machine.rotation.x = recoil * .012;
           this.machine.rotation.y += recoil * .018;

@@ -438,7 +438,11 @@ export class GameView implements GamePresentation {
     this.scene.show(['cherry', 'bell', 'seven']);
   }
   stopScene(): void { this.playerReelsSpinning = false; this.cancelBetPreview(); this.scene.stop(); }
-  celebrateResult(winner: 'player' | 'rival' | 'draw'): void { this.scene.celebrateResult(winner); }
+  celebrateResult(winner: 'player' | 'rival' | 'draw'): void {
+    this.playerReelsSpinning = false;
+    this.cancelBetPreview();
+    this.scene.celebrateResult(winner);
+  }
   playSound(cue: GameSound): void { this.audio.play(cue); }
   unlockSound(): Promise<void> { return this.audio.unlock(); }
   stopSound(): void { this.audio.stop(); }
