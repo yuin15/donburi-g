@@ -15,6 +15,7 @@ export const OVERLAYS: Record<string, Rect> = {
   winBurst: { x: 304, y: 638, w: 460, h: 91 },
   line: { x: 1200, y: 147, w: 403, h: 111 },
   heard: { x: 1030, y: 580, w: 510, h: 31 },
+  textChoice: { x: 1080, y: 380, w: 470, h: 180 },
   rivalMood: { x: 1020, y: 559, w: 530, h: 35 },
   miniLabel: { x: 1030, y: 631, w: 495, h: 55 },
   start: { x: 402, y: 742, w: 247, h: 76 },
