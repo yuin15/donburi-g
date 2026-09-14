@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceMatch,
   applyTimeExtension,
+  applyPlayerRequestedTimeExtension,
   createMatch,
   distractRival,
   getPoolCounts,
@@ -188,6 +189,15 @@ describe('authoritative match domain', () => {
     expect(applyTimeExtension(state)).toBeNull();
     advanceMatch(state, 60);
     expect(applyTimeExtension(state)).toBeNull();
+  });
+
+  it('lets one explicit player request extend from any point while keeping the normal CPU guard late-only', () => {
+    const playerRequested = createMatch(123, 'player-requested');
+    startMatch(playerRequested);
+    advanceMatch(playerRequested, 5);
+    expect(applyTimeExtension(playerRequested)).toBeNull();
+    expect(applyPlayerRequestedTimeExtension(playerRequested)).toMatchObject({ after: { duration: 70, remaining: 65 } });
+    expect(applyPlayerRequestedTimeExtension(playerRequested)).toBeNull();
   });
 
   it('moves exactly $5 for a bankrupt player and for every voluntary player loan without minting bankroll', () => {

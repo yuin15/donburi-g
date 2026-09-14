@@ -298,13 +298,22 @@ export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot 
   return getSnapshot(state);
 }
 
-/** The domain is the only place that can turn a model decision into extra time. */
+/** The domain is the only place that can turn an authorized extension into extra time. */
 export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  return applyTimeExtensionWithin(state, EXTENSION_REQUEST_REMAINING_SECONDS);
+}
+
+/** An explicit player request may use the same one-shot +10 second rule at any point in a live match. */
+export function applyPlayerRequestedTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  return applyTimeExtensionWithin(state, MATCH_SECONDS);
+}
+
+function applyTimeExtensionWithin(state: MatchState, maximumRemaining: number): Extract<GameEvent, { type: 'time_extended' }> | null {
   if (
     state.status !== 'playing'
     || state.extensionUsed
     || state.duration !== MATCH_SECONDS
-    || state.remaining > EXTENSION_REQUEST_REMAINING_SECONDS
+    || state.remaining > maximumRemaining
   ) return null;
   const before = getSnapshot(state);
   state.duration = MAX_MATCH_SECONDS;
