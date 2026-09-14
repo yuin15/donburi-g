@@ -12,6 +12,7 @@ export interface LiveEvents {
   onUserSpeech(): void;
   onUserSpeechEnd(): void;
   onCommandRejected?(rejection: { kind: 'thinking' | 'commentary'; speechId?: string }): void;
+  onRequiredReactionDropped?(speechId: string): void;
   onError(code: string): void;
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
@@ -452,7 +453,7 @@ export class GptLiveBridge {
     this.activeDelegationSpeech = null;
     this.timedOutRequiredCommands.add(speech.commandId);
     this.clearPendingCommand(speech.commandId);
-    this.events.onCommandRejected?.({ kind: 'commentary', speechId });
+    this.events.onRequiredReactionDropped?.(speechId);
   }
 
   private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null, speechId?: string): string | null {

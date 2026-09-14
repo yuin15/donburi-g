@@ -17,7 +17,7 @@ vi.mock('ws', async () => {
   } };
 });
 function setup(openingContext = '', language: 'ja' | 'en' = 'ja') {
-  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onCommandRejected: vi.fn(), onUsage: vi.fn() };
+  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onCommandRejected: vi.fn(), onRequiredReactionDropped: vi.fn(), onUsage: vi.fn() };
   return { bridge: new GptLiveBridge(events, openingContext, language), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
@@ -350,7 +350,7 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
-  it('releases an unstarted required hit so its owner can retry', async () => {
+  it('drops an unstarted required hit so its owner can advance the queue', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -360,14 +360,15 @@ describe('live conversation pacing', () => {
     expect(bridge.requestRequiredReaction('確定当たり情報: プレイヤー: ベル', 'required-timeout')).toBe(true);
     const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(events.onCommandRejected).toHaveBeenCalledExactlyOnceWith({ kind: 'commentary', speechId: 'required-timeout' });
+    expect(events.onRequiredReactionDropped).toHaveBeenCalledExactlyOnceWith('required-timeout');
+    expect(events.onCommandRejected).not.toHaveBeenCalled();
     socket.emit('message', JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', client_event_id: request.event_id } }));
     expect(events.onError).not.toHaveBeenCalled();
     const voice = Buffer.alloc(4800, 4).toString('base64');
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onAudio).toHaveBeenLastCalledWith(voice);
     await vi.advanceTimersByTimeAsync(1_201);
-    expect(bridge.requestRequiredReaction('確定当たり情報: 私: ベル', 'required-retry')).toBe(true);
+    expect(bridge.requestRequiredReaction('確定当たり情報: 私: ベル', 'next-required-hit')).toBe(true);
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;

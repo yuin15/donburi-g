@@ -427,6 +427,12 @@ export class MatchSession {
           this.scheduleRequiredWinReaction();
         }
       },
+      onRequiredReactionDropped: speechId => {
+        if (!current() || this.requiredWinSpeech?.id !== speechId) return;
+        this.requiredWinSpeech = null;
+        this.requiredWinReactions.shift();
+        this.scheduleRequiredWinReaction();
+      },
       onError: code => { if (current()) this.handleGptError(code); },
       // Old-session usage still belongs to this game even after its output is invalidated.
       onUsage: usage => console.info(JSON.stringify({ event: 'voice_session_usage', phase: resultOnly ? 'result' : 'match', ...usage })),
