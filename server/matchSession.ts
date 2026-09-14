@@ -204,7 +204,9 @@ export class MatchSession {
     this.voiceMode = deps.voiceMode ?? 'avatar';
     this.outputRoute = this.voiceMode;
     this.random = deps.random ?? Math.random;
-    this.conversationPacer = new ProactiveConversationPacer(this.random);
+    // Keep speech/offer pacing, but restore event-driven conversation without
+    // the extra silence-triggered questions introduced in #133.
+    this.conversationPacer = new ProactiveConversationPacer(this.random, false);
   }
 
   private readonly random: () => number;
