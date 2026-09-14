@@ -115,7 +115,8 @@ export class CabinetArt {
     this.resultUntil = 0;
     this.resultCaption = winner;
     if (this.resultText) this.playerGroup.remove(this.resultText);
-    this.resultText = winner ? this.lettering.make(winner === 'player' ? 'YOU WIN!' : winner === 'rival' ? 'RIVAL WINS' : 'DRAW', 89, 570, 22) : null;
+    this.resultText = winner === 'player' ? this.victoryTitle.makeHeading()
+      : winner ? this.lettering.make(winner === 'rival' ? 'RIVAL WINS' : 'DRAW', 89, 570, 22) : null;
     if (this.resultText) {
       this.resultText.position.set(530, STAGE_HEIGHT - 346, 280);
       this.resultText.rotation.set(-.14, -.1, .025);
