@@ -76,6 +76,8 @@ export type ClientMessage =
   | { type: 'mic'; audio: string }
   | { type: 'voice_speech_done'; speechId: string }
   | { type: 'voice_route_ready'; transitionId: string }
+  /** The client has visibly settled this confirmed reel result. */
+  | { type: 'spin_revealed'; side: Side; round: number }
   | { type: 'voice_close' }
   | { type: 'snapshot' }
   | { type: 'close' };

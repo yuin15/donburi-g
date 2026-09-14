@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type SpinView } from '../shared/protocol.js';
+import { MAX_MATCH_ROUNDS, MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type Side, type SpinView, type SymbolId } from '../shared/protocol.js';
 import {
   abortMatch,
   applyPlayerRequestedTimeExtension,
@@ -10,7 +10,6 @@ import {
   createMatch,
   getSnapshot,
   MANUAL_SPIN_INTERVAL,
-  PAYOUT,
   LOAN_AMOUNT,
   requestManualSpin,
   purchaseUpgrade,
@@ -28,6 +27,7 @@ import { MediaServerLeg } from './mediaServer.js';
 import { acceptsImmediateLoanOffer, chooseLoanDecision, choosePlayerLoanIntent, chooseRivalUpgrade, chooseTimeExtension, classifyPlayerLoanIntent, offersLoanToRival, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
 import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
+import { winningSymbols } from '../src/domain/matchStats.js';
 import { ProactiveConversationPacer } from './proactiveConversation.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
@@ -50,6 +50,7 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
   z.object({ type: z.literal('voice_speech_done'), speechId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('voice_route_ready'), transitionId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal('spin_revealed'), side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_MATCH_ROUNDS) }),
   z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
@@ -91,6 +92,9 @@ const EXTENSION_RETRY_LINE: LocalizedLine = { ja: 'もう一度、延長して�
 const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。初回だけ、まず資金切れかこの台への軽い愚痴・感想を短く一言で話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげる。例文を列挙して読まず、すぐに「雑談しよう？」「どうする？」と質問を重ねない。短い二文までで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
+const REQUIRED_WIN_REACTION_TTL_MS = 2_000;
+type RequiredWins = Record<Side, Record<SymbolId, number>>;
+type PendingRequiredWinReaction = { wins: RequiredWins; awaiting: Set<string>; firstRevealedAt?: number };
 
 export class MatchSession {
   private readonly state: MatchState;
@@ -117,6 +121,9 @@ export class MatchSession {
     return accepted;
   }, () => this.conversationPacer.nextInitiatedAt());
   private readonly conversationPacer: ProactiveConversationPacer;
+  private readonly requiredWinKeys = new Set<string>();
+  private readonly pendingRequiredWinReactions = new Map<string, PendingRequiredWinReaction>();
+  private requiredWinReactionSequence = 0;
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
@@ -232,6 +239,7 @@ export class MatchSession {
           this.finishLoanOfferSpeech(speechId);
           this.finishPlayerLoanOfferSpeech(speechId);
           this.gpt?.noteSpeechPlaybackDone(speechId);
+          this.gpt?.completeConfirmedSpeech(speechId);
         });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
@@ -662,6 +670,10 @@ export class MatchSession {
       this.endVoice();
       return;
     }
+    if (message.type === 'spin_revealed') {
+      this.revealRequiredWinReaction(message.side, message.round);
+      return;
+    }
     if (message.type === 'start') {
       this.beginMatch();
       return;
@@ -694,6 +706,7 @@ export class MatchSession {
       this.finishLoanOfferSpeech(message.speechId);
       this.finishPlayerLoanOfferSpeech(message.speechId);
       this.gpt?.noteSpeechPlaybackDone(message.speechId);
+      this.gpt?.completeConfirmedSpeech(message.speechId);
       return;
     }
     if (message.type === 'voice_route_ready') {
@@ -825,19 +838,12 @@ export class MatchSession {
       if (event.spin.side === 'rival') {
         this.emit({ type: 'rival_line', text: `I'm on $${event.spin.bet ?? this.state.bets.rival}.`, reason: 'bet_strategy' });
       }
-      if (event.spin.payout >= PAYOUT.seven) {
-        const player = event.spin.side === 'player';
-        this.react(player ? 'player_jackpot' : 'rival_jackpot', player
-          ? 'プレイヤーが7揃いの大当たりを出した。共有して喜び、「今の当たり、どうだった？」のようにプレイヤーへ短く尋ねて。'
-          : 'あなた自身が7揃いの大当たりを出した。独り言にせず、「そっちは次に何を狙う？」のようにプレイヤーへ短く尋ねて。', event.spin.round, event.spin.side);
-      }
+      this.recordRequiredWinReaction(event.at, event.spin);
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を共有し、「今の同時当たり、どうだった？」のようにプレイヤーへ短く尋ねて。', event.player.round);
-      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。共有して喜び、「今の当たり、どうだった？」のようにプレイヤーへ短く尋ねて。', event.player.round);
-      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。独り言にせず、「そっちは次に何を狙う？」のようにプレイヤーへ短く尋ねて。', event.rival.round);
+      this.recordRequiredWinReaction(event.at, event.player, event.rival);
       return;
     }
     if (event.type === 'leader_change') {
@@ -863,6 +869,7 @@ export class MatchSession {
       return;
     }
     if (event.type === 'match_end') {
+      this.pendingRequiredWinReactions.clear();
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
       const direction: LocalizedLine = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
@@ -2228,6 +2235,117 @@ export class MatchSession {
     });
   }
 
+  private recordRequiredWinReaction(eventAt: number, ...spins: SpinView[]): void {
+    if (!this.requiredWinEventIsFresh(eventAt)) return;
+    const wins: RequiredWins = {
+      player: { cherry: 0, bell: 0, seven: 0 },
+      rival: { cherry: 0, bell: 0, seven: 0 },
+    };
+    const awaiting = new Set<string>();
+    for (const spin of spins) {
+      const key = `${spin.side}:${spin.round}`;
+      if (this.requiredWinKeys.has(key)) continue;
+      this.discardPendingRequiredWinReactionsForSide(spin.side);
+      this.requiredWinKeys.add(key);
+      const symbols = winningSymbols(spin);
+      for (const symbol of symbols) wins[spin.side][symbol] += 1;
+      if (symbols.length) awaiting.add(key);
+    }
+    if (awaiting.size === 0) return;
+    const reaction: PendingRequiredWinReaction = { wins, awaiting };
+    for (const key of awaiting) this.pendingRequiredWinReactions.set(key, reaction);
+  }
+
+  /** A client reel-stop confirms that this already-validated result was actually shown. */
+  private revealRequiredWinReaction(side: Side, round: number): void {
+    const key = `${side}:${round}`;
+    const reaction = this.pendingRequiredWinReactions.get(key);
+    if (!reaction) return;
+    const revealedAt = Date.now();
+    if (reaction.firstRevealedAt !== undefined && revealedAt - reaction.firstRevealedAt >= REQUIRED_WIN_REACTION_TTL_MS) {
+      this.discardRequiredWinReaction(reaction);
+      return;
+    }
+    reaction.firstRevealedAt ??= revealedAt;
+    this.pendingRequiredWinReactions.delete(key);
+    reaction.awaiting.delete(key);
+    if (reaction.awaiting.size !== 0) return;
+    this.sendRequiredWinReaction(reaction.wins, revealedAt);
+  }
+
+  private discardRequiredWinReaction(reaction: PendingRequiredWinReaction): void {
+    for (const key of reaction.awaiting) {
+      if (this.pendingRequiredWinReactions.get(key) === reaction) this.pendingRequiredWinReactions.delete(key);
+    }
+    reaction.awaiting.clear();
+  }
+
+  /** A newer confirmed reel supersedes an earlier result the client never showed. */
+  private discardPendingRequiredWinReactionsForSide(side: Side): void {
+    for (const [key, reaction] of this.pendingRequiredWinReactions) {
+      if (key.startsWith(`${side}:`)) this.discardRequiredWinReaction(reaction);
+    }
+  }
+
+  private sendRequiredWinReaction(wins: RequiredWins, visibleAt: number): void {
+    if (!this.requiredWinReactionIsFresh(visibleAt)) return;
+    const sequence = ++this.requiredWinReactionSequence;
+    if (!this.gpt?.prepareRequiredReaction?.()) return;
+    const line = this.requiredWinLine(wins);
+    const interruptPlayback = this.activeOutputSpeechId !== null || Date.now() < this.assistantOutputUntil;
+    this.emit({ type: 'voice_interrupt' });
+    if (this.outputRoute !== 'avatar' || !this.media || !interruptPlayback) {
+      this.gpt.requestRequiredReaction?.(line);
+      return;
+    }
+    const bridge = this.gpt;
+    void this.media.interruptAndWait().then(cleared => {
+      if (!cleared || sequence !== this.requiredWinReactionSequence || bridge !== this.gpt || !this.requiredWinReactionIsFresh(visibleAt)) return;
+      bridge.requestRequiredReaction?.(line);
+    });
+  }
+
+  private requiredWinEventIsFresh(eventAt: number): boolean {
+    const ageMs = Math.max(0, this.state.elapsed - eventAt) * 1000;
+    return ageMs < REQUIRED_WIN_REACTION_TTL_MS && this.voiceReady && !this.closed && !this.voiceDisabled && this.state.status === 'playing';
+  }
+
+  private requiredWinReactionIsFresh(visibleAt: number): boolean {
+    return Date.now() - visibleAt < REQUIRED_WIN_REACTION_TTL_MS && this.voiceReady && !this.closed && !this.voiceDisabled && this.state.status === 'playing';
+  }
+
+  private requiredWinLine(wins: RequiredWins): LocalizedLine {
+    const ja = [
+      this.describeRequiredWinsJa('プレイヤー', wins.player),
+      this.describeRequiredWinsJa('私', wins.rival),
+    ].filter(Boolean).join('、');
+    const en = [
+      this.describeRequiredWinsEn('The player', wins.player),
+      this.describeRequiredWinsEn('I', wins.rival),
+    ].filter(Boolean).join(', ');
+    return {
+      ja: `確定当たり情報（発話内容ではない）: ${ja}`,
+      en: `Confirmed hit information (not speech): ${en}`,
+    };
+  }
+
+  private describeRequiredWinsJa(winner: string, wins: Record<SymbolId, number>): string {
+    const seven = wins.seven ? `7揃い${wins.seven > 1 ? ` ${wins.seven}ライン` : ''}` : '';
+    const small = (['cherry', 'bell'] as const).flatMap(symbol => wins[symbol]
+      ? [`${symbol === 'cherry' ? 'チェリー' : 'ベル'}${wins[symbol] > 1 ? ` ${wins[symbol]}ライン` : ''}`]
+      : []).join('と');
+    const symbols = [seven, small].filter(Boolean).join('、');
+    return symbols ? `${winner}: ${symbols}` : '';
+  }
+
+  private describeRequiredWinsEn(winner: string, wins: Record<SymbolId, number>): string {
+    const named = (symbol: SymbolId) => symbol === 'seven' ? 'a seven' : symbol === 'bell' ? 'a bell' : 'cherries';
+    const parts = (['seven', 'cherry', 'bell'] as const).flatMap(symbol => wins[symbol]
+      ? [`${wins[symbol] > 1 ? `${wins[symbol]} ${symbol === 'seven' ? 'sevens' : `${symbol} lines`}` : named(symbol)}`]
+      : []);
+    return parts.length ? `${winner}: ${parts.join(', ')}` : '';
+  }
+
   private pushContext(): void {
     if (!this.voiceReady || this.voiceDisabled || this.closed || !this.gpt) return;
     const context = this.gameContext();
@@ -2253,7 +2371,7 @@ export class MatchSession {
     const wins = (side: 'player' | 'rival') => Object.entries(snapshot.stats[side].wins).filter(([, count]) => count > 0).map(([symbol, count]) => `${symbol}:${count}`).join(',') || '0';
     const bothBalancesEmpty = snapshot.balances.player === 0 && snapshot.balances.rival === 0;
     const conversationContext = !bothBalancesEmpty
-      ? `会話方針: 通常のゲーム会話。確定当選数: プレイヤー[${wins('player')}],あなた[${wins('rival')}]。`
+      ? `会話方針: 通常のゲーム会話。これは状態通知であり実況要求ではない。この通知だけで当たりや出目を自発的に実況しない。明示的な当たり反応要求には短く反応し、ユーザーが当たりについて質問した場合は答える。古い当たりを今起きたように話さない。確定当選数: プレイヤー[${wins('player')}],あなた[${wins('rival')}]。`
       : snapshot.status === 'ready'
         ? '会話方針: 双方の確定残高が$0だが、まだ試合開始前。雑談への移行案内を発話せず待つ。'
         : snapshot.status === 'result'

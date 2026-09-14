@@ -21,6 +21,7 @@ const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のA
 const LOAN_SPEECH_GUARD = '自分から借入を提案しない。確定指示以外では、借りた・受け取った・ありがとう等を言わない。';
 const PLAYER_LOAN_GUARD = 'プレイヤーから明確な借入要求があれば必ず$5を貸す。要求を断ったり、判断できないと答えたりしない。';
 const CONVERSATION_GUARD = 'プレイヤーの発言をそのまま繰り返したり要約だけで終えず、質問には答え、雑談にはライバル自身の短い反応を返す。会話が途切れた時だけ、確定したゲーム文脈か直前の会話から答えやすい一問で話を広げる。毎回質問で締めず、返答待ちには別の話題を重ねない。聞き取れない時だけ短く聞き返す。';
+const GAME_CONTEXT_GUARD = 'ゲームの状態更新は実況要求ではない。チェリー・ベル・777を含む当たりや出目を自発的に実況したり、会話の返事に混ぜたりしない。ユーザーが当たりについて質問した場合は答える。明示的な当たり反応要求が届いた場合は、その要求の確定情報だけに短く反応する。古い当たりを今起きた出来事として話さない。';
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
@@ -32,7 +33,7 @@ export class GptLiveBridge {
   private suppressionStop: ReturnType<typeof setTimeout> | null = null;
   private pendingConfirmedLine: { line: string | LocalizedLine; speechId?: string } | null = null;
   private pendingDelegationResult: { id: string; content: string | LocalizedLine; speechId: string } | null = null;
-  private activeDelegationSpeech: { speechId: string; commandId: string; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  private activeDelegationSpeech: { speechId: string; commandId: string; started: boolean; holdUntilPlayback: boolean; ended: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private activeNormalSpeech: { speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private readonly normalSpeechQueue: Array<{ speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null }> = [];
   private readonly pendingNormalTranscripts: Array<{ delta: string; timing: { startMs: number | null; endMs: number | null } | undefined }> = [];
@@ -47,10 +48,11 @@ export class GptLiveBridge {
   private lastCommentaryRequestAt = 0;
   private appendSequence = 0;
   private normalSpeechSequence = 0;
-  private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
+  private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary' | 'instructions'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
   private contextInFlight: string | null = null;
   private latestContext = '';
   private sentContext = '';
+  private contextRetries = 0;
   private closing: Promise<void> | null = null;
   private finishConnect: ((ready: boolean) => void) | null = null;
   private usageSeconds: number | null = null;
@@ -85,7 +87,7 @@ export class GptLiveBridge {
             model: env.gptLiveModel,
             store: false,
             delegation: { type: 'client' },
-            instructions: `${PERSONA}\n${LOAN_SPEECH_GUARD}\n${PLAYER_LOAN_GUARD}\n${CONVERSATION_GUARD}${this.openingContext ? `\n${this.openingContext}` : ''}`,
+            instructions: `${PERSONA}\n${LOAN_SPEECH_GUARD}\n${PLAYER_LOAN_GUARD}\n${CONVERSATION_GUARD}\n${GAME_CONTEXT_GUARD}${this.openingContext ? `\n${this.openingContext}` : ''}`,
             audio: {
               format: { type: 'audio/pcm', rate: 24000 },
               output: { voice: env.gptLiveVoice },
@@ -135,6 +137,10 @@ export class GptLiveBridge {
           this.flushContext();
           return;
         }
+        if (type === 'session.instructions.appended' && typeof event.client_event_id === 'string') {
+          this.clearPendingCommand(event.client_event_id);
+          return;
+        }
         if (type === 'session.delegation.created') {
           const delegation = event.delegation as { id?: unknown; target?: unknown } | undefined;
           const offsetMs = event.offset_ms;
@@ -156,7 +162,7 @@ export class GptLiveBridge {
             return;
           }
           const speech = this.activeDelegationSpeech;
-          if (speech) {
+          if (speech && !speech.ended) {
             let endDelegationSpeech = false;
             if (audible) { speech.started = true; speech.quietMs = 0; }
             else if (speech.started) speech.quietMs += pcm.length / 48;
@@ -206,7 +212,9 @@ export class GptLiveBridge {
               this.activeDelegationSpeech = null;
               this.suppressAfterTaggedSpeech = false;
             }
-            this.events.onCommandRejected?.({ kind: pending.kind, ...(pending.speechId ? { speechId: pending.speechId } : {}) });
+            if (pending.kind !== 'instructions') {
+              this.events.onCommandRejected?.({ kind: pending.kind, ...(pending.speechId ? { speechId: pending.speechId } : {}) });
+            }
             return;
           }
           this.events.onError('fatal');
@@ -254,6 +262,7 @@ export class GptLiveBridge {
 
   updateGameContext(text: string): void {
     if (!this.ready) return;
+    if (text.slice(0, 1800) !== this.latestContext) this.contextRetries = 0;
     this.latestContext = text.slice(0, 1800);
     this.flushContext();
   }
@@ -330,6 +339,43 @@ export class GptLiveBridge {
       ...(speechId ? { speechId } : {}),
     };
     if (this.suppressedAt === null && !this.conversationLanguagePending) this.flushConfirmedLine();
+  }
+
+  /** Stops ordinary output, then asks for a fresh game reaction without owning fixed speech. */
+  prepareRequiredReaction(): boolean {
+    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult || this.hasConfirmedPlayback()) return false;
+    this.interruptPlayback();
+    this.suppressOutput();
+    return true;
+  }
+
+  /** Sends a fresh game reaction after its caller has cleared ordinary output. */
+  requestRequiredReaction(line: string | LocalizedLine): boolean {
+    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult || this.hasConfirmedPlayback()) return false;
+    const localizedLine = typeof line === 'string' ? line : localized(line, this.conversationLanguage);
+    const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
+    const interrupt = this.append('instructions', [
+      `Use ${language}. Immediately interrupt any normal conversation already in progress and replace it with the required short game reaction.`,
+      'Do not continue the interrupted conversation before reacting.',
+    ].join(' '), null);
+    const reaction = this.append('commentary', [
+      `Use ${language}. The following is confirmed game information, not a line to read aloud: ${JSON.stringify(localizedLine)}`,
+      'React as the rival with one short, natural line. You must react, but do not narrate or explain the spin.',
+      'Do not read out or list who matched what, symbol names, or line counts.',
+      'For the player\'s small hit, sound surprised or disappointed; for your own, pleased or lightly boastful; for both, competitive. Make a seven a bigger reaction. Avoid repeating stock phrases.',
+    ].join(' '), null);
+    return interrupt !== null && reaction !== null;
+  }
+
+  /** Browser PCM or Avatar playback confirms that a tagged line may release output. */
+  completeConfirmedSpeech(speechId: string): void {
+    const speech = this.activeDelegationSpeech;
+    if (!speech || speech.speechId !== speechId || !speech.holdUntilPlayback || !speech.ended) return;
+    this.activeDelegationSpeech = null;
+    if (this.suppressedAt === null && !this.conversationLanguagePending) {
+      this.flushConfirmedLine();
+      this.flushDelegationResult();
+    }
   }
 
   /** Cancels only the tagged confirmed line that has not finished speaking. */
@@ -426,6 +472,7 @@ export class GptLiveBridge {
   }
 
   private flushConfirmedLine(): void {
+    if (this.activeDelegationSpeech?.holdUntilPlayback) return;
     if (!this.pendingConfirmedLine) return;
     if (this.hasPendingPlayback() || Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
     const pending = this.pendingConfirmedLine;
@@ -434,11 +481,12 @@ export class GptLiveBridge {
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
     const commandId = pending && line ? this.append('commentary', `Speak only this confirmed ${language} line exactly: ${JSON.stringify(line)}`, null, pending.speechId) : null;
     if (commandId && pending?.speechId) {
-      this.activeDelegationSpeech = { speechId: pending.speechId, commandId, started: false, quietMs: 0, timer: null };
+      this.activeDelegationSpeech = { speechId: pending.speechId, commandId, started: false, holdUntilPlayback: false, ended: false, quietMs: 0, timer: null };
     }
   }
 
   private flushDelegationResult(): void {
+    if (this.activeDelegationSpeech?.holdUntilPlayback) return;
     if (!this.pendingDelegationResult) return;
     if (this.hasPendingPlayback() || Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
     const result = this.pendingDelegationResult;
@@ -449,7 +497,7 @@ export class GptLiveBridge {
       ? result.content
       : `Speak only this confirmed ${language} line exactly: ${JSON.stringify(localized(result.content, this.conversationLanguage))}`;
     const commandId = result ? this.append('commentary', content, result.id, result.speechId) : null;
-    if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, quietMs: 0, timer: null };
+    if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, holdUntilPlayback: false, ended: false, quietMs: 0, timer: null };
   }
 
   /** Start normal PCM immediately when safe; silence only marks the utterance boundary. */
@@ -553,6 +601,10 @@ export class GptLiveBridge {
       || this.playbackSpeechIds.size > 0;
   }
 
+  private hasConfirmedPlayback(): boolean {
+    return [...this.playbackSpeechIds].some(id => id !== this.normalPlaybackSpeechId);
+  }
+
   private schedulePendingSpeech(): void {
     if (!this.pendingConfirmedLine && !this.pendingDelegationResult) return;
     if (this.hasActivePlayback()) return;
@@ -579,9 +631,10 @@ export class GptLiveBridge {
   }
   private finishDelegationSpeech(): void {
     const speech = this.activeDelegationSpeech;
-    if (!speech) return;
+    if (!speech || speech.ended) return;
     if (speech.timer) clearTimeout(speech.timer);
-    this.activeDelegationSpeech = null;
+    speech.ended = true;
+    if (!speech.holdUntilPlayback) this.activeDelegationSpeech = null;
     this.playbackSpeechIds.add(speech.speechId);
     this.events.onSpeechAudioEnded(speech.speechId);
     if (this.suppressAfterTaggedSpeech) {
@@ -590,10 +643,23 @@ export class GptLiveBridge {
     }
   }
 
-  private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null, speechId?: string): string | null {
+  private append(kind: 'thinking' | 'commentary' | 'instructions', content: string, delegationId: string | null, speechId?: string): string | null {
     if (!this.ready || !content.trim()) return null;
     const eventId = `${kind}_${++this.appendSequence}`;
-    const timer = setTimeout(() => this.clearPendingCommand(eventId), 5000);
+    const timer = setTimeout(() => {
+      this.clearPendingCommand(eventId);
+      if (this.contextInFlight !== eventId) return;
+      this.contextInFlight = null;
+      // An ACK is not guaranteed while frame progress stalls. Release the
+      // in-flight slot and send only the latest state, never replay old hits.
+      // Retry an unchanged state at most once; a new state gets its own budget.
+      if (this.latestContext === this.sentContext) {
+        if (this.contextRetries >= 1) return;
+        this.contextRetries += 1;
+        this.sentContext = '';
+      }
+      this.flushContext();
+    }, 5000);
     this.pendingCommands.set(eventId, { kind, ...(speechId ? { speechId } : {}), timer });
     if (!this.send({
       type: `session.${kind}.append`,

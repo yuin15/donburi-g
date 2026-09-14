@@ -50,6 +50,8 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
     expect(start.session.instructions).toContain('質問や訂正には必要な説明');
     expect(start.session.instructions).toContain('自動の時間延長を誘わず');
+    expect(start.session.instructions).toContain('ゲームの状態更新は実況要求ではない');
+    expect(start.session.instructions).toContain('ユーザーが当たりについて質問した場合は答える');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -276,6 +278,35 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('releases a missing context ACK, sends the latest miss and ignores a late old ACK', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.updateGameContext('round 5: hit');
+    const first = JSON.parse(socket.send.mock.calls[0][0]);
+    bridge.updateGameContext('round 6: miss');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    const latest = JSON.parse(socket.send.mock.calls[1][0]);
+    expect(latest.content).toBe('round 6: miss');
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: first.event_id }));
+    bridge.updateGameContext('round 7: miss');
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: latest.event_id }));
+    expect(JSON.parse(socket.send.mock.calls[2][0]).content).toBe('round 7: miss');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(socket.send).toHaveBeenCalledTimes(4); // One retry of unchanged round 7.
+    bridge.updateGameContext('round 8: miss');
+    expect(JSON.parse(socket.send.mock.calls[4][0]).content).toBe('round 8: miss');
+    const closing = bridge.close();
+    socket.emit('close');
+    await closing;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('accepts a $0 transition reaction as a short response and tells the model to wait afterward', async () => {
     const { bridge } = setup();
     const connecting = bridge.connect();
@@ -342,6 +373,76 @@ describe('live conversation pacing', () => {
     expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'loan-offer-speech', 'confirmed');
     for (let i = 0; i < 9; i += 1) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith('loan-offer-speech');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('interrupts ordinary output before sending a required hit reaction', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const oldVoice = Buffer.alloc(4800, 4).toString('base64');
+    const quiet = Buffer.alloc(4800).toString('base64');
+    expect(bridge.prepareRequiredReaction()).toBe(true);
+    expect(bridge.requestRequiredReaction('確定当たり情報（発話内容ではない）: プレイヤー: ベル')).toBe(true);
+    const [instruction, required] = socket.send.mock.calls.slice(-2).map(([raw]) => JSON.parse(raw));
+    expect(instruction).toMatchObject({ type: 'session.instructions.append', delegation_id: null });
+    expect(instruction.content).toContain('Immediately interrupt any normal conversation');
+    expect(required).toMatchObject({ type: 'session.commentary.append', delegation_id: null });
+    expect(required.content).toContain('not a line to read aloud');
+    expect(required.content).toContain('Do not read out or list');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    expect(events.onAudio).not.toHaveBeenCalled();
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: oldVoice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(oldVoice, 'normal-1', 'normal');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('keeps a tagged fixed line eligible for its own playback completion', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.requestConfirmedLine('次の確定台詞', 'fixed-speech');
+    expect(bridge.prepareRequiredReaction()).toBe(false);
+    expect(bridge.requestRequiredReaction('確定当たり情報（発話内容ではない）: プレイヤー: ベル')).toBe(false);
+    expect(socket.send).toHaveBeenCalledOnce();
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
+  it('protects confirmed playback after PCM ends and clears an interrupted normal playback fence', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    bridge.requestConfirmedLine('確定台詞', 'confirmed-hit-guard');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    await vi.advanceTimersByTimeAsync(900);
+    expect(bridge.prepareRequiredReaction()).toBe(false);
+    expect(bridge.requestRequiredReaction('ベル')).toBe(false);
+    bridge.noteSpeechPlaybackDone('confirmed-hit-guard');
+    await vi.advanceTimersByTimeAsync(5_000);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-1', 'normal');
+    expect(bridge.prepareRequiredReaction()).toBe(true);
+    await vi.advanceTimersByTimeAsync(4_000);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-2', 'normal');
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;

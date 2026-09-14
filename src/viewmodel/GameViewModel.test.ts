@@ -440,6 +440,24 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('reports a live spin only after its visible reel stop', async () => {
+    const h = setup();
+    const session = await beginLive(h);
+    const hit: SpinView = { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 };
+    session.emit({ type: 'side_spin', spin: hit });
+    expect(session.messages.filter(message => message.type === 'spin_revealed')).toHaveLength(0);
+    h.rounds[0].stopped();
+    expect(session.messages.filter(message => message.type === 'spin_revealed')).toEqual([
+      { type: 'spin_revealed', side: 'player', round: 1 },
+    ]);
+
+    h.setVisible(false);
+    session.emit({ type: 'side_spin', spin: { ...hit, round: 2, total: 42 } });
+    h.rounds[1].stopped();
+    expect(session.messages.filter(message => message.type === 'spin_revealed')).toHaveLength(1);
+    h.vm.dispose();
+  });
+
   it('shows an authoritative rival distraction and clears it from its recovery event or snapshot', async () => {
     const h = setup();
     const session = await beginLive(h);
