@@ -104,6 +104,14 @@ async function beginCpu(h: ReturnType<typeof setup>) {
   await start;
 }
 
+function spendCpuBankroll(h: ReturnType<typeof setup>): void {
+  h.vm.setBet(5);
+  h.vm.requestSpin();
+  expect(h.rounds.at(-1)?.spin).toMatchObject({ bet: 5, payout: 0, total: 25 });
+  h.vm.purchaseUpgrade('steady');
+  h.vm.purchaseUpgrade('steady');
+}
+
 it('purchases during CPU play, retains spending after stopping, and resets on rematch', async () => {
   const h = setup();
   await beginCpu(h);
@@ -543,9 +551,7 @@ describe('game view model', () => {
   it('offers one CPU borrow card, applies it once, and rejects a delayed stale reply', async () => {
     const h = setup();
     await beginCpu(h);
-    h.vm.purchaseUpgrade('steady');
-    h.vm.purchaseUpgrade('steady');
-    h.vm.purchaseUpgrade('steady');
+    spendCpuBankroll(h);
     const choice = h.vm.state.textChoice;
     expect(choice).toMatchObject({ kind: 'borrow', question: 'BORROW $5?' });
     h.vm.respondTextChoice(choice!.token, true);
@@ -558,9 +564,7 @@ describe('game view model', () => {
   it('expires a CPU card both on its timer and before a delayed click can apply it', async () => {
     const h = setup();
     await beginCpu(h);
-    h.vm.purchaseUpgrade('steady');
-    h.vm.purchaseUpgrade('steady');
-    h.vm.purchaseUpgrade('steady');
+    spendCpuBankroll(h);
     const choice = h.vm.state.textChoice!;
     h.clock.time = choice.expiresAt + 1;
     h.vm.respondTextChoice(choice.token, true);
@@ -569,9 +573,7 @@ describe('game view model', () => {
 
     const normal = setup();
     await beginCpu(normal);
-    normal.vm.purchaseUpgrade('steady');
-    normal.vm.purchaseUpgrade('steady');
-    normal.vm.purchaseUpgrade('steady');
+    spendCpuBankroll(normal);
     await normal.clock.advance(5000);
     expect(normal.vm.state.textChoice).toBeNull();
     normal.vm.leave();
