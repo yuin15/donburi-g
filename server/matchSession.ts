@@ -804,7 +804,7 @@ export class MatchSession {
     for (const event of events) this.handleGameEvent(event);
     if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing' && !this.isBothBalancesExhausted()) {
       this.warnedTime = true;
-      this.reactions.offer('last-ten', '残り10秒を切った。独り言にせず、プレイヤーへ「最後はどうする？」のような答えやすい質問で短く呼びかけて。', 30, () => this.state.status === 'playing' && !this.hasBothZeroBalances());
+      this.reactions.offer('last-ten', '残り10秒を切った。短くラストスパートの一言。', 30, () => this.state.status === 'playing' && !this.hasBothZeroBalances());
     }
     if (Date.now() - this.lastSnapshotAt >= 250) this.emitSnapshot();
   }
@@ -818,23 +818,23 @@ export class MatchSession {
       if (event.spin.payout >= PAYOUT.seven) {
         const player = event.spin.side === 'player';
         this.react(player ? 'player_jackpot' : 'rival_jackpot', player
-          ? 'プレイヤーが7揃いの大当たりを出した。共有して喜び、「今の当たり、どうだった？」のようにプレイヤーへ短く尋ねて。'
-          : 'あなた自身が7揃いの大当たりを出した。独り言にせず、「そっちは次に何を狙う？」のようにプレイヤーへ短く尋ねて。', event.spin.round, event.spin.side);
+          ? 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。'
+          : 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.spin.round, event.spin.side);
       }
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を共有し、「今の同時当たり、どうだった？」のようにプレイヤーへ短く尋ねて。', event.player.round);
-      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。共有して喜び、「今の当たり、どうだった？」のようにプレイヤーへ短く尋ねて。', event.player.round);
-      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。独り言にせず、「そっちは次に何を狙う？」のようにプレイヤーへ短く尋ねて。', event.rival.round);
+      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を踏まえて短く反応して。', event.player.round);
+      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
+      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
       return;
     }
     if (event.type === 'leader_change') {
       const side = event.leader === 'rival' ? 'rival' : 'player';
       const round = this.state.spinMode === 'manual' ? this.state.rounds[side] : Math.floor(event.at / 2);
-      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。独り言にせず、「このまま逃げ切れそう？」のようにプレイヤーへ短く尋ねて。', round, side);
-      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言や独り言にはせず、プレイヤーへ次の一手を尋ねる軽い一言にして。', round, side);
+      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', round, side);
+      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', round, side);
       return;
     }
     if (event.type === 'upgrade_open') {
@@ -849,7 +849,7 @@ export class MatchSession {
         player: event.player,
         rival: event.rival,
       });
-      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦の独り言でなく、プレイヤーへ感想か次の狙いを短く尋ねて。`, 40, () => this.state.status === 'playing');
+      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing');
       return;
     }
     if (event.type === 'match_end') {
@@ -858,10 +858,10 @@ export class MatchSession {
       const direction: LocalizedLine = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
         ? { ja: '双方とも残高を使い切った。逆転、再戦、追加の回転は誘わず、軽く勝負を諦めた短い一言だけを話す。', en: 'Both balances are empty. Briefly accept the result without suggesting another spin or rematch.' }
         : event.snapshot.winner === 'player'
-        ? { ja: 'あなたは負けた。プレイヤーの勝ちを認めて、次の勝負も楽しみにさせる短い一言。', en: 'You lost. Give the player one short, friendly line acknowledging the win.' }
+        ? { ja: 'あなたは負けた。試合中の流れを踏まえて短く悔しがって。', en: 'You lost. React briefly to how the match went.' }
         : event.snapshot.winner === 'rival'
-          ? { ja: 'あなたは勝った。嫌味になりすぎず、プレイヤーにも次を促す一言。', en: 'You won. Give the player one short, friendly victory line.' }
-          : { ja: '引き分け。プレイヤーへ再戦したくなる一言。', en: 'It is a draw. Give the player one short, friendly line.' };
+          ? { ja: 'あなたは勝った。嫌味になりすぎない勝利コメントを一言。', en: 'You won. Give one gracious victory comment.' }
+          : { ja: '引き分け。再戦したくなる一言。', en: 'It is a draw. Give one line that makes a rematch appealing.' };
       this.reactions.close();
       this.conversationPacer.stop();
       if (this.timer) clearInterval(this.timer);

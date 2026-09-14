@@ -184,9 +184,11 @@ describe('provider status lifecycle', () => {
     const { session, messages } = setup('event-driven-conversation', 'manual', voiceMode, () => 0.5, true);
     await session.initialize();
     session.handleRaw('{"type":"start"}');
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(false);
+    expect(provider.reaction).toHaveBeenCalledExactlyOnceWith('プレイヤーが首位に立った。短く悔しがって。');
+    await vi.advanceTimersByTimeAsync(55_000);
     expect(messages.some(message => message.type === 'match_ended')).toBe(true);
-    expect(provider.reaction).toHaveBeenCalled();
     expect(provider.conversationInvitation).not.toHaveBeenCalled();
     await session.shutdown('test_finished');
   });
