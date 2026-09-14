@@ -373,7 +373,7 @@ export class GameView implements GamePresentation {
   stopSound(): void { this.audio.stop(); }
   setEffectsMuted(muted: boolean): void { this.audio.setMuted(muted); }
   focus(target: 'start' | 'gate'): void {
-    if (target === 'gate') this.q('#practice').focus();
+    if (target === 'gate') this.q('#invite').focus();
     else (this.q<HTMLButtonElement>('#start').disabled ? this.q('#leave') : this.q('#start')).focus();
   }
   dispose(): void {
