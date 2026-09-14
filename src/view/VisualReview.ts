@@ -3,6 +3,7 @@ import type { ReelScene } from './ReelScene';
 import { cloneMatchStats, createMatchStats, recordSpin } from '../domain/matchStats';
 import { evaluateGrid, gridFromStops } from '../domain/game';
 import { VICTORY_DURATION } from '../viewmodel/RewardPresentation';
+import { RIVAL_EXPRESSIONS, RIVAL_EXPRESSION_LABELS, type RivalExpression } from '../viewmodel/RivalExpressions';
 
 export type ReviewExample = 'cabinet-pose' | 'final-seconds' | 'extension-offered' | 'extension-accepted' | 'extension-rejected' | 'loan-rival-to-player' | 'loan-player-to-rival' | 'text-borrow' | 'text-lend' | 'text-extend' | 'distraction-started' | 'distraction-recovered' | 'session-best' | 'mic-live' | 'mic-reply' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'diagonal' | 'bell-cherry' | 'cherry-bell' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
 interface ReviewPort {
@@ -32,6 +33,16 @@ export function mountVisualReview(port: ReviewPort): void {
   }
   const find = <T extends HTMLElement>(id: string) => controls.querySelector<T>('#' + id)!;
   const stats = find<HTMLOutputElement>('reviewStats');
+  const expressionControl = document.createElement('label');
+  expressionControl.textContent = '表情確認 ';
+  const expressionSelect = document.createElement('select');
+  expressionSelect.setAttribute('aria-label', '表情確認');
+  RIVAL_EXPRESSIONS.forEach(expression => {
+    expressionSelect.add(new Option(RIVAL_EXPRESSION_LABELS[expression], expression));
+  });
+  expressionSelect.onchange = () => port.scene.setExpression(expressionSelect.value as RivalExpression);
+  expressionControl.append(expressionSelect);
+  find('coinStyle').parentElement!.after(expressionControl);
   find<HTMLSelectElement>('coinStyle').onchange = () => {
     port.scene.setCoinStyle(find<HTMLSelectElement>('coinStyle').value === 'rain' ? 'rain' : 'fountain');
     port.preview('jackpot');

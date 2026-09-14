@@ -3,6 +3,7 @@ import type { Bet, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../.
 import type { BetControlsState } from './BetControls3D';
 import { PAYOUT } from '../domain/game';
 import { rewardDuration } from '../viewmodel/RewardPresentation';
+import { RIVAL_EXPRESSIONS, RIVAL_PORTRAIT_ATLAS, type RivalExpression } from '../viewmodel/RivalExpressions';
 import type { CoinStyle } from './CoinCelebration';
 import { CabinetArt } from './CabinetArt';
 import { planTravel, planTravelToStop, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
@@ -10,8 +11,7 @@ import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
 import { MINI_RECTS, PORTRAIT, REEL_RECTS, STAGE_HEIGHT, STAGE_WIDTH, type Rect } from './StageLayout';
 import type { WinningCell } from './WinSymbols';
 
-export type RivalExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
-const EXPRESSIONS: RivalExpression[] = ['neutral', 'confident', 'surprised', 'frustrated'];
+export type { RivalExpression } from '../viewmodel/RivalExpressions';
 const vertexShader = 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}';
 const fragmentShader = `
   varying vec2 vUv;
@@ -148,9 +148,8 @@ export class ReelScene {
         .forEach(light => light.layers.enable(1));
     }
     this.addPlane(background, { x: 0, y: 0, w: STAGE_WIDTH, h: STAGE_HEIGHT }, -600);
-    this.portraitTexture = this.load('/art/rival-expressions.webp');
-    this.portraitTexture.repeat.set(.5, .5);
-    this.portraitTexture.offset.set(0, .5);
+    this.portraitTexture = this.load(RIVAL_PORTRAIT_ATLAS.url);
+    this.posePortrait(performance.now());
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
     this.atlas = this.cabinet.createReelAtlas(this.renderer);
     // Cache contact shadows at rest; the jackpot pose refreshes them while moving.
@@ -405,7 +404,7 @@ export class ReelScene {
   }
 
   setExpression(expression: RivalExpression): void {
-    const index = EXPRESSIONS.indexOf(expression);
+    const index = Math.max(0, RIVAL_EXPRESSIONS.indexOf(expression));
     if (this.portraitExpression === index) return;
     this.portraitExpression = index;
     this.portraitReactionUntil = !this.motionPreference.matches && !document.hidden ? performance.now() + 420 : 0;
@@ -416,11 +415,21 @@ export class ReelScene {
   private posePortrait(now: number): boolean {
     const remaining = this.motionPreference.matches ? 0 : Math.max(0, (this.portraitReactionUntil - now) / 420);
     // Crop within one atlas cell; the portrait frame and face proportions stay fixed.
-    const zoom = 1 + Math.sin(remaining * Math.PI) * (this.portraitExpression === 2 ? .045 : .022);
-    const size = .5 / zoom;
-    const inset = (.5 - size) / 2;
-    this.portraitTexture.repeat.set(size, size);
-    this.portraitTexture.offset.set(this.portraitExpression % 2 * .5 + inset, (this.portraitExpression < 2 ? .5 : 0) + inset);
+    const expression = RIVAL_EXPRESSIONS[this.portraitExpression];
+    const emphatic = expression === 'surprised' || expression === 'stunned' || expression === 'ecstatic';
+    const zoom = 1 + Math.sin(remaining * Math.PI) * (emphatic ? .045 : .022);
+    const { columns, rows, portraitWidth, portraitHeight, gutter } = RIVAL_PORTRAIT_ATLAS;
+    const tileWidth = portraitWidth + gutter * 2;
+    const tileHeight = portraitHeight + gutter * 2;
+    const width = portraitWidth / zoom;
+    const height = portraitHeight / zoom;
+    const column = this.portraitExpression % columns;
+    const row = rows - 1 - Math.floor(this.portraitExpression / columns);
+    this.portraitTexture.repeat.set(width / (columns * tileWidth), height / (rows * tileHeight));
+    this.portraitTexture.offset.set(
+      (column * tileWidth + gutter + (portraitWidth - width) / 2) / (columns * tileWidth),
+      (row * tileHeight + gutter + (portraitHeight - height) / 2) / (rows * tileHeight),
+    );
     return remaining > 0;
   }
 

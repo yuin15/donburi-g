@@ -1,9 +1,10 @@
 import type { Bet, MatchSnapshot, Side, SpinView, UpgradeId } from '../../shared/protocol';
 import type { LiveSessionFactory } from '../client/LiveSession';
 import type { AiConnectionState } from '../client/AiStatus';
+import type { RivalExpression } from './RivalExpressions';
 
 export type GameMode = 'idle' | 'practice' | 'live';
-export type GameExpression = 'neutral' | 'confident' | 'surprised' | 'frustrated';
+export type GameExpression = RivalExpression;
 export type GameSound = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result' | 'bellWin' | 'victory' | 'defeat' | 'draw';
 export type RoundPair = { player: SpinView; rival: SpinView };
 export type TextChoice = {

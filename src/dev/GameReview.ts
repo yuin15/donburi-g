@@ -3,6 +3,7 @@ import type { MatchSnapshot, Side, SpinView } from '../../shared/protocol';
 import { createMatch, evaluateGrid, getSnapshot, gridFromStops, PAYOUT, STARTING_BALANCE } from '../domain/game';
 import type { GameView } from '../view/GameView';
 import { RivalReactions } from '../viewmodel/RivalReactions';
+import { selectAmbientRivalExpression, selectResultRivalExpression } from '../viewmodel/RivalExpressionSelection';
 import { mountVisualReview, type ReviewExample } from '../view/VisualReview';
 import type { GameViewState } from '../viewmodel/GameViewState';
 
@@ -53,11 +54,20 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
   let latestRound = 0;
   let previousLeader: Side | null = null;
   let reactionUntil = 0;
+  let spinning = false;
   let payoutTimer = 0;
   let cueTimer = 0;
 
   const render = (patch: Partial<GameViewState> = {}) => {
     state = { ...state, ...patch };
+    if (patch.expression === undefined && !state.result && performance.now() >= reactionUntil) {
+      state = { ...state, expression: selectAmbientRivalExpression({
+        scores: state.scores, remaining: state.snapshot.remaining, playing: state.snapshot.status === 'playing',
+        spinning, countdown: state.countdown !== null,
+        textChoice: state.textChoice !== null, listening: state.conversation === 'listening',
+        distracted: !!state.rivalDistraction?.active,
+      }) };
+    }
     view.render(state);
   };
   const clearTimers = () => {
@@ -71,6 +81,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     latestRound = 0;
     previousLeader = null;
     reactionUntil = 0;
+    spinning = false;
     clearTimers();
     reactions.reset();
     view.stopSound();
@@ -90,17 +101,16 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
   };
 
   const showSnapshot = (snapshot: MatchSnapshot) => {
-    const gap = state.scores.player - state.scores.rival;
     render({
       snapshot,
       balances: { ...snapshot.balances },
       bets: { ...snapshot.bets },
-      expression: performance.now() >= reactionUntil ? gap > 0 ? 'frustrated' : gap < 0 ? 'confident' : 'neutral' : state.expression,
       rivalMood: rivalMood(state.scores, snapshot.status === 'result'),
     });
   };
 
   const settle = (player: SpinView, rival: SpinView, celebrate: boolean, still = false) => {
+    spinning = false;
     clearTimers();
     const leader = player.total > rival.total ? 'player' : player.total < rival.total ? 'rival' : null;
     const comeback = leader && previousLeader && leader !== previousLeader ? leader : null;
@@ -133,6 +143,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
   };
 
   const showResult = (snapshot: MatchSnapshot) => {
+    spinning = false;
     clearTimers();
     const current = revision;
     view.celebrateResult(snapshot.winner ?? 'draw', () => {
@@ -140,7 +151,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       render({
         snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
         sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },
-        expression: snapshot.winner === 'player' ? 'frustrated' : snapshot.winner === 'rival' ? 'confident' : 'neutral',
+        expression: selectResultRivalExpression(snapshot),
         rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
         line: resultLine(snapshot), heard: '',
         startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
@@ -153,6 +164,8 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
   const play = (player: SpinView, rival: SpinView, result: MatchSnapshot | null = null) => {
     const current = revision;
     latestRound = player.round;
+    spinning = true;
+    render();
     view.scene.setUpgrades(player.upgrades ?? state.snapshot.upgrades.player, rival.upgrades ?? state.snapshot.upgrades.rival);
     view.playSound('spin');
     view.scene.play(player, rival, celebrate => {

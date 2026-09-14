@@ -1,5 +1,6 @@
 import type { Side, SpinView } from '../../shared/protocol';
 import { PAYOUT } from '../domain/game';
+import type { RivalExpression } from './RivalExpressions';
 
 export type RivalReactionKind =
   | 'both-jackpot' | 'player-jackpot' | 'rival-jackpot'
@@ -9,11 +10,12 @@ export type RivalReactionKind =
 export interface RivalReaction {
   kind: RivalReactionKind;
   text: string;
-  expression: 'neutral' | 'confident' | 'surprised' | 'frustrated';
+  expression: RivalExpression;
 }
 
 const SCENES: Record<RivalReactionKind, {
   expression: RivalReaction['expression'];
+  alternateExpression?: RivalReaction['expression'];
   lines: readonly string[];
 }> = {
   'both-jackpot': {
@@ -21,11 +23,11 @@ const SCENES: Record<RivalReactionKind, {
     lines: ["Both of us hit sevens?!","Sevens on both reels! What a round!","Two big wins at once!"],
   },
   'player-jackpot': {
-    expression: 'surprised',
+    expression: 'stunned',
     lines: ["Whoa! Three sevens?!","That changes things.","Now THAT is a big win!"],
   },
   'rival-jackpot': {
-    expression: 'confident',
+    expression: 'ecstatic',
     lines: ["Sevens for me!","Big win! I'll take that.","Three sevens. Nice!"],
   },
   'player-lead': {
@@ -33,7 +35,7 @@ const SCENES: Record<RivalReactionKind, {
     lines: ["You took the lead!","You're ahead now. Game on!","That hit put you in front."],
   },
   'rival-lead': {
-    expression: 'confident',
+    expression: 'teasing',
     lines: ["I'm in the lead!","That hit put me ahead."],
   },
   'both-win': {
@@ -45,23 +47,24 @@ const SCENES: Record<RivalReactionKind, {
     lines: ["Nice hit. I saw that!","Coins for you! Well played."],
   },
   'rival-win': {
-    expression: 'confident',
+    expression: 'happy',
+    alternateExpression: 'wink',
     lines: ["A hit! Coins for me.","Nice. I'll take those coins."],
   },
   'close-finish': {
-    expression: 'neutral',
+    expression: 'tense',
     lines: ["Still close. Every spin counts.","This could go either way.","A tight finish. Keep going!"],
   },
   quiet: {
-    expression: 'neutral',
+    expression: 'wry-smile',
     lines: ["No hits that time. Next spin!","Nothing yet. Still time!"],
   },
   'player-miss': {
-    expression: 'neutral',
+    expression: 'wry-smile',
     lines: ["So close. Try another!","Not this time. Keep spinning."],
   },
   'rival-miss': {
-    expression: 'neutral',
+    expression: 'disappointed',
     lines: ["Ah, just missed it!","I'm going again. Watch me."],
   },
 };
@@ -109,6 +112,6 @@ export class RivalReactions {
     const scene = SCENES[kind];
     const variant = this.variants.get(kind) ?? 0;
     this.variants.set(kind, (variant + 1) % scene.lines.length);
-    return { kind, text: scene.lines[variant], expression: scene.expression };
+    return { kind, text: scene.lines[variant], expression: variant % 2 && scene.alternateExpression ? scene.alternateExpression : scene.expression };
   }
 }
