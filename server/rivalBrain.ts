@@ -50,14 +50,14 @@ export function rejectsLoanOffer(transcript: string): boolean {
   return /^(?:いや|いいえ|だめ|no|nope)(?:[、。！？!?])?$/i.test(transcript.normalize('NFKC').trim());
 }
 
+// A transfer is irreversible within a turn, so this intentionally accepts only
+// a complete, unconditional, money-specific offer rather than a phrase inside
+// a longer sentence, quotation, condition, or metaphor.
+const DIRECT_PLAYER_LOAN_OFFER = /^(?:(?:(?:お金|金|\$?\s*5\s*ドル?)(?:を|は)?\s*)?(?:貸す|貸します|貸してあげる|貸してやる)(?:よ|ね)?|\b(?:i(?:'|’)ll|i\s+will)\s+(?:lend|loan)\s+(?:you\s+)?(?:\$?\s*5|five(?:\s+dollars?)?|(?:some\s+)?(?:money|cash)))[、。！!.\s]*$/i;
+
 /** A voluntary player loan is explicit, directed at the rival, and never inferred by the model. */
 export function offersLoanToRival(transcript: string): boolean {
-  const normalized = transcript.normalize('NFKC').trim();
-  if (
-    /(?:貸(?:さ|し)(?:ない|ません|たくない|たくありません|る(?:つもり|気)(?:は|が)?ない)|貸す(?:つもり|気)(?:は|が)?(?:ない|ありません)|貸してあげる(?:つもり|気)(?:は|が)?(?:ない|ありません)|(?:貸す|貸します|貸してあげる|貸してやる)(?:[、。\s]*(?:のは|のを|の)?[、。\s]*)?(?:やめる|やめた|やめます|やめました)|貸す(?:のは|のが)?(?:無理|できない)|(?:お金|金|money|cash).{0,16}(?:貸(?:さ|し)(?:ない|ません)|いらない|不要)|\b(?:i\s+)?(?:do\s+not|don't|cannot|can't|won't|will\s+not)\s+(?:lend|loan)\b)/i.test(normalized)
-    || /[?？]/.test(normalized)
-  ) return false;
-  return /(?:(?:お金|金|\$?\s*5\s*ドル?)(?:を|は)?\s*(?:貸す|貸します|貸してあげる|貸してやる)(?:よ|ね)?|(?:^|[、。！!\s])貸(?:す|します)(?:よ|ね)?(?:[、。！!\s]|$)|(?:貸してあげる|貸してやる)(?:よ|ね)?|\b(?:i(?:'|’)ll|i\s+will)\s+(?:lend|loan)\s+(?:(?:you\b(?:\s+(?:\$?\s*5|five(?:\s+dollars?)?|some\s+(?:money|cash)|money|cash))?)|(?:\$?\s*5|five(?:\s+dollars?)?|some\s+(?:money|cash)|money|cash)))/i.test(normalized);
+  return DIRECT_PLAYER_LOAN_OFFER.test(transcript.normalize('NFKC').trim());
 }
 
 const EXTENSION_NEGATION = /(?:時間(?:を|の)?|タイム)?延長(?:を)?して(?:ほしく|欲しく)(?:ない|ありません)|(?:時間)?延長\s*(?:は|を)?\s*(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て)?|結構)|(?:時間)?伸ば\s*(?:は|を)?\s*(?:いらない|不要|さない|さなくて|やめ(?:て)?|結構)|(?:時間)?延長して[、。！？!?\s]*(?:やっぱり[、。！？!?\s]*)?(?:いらない|不要|必要ない|しない|しなくて|やめ(?:て|る)?|結構)|(?:いらない|不要|必要ない|しない|やめ(?:て)?).{0,8}(?:時間)?延長|あと\s*(?:10|十)\s*秒(?:で|しか|しかない|(?:で)?終わ)|\b(?:don['’]?t|do not|no|not)\b.{0,24}\b(?:extension|more time|extra time)\b/i;

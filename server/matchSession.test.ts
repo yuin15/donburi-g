@@ -1356,6 +1356,24 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('does not transfer a conditional English loan completed by a later transcript delta', async () => {
+    const { session, messages } = setup('conditional-split-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 20;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'I will lend you $5', { startMs: 0, endMs: 150 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onTranscript('user', ' if I win', { startMs: 151, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(provider.confirmedLine).not.toHaveBeenCalledWith('That helps. I will borrow $5 and make a comeback.');
+    await session.shutdown('test_finished');
+  });
+
   it('waits past one second for speech end before rejecting a later negation in a direct borrower transcript', async () => {
     const { session, messages } = setup('settled-player-loan', 'manual', 'audio');
     await session.initialize();
