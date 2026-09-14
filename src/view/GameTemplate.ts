@@ -1,4 +1,15 @@
-import { PAYOUT } from '../domain/game';
+import { ACTIVE_LINES, BETS, PAYOUT } from '../domain/game';
+import type { WinningLine } from '../../shared/protocol';
+
+const BET_LINE_DIAGRAMS: Record<WinningLine, string> = {
+  top: 'M3 4H43', middle: 'M3 17H43', bottom: 'M3 30H43',
+  diagonalDown: 'M3 4 43 30', diagonalUp: 'M3 30 43 4',
+};
+
+const betButtons = BETS.map(bet => `<button type="button" data-bet="${bet}" aria-pressed="false" aria-label="Bet $${bet}, ${bet} ${bet === 1 ? 'line' : 'lines'} per spin">
+  <svg class="bet-diagram" viewBox="0 0 46 34" aria-hidden="true"><path class="bet-grid" d="M1 1H45V33H1Z M15.5 1V33 M30.5 1V33 M1 11.5H45 M1 22.5H45"/><path class="bet-lines" d="${ACTIVE_LINES[bet].map(line => BET_LINE_DIAGRAMS[line]).join(' ')}"/></svg>
+  <span class="bet-label"><strong>$${bet}</strong><em>${bet} ${bet === 1 ? 'LINE' : 'LINES'}</em></span><span class="bet-selected" aria-hidden="true">✓</span>
+</button>`).join('');
 
 /** PC stage markup. Game rules and state transitions live outside this view. */
 export function mountGameTemplate(app: HTMLElement): void {
@@ -25,14 +36,31 @@ app.innerHTML = `
     <div class="event-cue" id="eventCue" role="status" hidden></div>
     <div class="loan-transfer" id="loanTransfer" role="status" aria-live="assertive" hidden><small>LOAN</small><strong id="loanDirection"></strong><b id="loanAmount"></b></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
-    <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small><button data-bet="1">$1 <em>1 LINE</em></button><button data-bet="3">$3 <em>3 LINES</em></button><button data-bet="5">$5 <em>5 LINES</em></button></div>
-    <div id="lineIndicators" role="status" aria-label="Winning lines">
-      <svg class="line-indicator diagonal-down" data-line="diagonalDown" viewBox="0 0 100 40" aria-label="$5 diagonal down"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
-      <svg class="line-indicator top" data-line="top" viewBox="0 0 100 40" aria-label="$3 top row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
-      <svg class="line-indicator middle" data-line="middle" viewBox="0 0 100 40" aria-label="$1 middle row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$1</text></svg>
-      <svg class="line-indicator bottom" data-line="bottom" viewBox="0 0 100 40" aria-label="$3 bottom row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
-      <svg class="line-indicator diagonal-up" data-line="diagonalUp" viewBox="0 0 100 40" aria-label="$5 diagonal up"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
+    <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small>${betButtons}</div>
+    <span id="betStatus" class="sr-only" role="status" aria-live="polite"></span>
+    <div id="lineIndicators" role="group" aria-label="Active lines for the next spin">
+      ${([
+        ['diagonalDown', 'diagonal-down', 5, 'diagonal down', 'M85 12 101 28 M89 28H101V16'],
+        ['top', 'top', 3, 'top row', 'M82 20H103 M95 12 103 20 95 28'],
+        ['middle', 'middle', 1, 'middle row', 'M82 20H103 M95 12 103 20 95 28'],
+        ['bottom', 'bottom', 3, 'bottom row', 'M82 20H103 M95 12 103 20 95 28'],
+        ['diagonalUp', 'diagonal-up', 5, 'diagonal up', 'M85 28 101 12 M89 12H101V24'],
+      ] as const).map(([line, position, bet, label, arrow]) => `<svg class="line-indicator ${position}" data-line="${line}" viewBox="0 0 120 40" role="img" aria-label="$${bet} ${label}" style="--line-idle-fill:url(#line-idle-${line});--line-gold-fill:url(#line-gold-${line});--line-edge-fill:url(#line-edge-${line})">
+        <defs>
+          <linearGradient id="line-idle-${line}" x2="0" y2="1"><stop stop-color="#537456"/><stop offset=".48" stop-color="#11271c"/><stop offset=".54" stop-color="#294a32"/><stop offset="1" stop-color="#173324"/></linearGradient>
+          <linearGradient id="line-gold-${line}" x2="0" y2="1"><stop stop-color="#fff3b9"/><stop offset=".4" stop-color="#e9b43b"/><stop offset=".49" stop-color="#a9710f"/><stop offset=".56" stop-color="#ffdf78"/><stop offset="1" stop-color="#d19828"/></linearGradient>
+          <linearGradient id="line-edge-${line}" x2=".35" y2="1"><stop stop-color="#fffad7"/><stop offset=".25" stop-color="#c28c30"/><stop offset=".48" stop-color="#fff5c0"/><stop offset=".73" stop-color="#a26513"/><stop offset="1" stop-color="#f5d78a"/></linearGradient>
+        </defs>
+        <rect class="line-plate" x="2" y="3" width="116" height="34" rx="7"/><path class="line-reflection" d="M10 6H110Q115 6 115 12V18Q61 10 5 18V12Q5 6 10 6"/><circle class="line-lamp" cx="14" cy="20" r="4"/><text x="49" y="21">$${bet}</text><path class="line-direction" d="${arrow}"/>
+      </svg>`).join('')}
     </div>
+    <div id="betLinePreview" aria-hidden="true" hidden><svg viewBox="0 0 650 371">
+      <path data-preview-line="middle" d="M94 185.5H650" pathLength="1"/>
+      <path data-preview-line="top" d="M94 50.8H650" pathLength="1"/>
+      <path data-preview-line="bottom" d="M94 320.2H650" pathLength="1"/>
+      <path data-preview-line="diagonalDown" d="M94 -14.8 183 50.8 372 185.5 561 320.2H650" pathLength="1"/>
+      <path data-preview-line="diagonalUp" d="M94 385.8 183 320.2 372 185.5 561 50.8H650" pathLength="1"/>
+    </svg></div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>
     <div id="machineTrim">CHOOSE BET · ACTIVE LINES PAY</div>
   </section>

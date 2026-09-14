@@ -6,6 +6,7 @@ import { GameAudio } from './GameAudio';
 import { mountGameTemplate } from './GameTemplate';
 import { ReelScene } from './ReelScene';
 import { OVERLAYS, STAGE_HEIGHT, STAGE_WIDTH } from './StageLayout';
+import './BetControls.css';
 
 /** DOM, focus and Three.js presentation. All match transitions arrive as state. */
 export class GameView implements GamePresentation {
@@ -17,6 +18,8 @@ export class GameView implements GamePresentation {
   private current: GameViewState | null = null;
   private resultKey = '';
   private disposed = false;
+  private betAnimations: Animation[] = [];
+  private playerReelsSpinning = false;
 
   constructor(private readonly app: HTMLElement) {
     mountGameTemplate(app);
@@ -211,16 +214,37 @@ export class GameView implements GamePresentation {
     this.q('#betControls').querySelectorAll<HTMLButtonElement>('button[data-bet]').forEach(button => {
       const bet = Number(button.dataset.bet) as Bet;
       button.dataset.active = String(bet === selectedBet);
+      button.setAttribute('aria-pressed', String(bet === selectedBet));
       button.disabled = state.mode === 'idle' || state.balances.player < bet;
     });
     const showLineIndicators = state.mode !== 'idle' && !state.result;
     const activeLines = showLineIndicators ? ACTIVE_LINES[selectedBet] : [];
+    this.q('#lineIndicators').hidden = !showLineIndicators;
+    this.text('#betStatus', showLineIndicators ? `Bet $${selectedBet} per spin. ${selectedBet} ${selectedBet === 1 ? 'line' : 'lines'} active for the next spin.` : '');
     const winningLines = state.payout?.player && showLineIndicators ? state.lastSpin?.player?.winningLines ?? [] : [];
     this.q('#lineIndicators').querySelectorAll<HTMLElement>('[data-line]').forEach(indicator => {
       const line = indicator.dataset.line as WinningLine;
       indicator.dataset.active = String(activeLines.includes(line));
       indicator.dataset.winning = String(winningLines.includes(line));
     });
+    const previewAvailable = showLineIndicators && !state.gate.visible && state.countdown === null
+      && !this.playerReelsSpinning && !state.payout?.player;
+    this.q('#betLinePreview').hidden = !previewAvailable;
+    const betChanged = previous && previous.snapshot.matchId === snapshot.matchId && previous.bets.player !== selectedBet;
+    if (!previewAvailable || betChanged) this.cancelBetPreview();
+    if (betChanged && previewAvailable && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const previewLines = selectedBet < previous.bets.player
+        ? activeLines
+        : activeLines.filter(line => !ACTIVE_LINES[previous.bets.player].includes(line));
+      previewLines.forEach((line, index) => {
+        const path = this.app.querySelector<SVGPathElement>(`#betLinePreview [data-preview-line="${line}"]`)!;
+        this.betAnimations.push(path.animate([
+          { strokeDasharray: '1', strokeDashoffset: '1', opacity: 1 },
+          { strokeDasharray: '1', strokeDashoffset: '0', opacity: 1, offset: .65 },
+          { strokeDasharray: '1', strokeDashoffset: '0', opacity: 0 },
+        ], { duration: 650, delay: index * 80, easing: 'ease-out' }));
+      });
+    }
     this.text('#rivalMood', state.rivalDistraction?.active ? 'DISTRACTED...' : state.conversation === 'listening' ? 'LISTENING TO YOU' : state.conversation === 'replying' ? 'RIVAL REPLY' : state.rivalMood);
     this.q('#rivalMood').dataset.conversation = state.conversation;
     this.q('#line').dataset.conversation = state.conversation;
@@ -378,16 +402,30 @@ export class GameView implements GamePresentation {
   }
 
   playSpin(spin: SpinView, stopped: (celebrate?: boolean) => void): void {
-    this.scene.playSide(spin, stopped);
+    if (spin.side === 'player') {
+      this.playerReelsSpinning = true;
+      this.cancelBetPreview();
+      this.q('#betLinePreview').hidden = true;
+    }
+    this.scene.playSide(spin, celebrate => {
+      if (spin.side === 'player') this.playerReelsSpinning = false;
+      stopped(celebrate);
+    });
+  }
+  private cancelBetPreview(): void {
+    for (const animation of this.betAnimations) animation.cancel();
+    this.betAnimations = [];
   }
   resetScene(): void {
+    this.playerReelsSpinning = false;
+    this.cancelBetPreview();
     this.scene.stop();
     this.scene.setRivalDistracted(false);
     this.scene.setUpgrades([], []);
     this.scene.setExpression('neutral');
     this.scene.show(['cherry', 'bell', 'seven']);
   }
-  stopScene(): void { this.scene.stop(); }
+  stopScene(): void { this.playerReelsSpinning = false; this.cancelBetPreview(); this.scene.stop(); }
   celebrateResult(winner: 'player' | 'rival' | 'draw'): void { this.scene.celebrateResult(winner); }
   playSound(cue: GameSound): void { this.audio.play(cue); }
   stopSound(): void { this.audio.stop(); }
@@ -400,6 +438,7 @@ export class GameView implements GamePresentation {
     if (this.disposed) return;
     this.disposed = true;
     this.events.abort();
+    this.cancelBetPreview();
     this.audio.dispose();
     this.scene.dispose();
     this.elements.clear();
