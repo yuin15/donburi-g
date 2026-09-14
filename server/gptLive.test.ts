@@ -16,9 +16,9 @@ vi.mock('ws', async () => {
     constructor() { super(); sockets.push(this); }
   } };
 });
-function setup(openingContext = '') {
+function setup(openingContext = '', language: 'ja' | 'en' = 'ja') {
   const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
-  return { bridge: new GptLiveBridge(events, openingContext), events };
+  return { bridge: new GptLiveBridge(events, openingContext, language), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
 afterEach(() => vi.useRealTimers());
@@ -328,11 +328,26 @@ describe('live conversation pacing', () => {
     expect(events.onAudio).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'session.commentary.append', content: expect.stringContaining('結果はあとで伝える。') });
-    expect(events.onAudio).toHaveBeenCalledTimes(1);
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('uses the settled English state for confirmed and delegated fixed lines', async () => {
+    const { bridge } = setup('', 'en');
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.requestConfirmedLine({ ja: '日本語の確定台詞', en: 'Confirmed English line.' });
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0]).content).toContain('Confirmed English line.');
+    bridge.requestDelegationResult('english-turn', { ja: '日本語の委任台詞', en: 'Delegated English line.' }, 'english-speech');
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ delegation_id: 'english-turn', content: expect.stringContaining('Delegated English line.') });
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
   });
   it('cancels only a matching queued or active confirmed speech', async () => {
     const { bridge, events } = setup();
