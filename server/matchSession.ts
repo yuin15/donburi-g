@@ -93,13 +93,16 @@ export class MatchSession {
   private reactions = new ReactionQueue(text => {
     if (!this.voiceReady || this.closed) return;
     const zeroBalanceChat = text === ZERO_BALANCE_CHAT_REACTION;
-    if (zeroBalanceChat) this.zeroBalanceChatRequested = true;
-    this.pushContext();
+    if (!zeroBalanceChat) {
+      this.pushContext();
+      return this.gpt?.requestReaction(text);
+    }
     const reactionRequested = this.gpt?.requestReaction(text);
-    if (zeroBalanceChat && reactionRequested === false) {
-      this.zeroBalanceChatRequested = false;
+    if (reactionRequested !== false) {
+      this.zeroBalanceChatRequested = true;
       this.pushContext();
     }
+    return reactionRequested;
   });
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;

@@ -20,7 +20,7 @@ export class ReactionQueue {
   private finalQueued = false;
   private conversationUntil = 0;
 
-  constructor(private readonly speak: (text: string) => void) {}
+  constructor(private readonly speak: (text: string) => boolean | void) {}
 
   offer(id: string, text: string, priority: number, current: () => boolean, final = false, essential = false, expiresInMs = final ? 3000 : 1800, keepPending = current): void {
     if (this.closed || this.seen.has(id) || this.finalQueued) return;
@@ -74,9 +74,18 @@ export class ReactionQueue {
         }
         return;
       }
+      const accepted = this.speak(choice.text);
+      // A normal reaction keeps its historic fire-and-forget behavior. An
+      // essential transition is retried when the voice bridge is temporarily
+      // guarding an assistant turn, without counting it as spoken.
+      if (choice.essential && accepted === false && choice.keepPending()) {
+        this.pending.set(choice.id, choice);
+        this.nextAt = now + 250;
+        this.schedule();
+        return;
+      }
       this.sent += 1;
       this.nextAt = now + 3000;
-      this.speak(choice.text);
     }, Math.max(0, this.nextAt - Date.now()));
   }
 }

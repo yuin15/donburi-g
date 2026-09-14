@@ -1795,6 +1795,26 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('retries the $0 transition after the AI response cooldown rejects its first request', async () => {
+    const { session } = setup('zero-balance-bridge-cooldown', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(100);
+    provider.reaction.mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    await vi.advanceTimersByTimeAsync(3000);
+    const zeroReactionCount = () => provider.reaction.mock.calls.filter(call => String(call[0]).includes('双方の確定残高が$0で未確定回転はない')).length;
+    expect(zeroReactionCount()).toBe(1);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('初回の資金切れへの一言はまだ発話しない'));
+    await vi.advanceTimersByTimeAsync(250);
+    expect(zeroReactionCount()).toBe(2);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('初回の資金切れへの一言はすでに一度伝えた'));
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(zeroReactionCount()).toBe(2);
+    await session.shutdown('test_finished');
+  });
+
   it('keeps the $0 chat invitation through an ordinary reaction cooldown and a long user turn', async () => {
     const { session } = setup('zero-balance-user-priority', 'manual', 'audio');
     await session.initialize();
