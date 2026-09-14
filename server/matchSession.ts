@@ -78,6 +78,7 @@ const DIRECT_LOAN_ACCEPTANCE_SETTLE_MS = 250;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
 const PLAYER_LOAN_OFFER_LINE = 'お金を貸そうか？';
+const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。初回だけ、まず資金切れかこの台への軽い愚痴・感想を短く一言で話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげる。例文を列挙して読まず、すぐに質問を重ねない。短い二文までで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
@@ -92,10 +93,12 @@ export class MatchSession {
   private messagesInWindow = 0;
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
-    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply() || this.playerLoanOffer || this.playerLoanIntentPending || !this.conversationPacer.canInitiate()) return;
+    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply() || this.playerLoanOffer || this.playerLoanIntentPending || !this.conversationPacer.canInitiate()) return false;
     this.conversationPacer.markInitiatedSpeechSent();
     this.pushContext();
-    this.gpt?.requestReaction(text);
+    const accepted = this.gpt?.requestReaction(text) !== false;
+    if (text === ZERO_BALANCE_CHAT_REACTION && accepted) this.zeroBalanceChatConsidered = true;
+    return accepted;
   }, () => this.conversationPacer.nextInitiatedAt());
   private readonly conversationPacer: ProactiveConversationPacer;
   private warnedTime = false;
@@ -126,6 +129,7 @@ export class MatchSession {
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
   private recentUserText = '';
+  private zeroBalanceChatConsidered = false;
   private extensionOfferConsidered = false;
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
@@ -313,6 +317,7 @@ export class MatchSession {
         if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
         else if (this.isPlayerLoanOfferActive(Date.now())) this.gpt?.suppressOutputAfterTaggedSpeech();
         else {
+          this.gpt?.interruptPlayback();
           if (this.voiceMode === 'avatar') this.media?.interrupt();
           this.emit({ type: 'voice_interrupt' });
         }
@@ -322,6 +327,7 @@ export class MatchSession {
         this.tick();
         this.userSpeaking = false;
         this.conversationPacer.noteUserSpeechEnd();
+        this.reactions.conversationActivity();
         this.queueSettledRivalLoanReply(generation);
         this.queueSettledPlayerLoanReply(generation);
         this.queueDirectTimeExtensionRequest(generation);
@@ -626,7 +632,7 @@ export class MatchSession {
     this.pushContext();
     this.emitSnapshot();
     this.conversationPacer.start(now);
-    this.reactions.offer('start', '対戦が今始まる。独り言にせず、プレイヤーへ「最初は何を狙う？」のような答えやすい質問で一緒に遊ぶ空気を作って。', 10, () => this.state.status === 'playing' && this.state.elapsed < 8);
+    this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 8 && !this.hasBothZeroBalances());
     this.timer = setInterval(() => this.tick(), 100);
   }
 
@@ -637,6 +643,7 @@ export class MatchSession {
     this.maybeOfferTimeExtension();
     this.maybeOfferLoan();
     this.maybeOfferPlayerLoan();
+    this.maybeOfferZeroBalanceChat();
     this.maybeInviteConversation();
   }
 
@@ -650,9 +657,9 @@ export class MatchSession {
     // Ordinary wins and the clock matter to user-led conversation as well as reactions.
     this.pushContext();
     for (const event of events) this.handleGameEvent(event);
-    if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing') {
+    if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing' && !this.isBothBalancesExhausted()) {
       this.warnedTime = true;
-      this.reactions.offer('last-ten', '残り10秒を切った。独り言にせず、プレイヤーへ「最後はどうする？」のような答えやすい質問で短く呼びかけて。', 30, () => this.state.status === 'playing');
+      this.reactions.offer('last-ten', '残り10秒を切った。独り言にせず、プレイヤーへ「最後はどうする？」のような答えやすい質問で短く呼びかけて。', 30, () => this.state.status === 'playing' && !this.hasBothZeroBalances());
     }
     if (Date.now() - this.lastSnapshotAt >= 250) this.emitSnapshot();
   }
@@ -703,7 +710,9 @@ export class MatchSession {
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
-      const direction = event.snapshot.winner === 'player'
+      const direction = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
+        ? '双方とも残高を使い切った。逆転、再戦、追加の回転は誘わず、軽く勝負を諦めた短い一言だけを話す。'
+        : event.snapshot.winner === 'player'
         ? 'あなたは負けた。プレイヤーの勝ちを認めて、次の勝負も楽しみにさせる短い一言。'
         : event.snapshot.winner === 'rival'
           ? 'あなたは勝った。嫌味になりすぎず、プレイヤーにも次を促す一言。'
@@ -884,6 +893,7 @@ export class MatchSession {
   /** One optional, server-timed offer makes the final seconds conversational without changing CPU play. */
   private maybeOfferTimeExtension(): void {
     const now = Date.now();
+    if (this.isBothBalancesExhausted()) return;
     if (this.extensionOffer && now >= this.extensionOffer.expiresAt) {
       this.extensionOffer = null;
       this.pushContext();
@@ -944,6 +954,39 @@ export class MatchSession {
     })) return;
     if (this.gpt?.requestConversationInvitation()) this.conversationPacer.markInvitationSent(now);
     else this.conversationPacer.retryAfterRejectedRequest(now);
+  }
+
+  private hasBothZeroBalances(): boolean {
+    return this.state.scores.player === 0 && this.state.scores.rival === 0;
+  }
+
+  private isBothBalancesExhausted(): boolean {
+    return this.state.status === 'playing' && this.hasBothZeroBalances();
+  }
+
+  /** One essential, player-directed transition; ordinary chat remains paced. */
+  private maybeOfferZeroBalanceChat(): void {
+    if (
+      this.zeroBalanceChatConsidered
+      || !this.isBothBalancesExhausted()
+      || !this.voiceReady
+      || this.voiceDisabled
+      || this.userSpeaking
+      || this.playerLoanOffer
+      || this.playerLoanIntentPending
+      || this.conversationPacer.hasPendingReply()
+      || !this.conversationPacer.canInitiate()
+    ) return;
+    this.reactions.offer(
+      'zero-balance-chat',
+      ZERO_BALANCE_CHAT_REACTION,
+      100,
+      () => this.isBothBalancesExhausted() && !this.userSpeaking,
+      false,
+      true,
+      5000,
+      () => this.isBothBalancesExhausted(),
+    );
   }
 
   /** Route only after transcript deltas following the delegation have settled. */
@@ -1770,9 +1813,15 @@ export class MatchSession {
     const leader = snapshot.balances.player === snapshot.balances.rival ? '同点' : snapshot.balances.player > snapshot.balances.rival ? 'プレイヤー' : 'あなた';
     const wins = (side: 'player' | 'rival') => Object.entries(snapshot.stats[side].wins).filter(([, count]) => count > 0).map(([symbol, count]) => `${symbol}:${count}`).join(',') || '0';
     const bothBalancesEmpty = snapshot.balances.player === 0 && snapshot.balances.rival === 0;
-    const conversationContext = bothBalancesEmpty
-      ? '会話方針: 両者とも確定残高0。ゲームへの誘導はせず、軽い雑談を選ぶ。'
-      : `確定当選数: プレイヤー[${wins('player')}],あなた[${wins('rival')}]。`;
+    const conversationContext = !bothBalancesEmpty
+      ? `会話方針: 通常のゲーム会話。確定当選数: プレイヤー[${wins('player')}],あなた[${wins('rival')}]。`
+      : snapshot.status === 'ready'
+        ? '会話方針: 双方の確定残高が$0だが、まだ試合開始前。雑談への移行案内を発話せず待つ。'
+        : snapshot.status === 'result'
+          ? '会話方針: 双方の確定残高が$0で試合は終了済み。雑談への移行案内や再戦を誘わず、軽く勝負を諦めた短い一言だけにする。'
+          : this.zeroBalanceChatConsidered
+            ? '会話方針: 双方の確定残高が$0。初回の資金切れへの一言はすでに一度伝えた。これは発話要求ではない。以後は黙ってユーザーを待つ。'
+            : '会話方針: 双方の確定残高が$0。初回の資金切れへの一言はまだ発話しない。これは発話要求ではない。';
     const reelContext = this.state.upgradesEnabled || this.state.upgradeSpent > 0
       ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
       : '';

@@ -74,6 +74,14 @@ export class GameView implements GamePresentation {
       void commands.connectLive(code, this.q<HTMLInputElement>('#avatarVideo').checked).then(() => { if (!this.current?.gate.visible) input.value = ''; });
     }, options);
     this.q('#leave').addEventListener('click', () => commands.leave(), options);
+    for (const [selector, accepted] of [['#textChoiceAccept', true], ['#textChoiceDecline', false]] as const) {
+      this.q<HTMLButtonElement>(selector).addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const choice = this.current?.textChoice;
+        if (choice) commands.respondTextChoice(choice.token, accepted);
+      }, options);
+    }
     this.q('#mic').addEventListener('click', event => {
       commands.toggleMicMuted();
       if (event.detail > 0 && this.current?.snapshot.status === 'playing') this.q('#start').focus({ preventScroll: true });
@@ -266,6 +274,18 @@ export class GameView implements GamePresentation {
       this.text('#loanAmount', loan.direction === 'rival_to_player' ? `+$${loan.amount}` : `−$${loan.amount}`);
       this.q('#loanTransfer').dataset.direction = loan.direction;
     }
+    const choice = state.textChoice;
+    this.q('#textChoice').hidden = !choice;
+    this.q('#line').hidden = !!choice;
+    this.q('#heard').hidden = !!choice;
+    this.q('#miniLabel').hidden = !!choice;
+    if (choice) {
+      this.text('#textChoiceKind', choice.kind === 'extend' ? 'LAST CALL' : 'CASH CALL');
+      this.text('#textChoiceQuestion', choice.question);
+      this.text('#textChoiceDetail', choice.detail);
+      this.text('#textChoiceAccept', choice.acceptLabel);
+      this.text('#textChoiceDecline', choice.declineLabel);
+    }
     const start = this.q<HTMLButtonElement>('#start');
     start.disabled = state.startControl.disabled;
     this.text('#start', state.startControl.label);
@@ -373,7 +393,7 @@ export class GameView implements GamePresentation {
   stopSound(): void { this.audio.stop(); }
   setEffectsMuted(muted: boolean): void { this.audio.setMuted(muted); }
   focus(target: 'start' | 'gate'): void {
-    if (target === 'gate') this.q('#practice').focus();
+    if (target === 'gate') this.q('#invite').focus();
     else (this.q<HTMLButtonElement>('#start').disabled ? this.q('#leave') : this.q('#start')).focus();
   }
   dispose(): void {

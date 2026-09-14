@@ -34,6 +34,16 @@ describe('bounded live reaction candidates', () => {
     q.close(); q.offer('again', 'again', 100, () => true, true); vi.advanceTimersByTime(10000);
     expect(speak).toHaveBeenCalledTimes(6); expect(vi.getTimerCount()).toBe(0);
   });
+  it('lets one essential transition through after ordinary reactions are exhausted, while still yielding to conversation', () => {
+    const speak = vi.fn(); const q = new ReactionQueue(speak);
+    for (let i = 0; i < 5; i += 1) { q.offer('spin:' + i, 'playing', 20, () => true); vi.advanceTimersByTime(3100); }
+    q.conversationActivity();
+    q.offer('zero-balance-chat', 'chat', 100, () => true, false, true, 5000);
+    vi.advanceTimersByTime(3999);
+    expect(speak).toHaveBeenCalledTimes(5);
+    vi.advanceTimersByTime(1);
+    expect(speak).toHaveBeenLastCalledWith('chat'); q.close();
+  });
   it('keeps queues from different sessions independent', () => {
     const a = vi.fn(), b = vi.fn(); const qa = new ReactionQueue(a), qb = new ReactionQueue(b);
     qa.offer('start', 'a', 10, () => true); qb.offer('start', 'b', 10, () => true);
