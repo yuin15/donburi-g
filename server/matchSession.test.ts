@@ -1752,6 +1752,78 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('switches once to a $0 chat policy, suppresses the automatic extension offer, and restores normal context after a confirmed payout', async () => {
+    const { session } = setup('zero-balance-chat', 'manual', 'audio', () => 0);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 52;
+    state.remaining = 8;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('双方の確定残高が$0で、未確定回転はない'));
+    expect(provider.confirmedLine).not.toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
+    state.scores.player = 4;
+    state.scores.rival = 2;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('会話方針: 通常のゲーム会話。'));
+    await session.shutdown('test_finished');
+  });
+
+  it('waits for user speech before the $0 chat invitation, then yields to the user conversation window', async () => {
+    const { session } = setup('zero-balance-user-priority', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    provider.events?.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.reaction.mock.calls.some(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toBe(false);
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(3799);
+    expect(provider.reaction.mock.calls.some(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps an explicit time-extension request available when both balances are $0', async () => {
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('reject_extension');
+    const { session } = setup('zero-balance-explicit-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 52;
+    state.remaining = 8;
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'zero-balance-extension', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(chooseTimeExtension).toHaveBeenCalledWith(expect.objectContaining({ scores: { player: 0, rival: 0 }, remaining: 8 }), '延長して', expect.any(String), expect.any(AbortSignal), false);
+    await session.shutdown('test_finished');
+  });
+
+  it('uses the $0 policy for the final line instead of inviting a rematch', async () => {
+    const { session } = setup('zero-balance-result', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 59;
+    state.remaining = 1;
+    (session as unknown as { startedAt: number }).startedAt = Date.now() - 60_000;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.openingContexts.at(-1)).toContain('会話方針: 双方の確定残高が$0で、未確定回転はない');
+    expect(provider.reaction).toHaveBeenCalledWith(expect.stringContaining('逆転、再戦、追加の回転は誘わず'));
+    await session.shutdown('test_finished');
+  });
+
   it('keeps the clock moving and rejects a delayed decision after the match ends', async () => {
     const late = deferred<'accept_extension_10s'>();
     vi.mocked(chooseTimeExtension).mockReturnValueOnce(late.promise);

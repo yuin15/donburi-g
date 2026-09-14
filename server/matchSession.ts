@@ -122,6 +122,8 @@ export class MatchSession {
   private initialization: Promise<void> | null = null;
   private stopping: Promise<void> | null = null;
   private recentUserText = '';
+  /** One per MatchSession; a fresh match receives a fresh invitation state. */
+  private zeroBalanceChatConsidered = false;
   private extensionOfferConsidered = false;
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
@@ -590,7 +592,7 @@ export class MatchSession {
     this.startedAt = now;
     this.pushContext();
     this.emitSnapshot();
-    this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
+    this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6 && !this.hasBothZeroBalances());
     this.timer = setInterval(() => this.tick(), 100);
   }
 
@@ -600,6 +602,7 @@ export class MatchSession {
     this.publishEvents(advanceMatch(this.state, elapsed, Boolean(this.extensionSpeech)));
     this.maybeOfferTimeExtension();
     this.maybeOfferLoan();
+    this.maybeOfferZeroBalanceChat();
   }
 
   private publishEvents(events: GameEvent[]): void {
@@ -612,9 +615,9 @@ export class MatchSession {
     // Ordinary wins and the clock matter to user-led conversation as well as reactions.
     this.pushContext();
     for (const event of events) this.handleGameEvent(event);
-    if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing') {
+    if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing' && !this.isBothBalancesExhausted()) {
       this.warnedTime = true;
-      this.reactions.offer('last-ten', '残り10秒を切った。短くラストスパートの一言。', 30, () => this.state.status === 'playing');
+      this.reactions.offer('last-ten', '残り10秒を切った。短くラストスパートの一言。', 30, () => this.state.status === 'playing' && !this.hasBothZeroBalances());
     }
     if (Date.now() - this.lastSnapshotAt >= 250) this.emitSnapshot();
   }
@@ -659,13 +662,15 @@ export class MatchSession {
         player: event.player,
         rival: event.rival,
       });
-      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing');
+      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing' && !this.hasBothZeroBalances());
       return;
     }
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
-      const direction = event.snapshot.winner === 'player'
+      const direction = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
+        ? '双方とも残高を使い切った。逆転、再戦、追加の回転は誘わず、軽く勝負を諦めた短い一言だけを話す。'
+        : event.snapshot.winner === 'player'
         ? 'あなたは負けた。試合中の流れを踏まえて短く悔しがって。'
         : event.snapshot.winner === 'rival'
           ? 'あなたは勝った。嫌味になりすぎない勝利コメントを一言。'
@@ -797,6 +802,7 @@ export class MatchSession {
       || !this.voiceReady
       || this.voiceDisabled
       || this.state.status !== 'playing'
+      || this.isBothBalancesExhausted()
       || this.state.extensionUsed
       || this.extensionNegotiation
       || this.loanDecisionPending
@@ -815,6 +821,35 @@ export class MatchSession {
     // Existing commentary is the supported Live speech mechanism. This is an
     // invitation only; the domain clock changes after a later explicit reply.
     this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE);
+  }
+
+  /**
+   * `advanceMatch` resolves each BET and payout atomically, so the authoritative
+   * scores are also the confirmed balances; there is no separate pending-spin
+   * state to wait for here.
+   */
+  private hasBothZeroBalances(): boolean {
+    return this.state.scores.player === 0 && this.state.scores.rival === 0;
+  }
+
+  private isBothBalancesExhausted(): boolean {
+    return this.state.status === 'playing' && this.hasBothZeroBalances();
+  }
+
+  /** A single high-priority transition survives ordinary reaction saturation, but always yields to user conversation. */
+  private maybeOfferZeroBalanceChat(): void {
+    if (this.zeroBalanceChatConsidered || !this.isBothBalancesExhausted() || !this.voiceReady || this.voiceDisabled || this.userSpeaking) return;
+    this.zeroBalanceChatConsidered = true;
+    this.pushContext();
+    this.reactions.offer(
+      'zero-balance-chat',
+      '双方の確定残高が$0で未確定回転はない。軽く勝負を諦め、「お金なくなっちゃったし、なんか話そうか？」のように直前の会話へ合わせて一度だけ自然に雑談へ誘う。逆転、回転、資金、時間延長、再戦は誘わない。',
+      100,
+      () => this.isBothBalancesExhausted() && !this.userSpeaking,
+      false,
+      true,
+      5000,
+    );
   }
 
   /** Route only after transcript deltas following the delegation have settled. */
@@ -1426,7 +1461,7 @@ export class MatchSession {
   private react(reason: string, instruction: string, round: number, side: 'player' | 'rival' = 'player'): void {
     if (round !== this.state.rounds[side]) return;
     this.reactions.offer(`${reason}:${side}:${round}`, instruction, reason.includes('jackpot') ? 80 : 60, () => {
-      if (this.state.status !== 'playing' || this.state.rounds[side] !== round) return false;
+      if (this.state.status !== 'playing' || this.hasBothZeroBalances() || this.state.rounds[side] !== round) return false;
       if (reason === 'player_leads') return this.state.scores.player > this.state.scores.rival;
       if (reason === 'rival_leads') return this.state.scores.rival > this.state.scores.player;
       return true;
@@ -1443,6 +1478,9 @@ export class MatchSession {
 
   private gameContext(): string {
     const snapshot = getSnapshot(this.state);
+    const conversationPolicy = this.hasBothZeroBalances()
+      ? '会話方針: 双方の確定残高が$0で、未確定回転はない。勝負を軽く諦めて普通の雑談へ移る。逆転、回転、資金が必要な行動、自動の時間延長、再戦を誘わず、資金切れや雑談への誘いも繰り返さない。ユーザーの話題を優先する。'
+      : '会話方針: 通常のゲーム会話。';
     // Whole seconds keep the 100ms match tick and incoming mic chunks from resending
     // identical context. A confirmed spin, score, upgrade or result updates immediately.
     const recentSpin = Object.keys(this.lastSpins).length
@@ -1483,7 +1521,7 @@ export class MatchSession {
             ? `貸借: あなたは$1未満、プレイヤーは$5以上。一度だけ$5をお願いできる。${loanOfferContext}`
             : '貸借: 現在は確定不可または使用済み。委任しない。通常の会話を続ける。';
     // Static rules belong in the startup persona; repeat only the current facts.
-    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${extensionContext}${loanContext}${reelContext}${recentSpin}`;
+    return `${conversationPolicy}\n最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${extensionContext}${loanContext}${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {
