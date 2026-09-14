@@ -154,7 +154,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
         expression: selectResultRivalExpression(snapshot),
         rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
         line: resultLine(snapshot), heard: '',
-        startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
+        startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: '' },
       });
       view.stopSound();
       view.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
@@ -308,7 +308,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       snapshot.bets = { player: player.bet!, rival: rival.bet! };
       snapshot.winner = 'player';
       showSnapshot(snapshot);
-      render({ startControl: { disabled: true, label: 'LAST SPIN', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` } });
+      render({ startControl: { disabled: true, label: 'LAST SPIN', spinState: null, hint: '' } });
       play(player, rival, snapshot);
     }
   };
