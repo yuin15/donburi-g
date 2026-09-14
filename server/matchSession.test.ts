@@ -9,7 +9,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[], bridgeLanguages: [] as Array<'ja' | 'en'>,
-  context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(), playbackDone: vi.fn(), interruptPlayback: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(), playbackDone: vi.fn(), interruptPlayback: vi.fn(), discardNormalPlayback: vi.fn(), mediaComplete: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
@@ -23,7 +23,7 @@ vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   speak = provider.speak;
   interrupt = provider.interrupt;
   interruptAndWait = provider.interruptWait;
-  completeSpeechInput = vi.fn();
+  completeSpeechInput = provider.mediaComplete;
 } }));
 vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   private language: 'ja' | 'en';
@@ -63,6 +63,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   sendMic = provider.mic;
   noteSpeechPlaybackDone = provider.playbackDone;
   interruptPlayback = provider.interruptPlayback;
+  discardNormalPlayback = provider.discardNormalPlayback;
 } }));
 vi.mock('./rivalBrain', async importOriginal => ({
   ...(await importOriginal<typeof import('./rivalBrain')>()),
@@ -144,6 +145,19 @@ describe('provider status lifecycle', () => {
     expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_speech_end', speechId }));
     session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
     expect(provider.playbackDone).toHaveBeenCalledExactlyOnceWith(speechId);
+    await session.shutdown('test_finished');
+  });
+
+  it('releases a suppressed normal Avatar utterance instead of waiting for an impossible media ACK', async () => {
+    const { session } = setup('suppressed-normal-avatar', 'manual', 'avatar');
+    await session.initialize();
+    (session as unknown as { loanDecisionPending: boolean }).loanDecisionPending = true;
+    const speechId = 'normal-suppressed';
+    provider.events?.onAudio(Buffer.alloc(4800, 4).toString('base64'), speechId, 'normal');
+    provider.events?.onSpeechAudioEnded(speechId);
+    expect(provider.speak).not.toHaveBeenCalled();
+    expect(provider.mediaComplete).not.toHaveBeenCalled();
+    expect(provider.discardNormalPlayback).toHaveBeenCalledExactlyOnceWith(speechId);
     await session.shutdown('test_finished');
   });
 

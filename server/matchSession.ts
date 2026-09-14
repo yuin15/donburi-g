@@ -249,6 +249,8 @@ export class MatchSession {
 
   private createVoiceBridge(openingContext = '', resultOnly = false, fixedDeadline?: number): GptLiveBridge {
     const generation = ++this.voiceGeneration;
+    const forwardedSpeechIds = new Set<string>();
+    const discardedNormalSpeechIds = new Set<string>();
     // The play bridge follows an authoritative deadline that may be re-armed at
     // PLAY. A result bridge receives its own fixed, shorter deadline.
     const current = () => generation === this.voiceGeneration && !this.closed && !this.voiceDisabled && Date.now() < (fixedDeadline ?? this.sessionDeadline);
@@ -265,7 +267,18 @@ export class MatchSession {
       },
       onAudio: (audio, speechId, kind) => {
         const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
-        if (!outputAllowed() || this.resultTransition || ((this.extensionDecisionPending || this.loanDecisionPending || this.playerLoanIntentPending || this.awaitingExtensionTranscript()) && kind === 'normal')) return;
+        const suppressNormal = (this.extensionDecisionPending || this.loanDecisionPending || this.playerLoanIntentPending || this.awaitingExtensionTranscript()) && kind === 'normal';
+        if (!outputAllowed() || this.resultTransition || suppressNormal) {
+          // GptLive has already assigned a normal speechId before delivering its
+          // PCM. If no chunk reached a browser or Avatar, there can be no ACK;
+          // release that ID now instead of leaving its playback fence permanent.
+          if (kind === 'normal' && speechId && !forwardedSpeechIds.has(speechId) && !discardedNormalSpeechIds.has(speechId)) {
+            discardedNormalSpeechIds.add(speechId);
+            this.gpt?.discardNormalPlayback(speechId);
+          }
+          return;
+        }
+        if (speechId) forwardedSpeechIds.add(speechId);
         if (speechId && audible) {
           this.markLoanOfferAudible(speechId);
           this.markPlayerLoanOfferAudible(speechId);
@@ -282,6 +295,12 @@ export class MatchSession {
       },
       onSpeechAudioEnded: speechId => {
         if (!current() || this.resultTransition) return;
+        if (!forwardedSpeechIds.delete(speechId)) {
+          // Confirmed lines may legitimately contain no PCM in a mocked or
+          // failing provider response and still use their existing completion
+          // fence. Only a normal ID we explicitly dropped has no player ACK.
+          if (discardedNormalSpeechIds.has(speechId)) return;
+        }
         if (this.extensionSpeech?.id === speechId) this.extensionSpeech.fenceSent = true;
         if (this.voiceMode === 'audio') this.emit({ type: 'voice_speech_end', speechId });
         else this.media?.completeSpeechInput(speechId);

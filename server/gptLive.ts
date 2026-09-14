@@ -290,6 +290,15 @@ export class GptLiveBridge {
     this.normalPlaybackSpeechId = null;
     this.playbackSpeechIds.clear();
   }
+
+  /** Release a normal utterance that the session deliberately did not hand to a player. */
+  discardNormalPlayback(speechId: string): void {
+    if (this.normalPlaybackSpeechId !== speechId) return;
+    this.normalPlaybackSpeechId = null;
+    this.playbackSpeechIds.delete(speechId);
+    this.schedulePendingSpeech();
+    this.scheduleNormalSpeechRelease();
+  }
   /** Uses the already-supported commentary path; no provider tool call is invented. */
   requestConfirmedLine(line: string | LocalizedLine, speechId?: string): void {
     this.pendingConfirmedLine = {

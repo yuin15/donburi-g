@@ -334,6 +334,28 @@ describe('live conversation pacing', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('releases a normal utterance that the session never handed to an audio player', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-1', 'normal');
+    bridge.discardNormalPlayback('normal-1');
+    bridge.requestConfirmedLine('抑止後の確定台詞。', 'confirmed-after-suppression');
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
+      type: 'session.commentary.append',
+      content: expect.stringContaining('抑止後の確定台詞。'),
+    });
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('uses the settled English state for confirmed and delegated fixed lines', async () => {
     const { bridge } = setup('', 'en');
     const connecting = bridge.connect();
