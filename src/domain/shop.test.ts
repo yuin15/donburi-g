@@ -1,24 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import { advanceMatch, createMatch, getPoolCounts, getSnapshot, purchaseUpgrade, requestManualSpin, startMatch } from './game';
 import { parseServerEnvelope } from '../../shared/wire';
+import { upgradePrice } from '../../shared/shop';
 import { buildReelStrip } from '../view/ReelStrip';
 
 describe('paid upgrades', () => {
-  it('charges escalating prices, rejects stale attempts and caps purchases', () => {
+  it.each([
+    ['steady', { cherry: 22, bell: 3, seven: 2 }],
+    ['jackpot', { cherry: 4, bell: 3, seven: 5 }],
+  ] as const)('charges $10, $15, then $20 for three %s purchases while preserving its effect and cap', (id, pool) => {
     const state = createMatch(42, 'shop', 'manual');
-    expect(purchaseUpgrade(state, 'steady', 0)).toBe(false);
+    expect(upgradePrice([], id)).toBe(10);
+    expect(purchaseUpgrade(state, id, 0)).toBe(false);
     startMatch(state);
-    for (const [count, balance] of [[0, 25], [1, 15], [2, 0]]) {
-      expect(purchaseUpgrade(state, 'steady', count)).toBe(true);
+    state.scores.player = 45;
+    for (const [count, price, balance] of [[0, 10, 35], [1, 15, 20], [2, 20, 0]]) {
+      expect(upgradePrice(state.upgrades.player, id)).toBe(price);
+      expect(purchaseUpgrade(state, id, count)).toBe(true);
       expect(state.scores.player).toBe(balance);
-      expect(purchaseUpgrade(state, 'steady', count)).toBe(false);
+      expect(purchaseUpgrade(state, id, count)).toBe(false);
     }
-    expect(purchaseUpgrade(state, 'steady', 3)).toBe(false);
-    expect(purchaseUpgrade(state, 'jackpot', 0)).toBe(false);
-    expect(state.upgradeSpent).toBe(30);
-    expect(getPoolCounts(state, 'player')).toEqual({ cherry: 22, bell: 3, seven: 2 });
+    expect(upgradePrice(state.upgrades.player, id)).toBeNull();
+    expect(purchaseUpgrade(state, id, 3)).toBe(false);
+    expect(state.upgrades.player).toEqual([id, id, id]);
+    expect(state.upgradeSpent).toBe(45);
+    expect(getPoolCounts(state, 'player')).toEqual(pool);
     expect(state.upgrades.rival).toEqual([]);
     expect(createMatch().upgradeSpent).toBe(0);
+  });
+  it('rejects a $10 purchase when the player lacks sufficient balance', () => {
+    const state = createMatch(42, 'shop', 'manual');
+    startMatch(state);
+    state.scores.player = 9;
+
+    expect(purchaseUpgrade(state, 'steady', 0)).toBe(false);
+    expect(state.scores.player).toBe(9);
+    expect(state.upgradeSpent).toBe(0);
+    expect(state.upgrades.player).toEqual([]);
   });
   it('preserves started spins and validates recovery after spending', () => {
     const state = createMatch(42, 'shop', 'manual'); startMatch(state);

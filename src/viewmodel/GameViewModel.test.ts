@@ -110,11 +110,11 @@ it('purchases during CPU play, retains spending after stopping, and resets on re
   h.vm.requestSpin();
   const started = structuredClone(h.rounds[0].spin);
   h.vm.purchaseUpgrade('steady');
-  expect(h.vm.state.scores.player).toBe(24);
+  expect(h.vm.state.scores.player).toBe(19);
   expect(h.vm.state.snapshot.upgrades.player).toEqual(['steady']);
   expect(h.rounds[0].spin).toEqual(started);
   h.rounds[0].stopped();
-  expect(h.vm.state.scores.player).toBe(started.total - 5);
+  expect(h.vm.state.scores.player).toBe(started.total - 10);
   await h.clock.advance(60000);
   const spent = h.vm.state.snapshot.upgradeSpent;
   h.vm.purchaseUpgrade('jackpot');
