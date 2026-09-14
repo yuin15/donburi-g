@@ -50,7 +50,7 @@ describe('bankroll reel wire', () => {
     expect(parseServerEnvelope(JSON.stringify(envelope(message)))).toEqual(envelope(message));
   });
 
-  it('accepts a legal $90 snapshot and spin after all six $15 purchases', () => {
+  it('accepts a legal $90 snapshot and spin after all six purchases', () => {
     const state = createMatch(123, 'wire-grid', 'manual');
     startMatch(state);
     state.scores.player = 100;

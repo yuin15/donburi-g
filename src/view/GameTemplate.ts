@@ -56,8 +56,8 @@ app.innerHTML = `
   <footer>
     <section id="upgradeShop" aria-label="Upgrade your machine">
       <h2>UPGRADE</h2>
-      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $15</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
-      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $15</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $10</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $10</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
       <span class="sr-only" id="purchaseNotice" role="status">BUY → BOOST YOUR NEXT SPIN</span>
       <i id="purchaseSymbol" aria-hidden="true"></i>
     </section>

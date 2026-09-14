@@ -8,14 +8,14 @@ describe('paid upgrades', () => {
   it.each([
     ['steady', { cherry: 22, bell: 3, seven: 2 }],
     ['jackpot', { cherry: 4, bell: 3, seven: 5 }],
-  ] as const)('charges $15 for each of three %s purchases while preserving its effect and cap', (id, pool) => {
+  ] as const)('charges $10, $15, then $20 for three %s purchases while preserving its effect and cap', (id, pool) => {
     const state = createMatch(42, 'shop', 'manual');
-    expect(upgradePrice([], id)).toBe(15);
+    expect(upgradePrice([], id)).toBe(10);
     expect(purchaseUpgrade(state, id, 0)).toBe(false);
     startMatch(state);
     state.scores.player = 45;
-    for (const [count, balance] of [[0, 30], [1, 15], [2, 0]]) {
-      expect(upgradePrice(state.upgrades.player, id)).toBe(15);
+    for (const [count, price, balance] of [[0, 10, 35], [1, 15, 20], [2, 20, 0]]) {
+      expect(upgradePrice(state.upgrades.player, id)).toBe(price);
       expect(purchaseUpgrade(state, id, count)).toBe(true);
       expect(state.scores.player).toBe(balance);
       expect(purchaseUpgrade(state, id, count)).toBe(false);
@@ -28,13 +28,13 @@ describe('paid upgrades', () => {
     expect(state.upgrades.rival).toEqual([]);
     expect(createMatch().upgradeSpent).toBe(0);
   });
-  it('rejects a $15 purchase when the player lacks sufficient balance', () => {
+  it('rejects a $10 purchase when the player lacks sufficient balance', () => {
     const state = createMatch(42, 'shop', 'manual');
     startMatch(state);
-    state.scores.player = 14;
+    state.scores.player = 9;
 
     expect(purchaseUpgrade(state, 'steady', 0)).toBe(false);
-    expect(state.scores.player).toBe(14);
+    expect(state.scores.player).toBe(9);
     expect(state.upgradeSpent).toBe(0);
     expect(state.upgrades.player).toEqual([]);
   });
