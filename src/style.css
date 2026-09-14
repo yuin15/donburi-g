@@ -33,7 +33,7 @@
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 .gate-card .gate-strategy{font-size:12px;line-height:1.7;color:#e4c991;border-left:2px solid #89683a;padding-left:12px}
-.voice-video-option{display:flex!important;align-items:center;gap:.65rem;font-size:.78rem!important;color:#d7c7a9}.voice-video-option input{width:16px!important;height:16px;margin:0!important;padding:0!important;accent-color:#e3b64f;flex:none}
+.voice-video-option{display:flex!important;align-items:center;gap:.65rem;font-size:.78rem!important;color:#d7c7a9}.voice-video-option[hidden]{display:none!important}.voice-video-option input{width:16px!important;height:16px;margin:0!important;padding:0!important;accent-color:#e3b64f;flex:none}
 .gate-card:has(.voice-options[open]) .gate-strategy,.gate-card:has(.voice-options[open]) .gate-payout{display:none}
 #voicePanel{display:flex;align-items:center;gap:1cqw;padding:.45cqw .6cqw;border-block:1px solid #9cbeac55;background:linear-gradient(90deg,#0b1720ec,#0b1222f5);box-shadow:0 4px 16px #0005;color:#c8eddb}
 #mic{display:flex;align-items:center;justify-content:center;gap:.45cqw;flex:none;min-width:7.4cqw;height:3.1cqw;padding:.4cqw .6cqw;border:1px solid #6aac91;border-radius:.5cqw;background:#12382e;color:#d6ffee;font:750 .88cqw/1 system-ui;letter-spacing:.04em;cursor:pointer}

@@ -808,7 +808,7 @@ export class GameViewModel implements GameCommands {
     const playing = this.isPlaying();
     const busy = !!this.betRequestId || this.spinPending || this.spinAnimating || now < this.spinNextAt;
     const spinState = playing ? busy ? 'spinning' : 'ready' : null;
-    const hint = playing ? busy ? 'WAIT FOR REELS TO STOP' : 'CLICK / SPACE TO SPIN' : this.snapshot.status === 'result' ? `YOU ${this.snapshot.rounds.player} SPINS · RIVAL ${this.snapshot.rounds.rival} SPINS` : 'CLICK / SPACE TO SPIN';
+    const hint = playing ? busy ? 'WAIT FOR REELS TO STOP' : '' : this.snapshot.status === 'result' ? `YOU ${this.snapshot.rounds.player} SPINS · RIVAL ${this.snapshot.rounds.rival} SPINS` : '';
     const finalStopping = this.snapshot.status === 'result' && !this.result;
     const disabled = playing ? busy : this.mode === 'idle' || this.connecting || this.starting || this.awaitingStart || finalStopping || (this.mode === 'live' && !this.gameConnected);
     const label = playing ? 'SPIN' : finalStopping ? 'LAST SPIN' : this.result ? 'REMATCH' : this.connecting || this.starting || this.awaitingStart ? 'READY…' : 'PLAY';

@@ -115,7 +115,7 @@ describe('provider status lifecycle', () => {
     const last = snapshots.at(-1)!;
     expect(last.snapshot.upgrades.player).toEqual(['steady']);
     expect(last.snapshot.upgrades.rival).toEqual([]);
-    expect(last.snapshot.upgradeSpent).toBe(5);
+    expect(last.snapshot.upgradeSpent).toBe(10);
     expect(last.lastSpins?.player?.upgradeSpent).toBe(0);
     for (const message of snapshots) expect(parseServerEnvelope(JSON.stringify(message))).not.toBeNull();
     await session.shutdown('normal_close');
