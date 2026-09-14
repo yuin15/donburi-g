@@ -159,9 +159,98 @@ describe('provider status lifecycle', () => {
     provider.events?.onUserSpeechEnd();
     await vi.advanceTimersByTimeAsync(100);
     provider.events?.onTranscript('user', transcript, { startMs: 0, endMs: 300 });
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(250);
     expect(provider.bridgeLanguages.at(-1)).toBe(language);
     expect(provider.openingContexts.at(-1)).toContain(resultLanguage);
+    await session.shutdown('test_finished');
+  });
+
+  it.each([
+    ['Hello', 'en', 'English'],
+    ['これは ABC の話', 'ja', 'Japanese'],
+    ['Hello、これは日本語', 'ja', 'Japanese'],
+  ] as const)('carries a final delayed %s delta through match end before creating the result bridge', async (transcript, language, resultLanguage) => {
+    const { session } = setup(`post-end-language-${language}`, 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(59_900);
+    const matchBridge = provider.bridges[0];
+    matchBridge.onUserSpeech();
+    matchBridge.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.bridges).toHaveLength(1);
+    matchBridge.onTranscript('user', transcript, { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(149);
+    expect(provider.bridges).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.bridgeLanguages.at(-1)).toBe(language);
+    expect(provider.openingContexts.at(-1)).toContain(resultLanguage);
+    await session.shutdown('test_finished');
+  });
+
+  it('cancels a pending final-turn language handoff during shutdown', async () => {
+    const { session } = setup('post-end-language-shutdown', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(59_900);
+    const matchBridge = provider.bridges[0];
+    matchBridge.onUserSpeech();
+    matchBridge.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    await session.shutdown('test_finished');
+    matchBridge.onTranscript('user', 'Hello', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(provider.bridges).toHaveLength(1);
+  });
+
+  it('drops a post-result speech turn instead of treating it as the final transcript', async () => {
+    const { session } = setup('post-end-new-turn', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(59_900);
+    const matchBridge = provider.bridges[0];
+    matchBridge.onUserSpeech();
+    matchBridge.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    matchBridge.onUserSpeech();
+    matchBridge.onTranscript('user', 'Hello', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(provider.bridgeLanguages.at(-1)).toBe('ja');
+    expect(provider.openingContexts.at(-1)).toContain('Japanese');
+    await session.shutdown('test_finished');
+  });
+
+  it('clears a pending final-turn handoff when voice closes without closing the match session', async () => {
+    const { session } = setup('post-end-language-voice-close', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(59_900);
+    const matchBridge = provider.bridges[0];
+    matchBridge.onUserSpeech();
+    matchBridge.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    session.handleRaw('{"type":"voice_close"}');
+    matchBridge.onTranscript('user', 'Hello', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(provider.bridges).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('starts the result bridge immediately when English was already settled', async () => {
+    const { session } = setup('post-end-language-already-english', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'Hello', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(59_650);
+    const matchBridge = provider.bridges[0];
+    matchBridge.onUserSpeech();
+    matchBridge.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.bridgeLanguages.at(-1)).toBe('en');
+    expect(provider.openingContexts.at(-1)).toContain('English');
     await session.shutdown('test_finished');
   });
 

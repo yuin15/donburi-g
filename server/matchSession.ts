@@ -131,6 +131,8 @@ export class MatchSession {
   private recentUserText = '';
   private conversationLanguage: ConversationLanguage = 'ja';
   private conversationLanguageSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
+  /** Holds the just-finished user turn open long enough for its final transcript delta before result voice replaces this bridge. */
+  private resultTransition: { direction: LocalizedLine; deadline: number; turn: number; generation: number; acceptsTranscript: boolean } | null = null;
   private extensionOfferConsidered = false;
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
@@ -244,7 +246,7 @@ export class MatchSession {
       },
       onAudio: (audio, speechId) => {
         const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
-        if (!outputAllowed() || ((this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript()) && !speechId)) return;
+        if (!outputAllowed() || this.resultTransition || ((this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript()) && !speechId)) return;
         if (speechId && audible) this.markLoanOfferAudible(speechId);
         if (audible) this.assistantOutputUntil = Date.now() + 750;
         if (this.voiceMode === 'avatar') {
@@ -254,13 +256,23 @@ export class MatchSession {
         else this.emit({ type: 'voice_audio', audio, ...(speechId ? { speechId } : {}) });
       },
       onSpeechAudioEnded: speechId => {
-        if (!current()) return;
+        if (!current() || this.resultTransition) return;
         if (this.extensionSpeech?.id === speechId) this.extensionSpeech.fenceSent = true;
         if (this.voiceMode === 'audio') this.emit({ type: 'voice_speech_end', speechId });
         else this.media?.completeSpeechInput(speechId);
       },
       onTranscript: (role, delta, timing) => {
         if (!outputAllowed() || (resultOnly && role === 'user')) return;
+        // A match may end before the final user delta arrives. Keep only that
+        // already-started turn while its bounded language-settle timer runs;
+        // the old bridge cannot otherwise survive the result bridge handoff.
+        if (this.resultTransition) {
+          if (role !== 'user' || !this.resultTransition.acceptsTranscript || this.userSpeaking || this.resultTransition.turn !== this.userSpeechTurn || this.resultTransition.generation !== generation) return;
+          this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: this.userSpeechTurn });
+          if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
+          this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
+          return;
+        }
         this.transcriptHistory.push({ sequence: ++this.transcriptSequence, role, delta, startMs: timing?.startMs ?? null, endMs: timing?.endMs ?? null, userTurn: role === 'user' ? this.userSpeechTurn : null });
         if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
         if (role === 'user') {
@@ -290,6 +302,12 @@ export class MatchSession {
       },
       onUserSpeech: () => {
         if (!current() || resultOnly) return;
+        // This is a new, post-result turn. It must not be folded into the
+        // final pre-result turn while waiting for its transcript grace.
+        if (this.resultTransition) {
+          this.resultTransition.acceptsTranscript = false;
+          return;
+        }
         this.cancelPendingDirectDecisions();
         this.userSpeechTurn += 1;
         this.gpt?.beginUserSpeech();
@@ -304,16 +322,18 @@ export class MatchSession {
         }
       },
       onUserSpeechEnd: () => {
-        if (!current() || resultOnly) return;
-        this.tick();
+        if (!current() || resultOnly || this.resultTransition) return;
         this.userSpeaking = false;
+        // Queue before tick: tick can synchronously produce match_end at this
+        // exact boundary, which must retain this turn for delayed deltas.
+        this.queueConversationLanguageSettle(generation);
+        this.tick();
         this.queueSettledRivalLoanReply(generation);
         this.queueDirectTimeExtensionRequest(generation);
         this.queueDirectLoanRequest(generation);
-        this.queueConversationLanguageSettle(generation);
       },
       onDelegation: delegation => {
-        if (!current() || resultOnly) return;
+        if (!current() || resultOnly || this.resultTransition) return;
         if (this.directExtensionRequestSettle?.turn === this.userSpeechTurn) {
           clearTimeout(this.directExtensionRequestSettle.timer);
           this.delegationSettles.delete(this.directExtensionRequestSettle.timer);
@@ -368,6 +388,12 @@ export class MatchSession {
     if (this.hardStop) clearTimeout(this.hardStop);
     if (this.lobbyStop) clearTimeout(this.lobbyStop);
     if (this.resultStop) clearTimeout(this.resultStop);
+    if (this.conversationLanguageSettle) {
+      clearTimeout(this.conversationLanguageSettle.timer);
+      this.delegationSettles.delete(this.conversationLanguageSettle.timer);
+    }
+    this.conversationLanguageSettle = null;
+    this.resultTransition = null;
     if (this.state.status !== 'result') abortMatch(this.state);
     const closeVoice = this.stopVoice();
     this.stopping = (async () => {
@@ -375,8 +401,6 @@ export class MatchSession {
       if (this.releaseQuota) await this.releaseQuota().catch(() => undefined);
       this.releaseQuota = null;
       this.recentUserText = '';
-      if (this.conversationLanguageSettle) clearTimeout(this.conversationLanguageSettle.timer);
-      this.conversationLanguageSettle = null;
       this.extensionDelegation = null;
       this.loanDelegation = null;
       this.directLoanDecision = null;
@@ -444,6 +468,8 @@ export class MatchSession {
     this.voiceReady = false;
     this.voiceConnected = false;
     this.voiceGeneration += 1;
+    this.resultTransition = null;
+    this.conversationLanguageSettle = null;
     this.resultSpeechStarted = false;
     if (this.resultSilence) clearInterval(this.resultSilence);
     this.resultSilence = null;
@@ -677,7 +703,6 @@ export class MatchSession {
       return;
     }
     if (event.type === 'match_end') {
-      this.settleConversationLanguageAtMatchEnd();
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
       const direction: LocalizedLine = event.snapshot.winner === 'player'
@@ -689,7 +714,7 @@ export class MatchSession {
       if (this.timer) clearInterval(this.timer);
       const deadline = Math.min(this.sessionDeadline, Date.now() + RESULT_REACTION_MS);
       this.resultStop = setTimeout(() => void this.shutdown('result_complete'), Math.max(0, deadline - Date.now()));
-      void this.restartResultVoice(direction, deadline);
+      this.beginResultVoice(direction, deadline);
     }
   }
 
@@ -935,6 +960,9 @@ export class MatchSession {
   /** Settle a full spoken turn so a late delta cannot switch on an English fragment. */
   private queueConversationLanguageSettle(generation: number): void {
     if (this.userSpeaking) return;
+    // Result handoff deliberately keeps the original deadline. A trailing
+    // delta belongs to the completed turn, but must not extend its grace.
+    if (this.resultTransition) return;
     if (this.conversationLanguageSettle) {
       clearTimeout(this.conversationLanguageSettle.timer);
       this.delegationSettles.delete(this.conversationLanguageSettle.timer);
@@ -945,19 +973,34 @@ export class MatchSession {
       if (this.conversationLanguageSettle?.timer !== timer) return;
       this.conversationLanguageSettle = null;
       this.settleConversationLanguage(turn, generation);
+      this.finishResultTransition(turn, generation);
     }, USER_TRANSCRIPT_SETTLE_MS);
     this.conversationLanguageSettle = { turn, generation, timer };
     this.delegationSettles.add(timer);
   }
 
-  /** Resolve a completed final turn before replacing the match voice bridge. */
-  private settleConversationLanguageAtMatchEnd(): void {
+  /** Start the result immediately unless the final completed user turn is still collecting a transcript. */
+  private beginResultVoice(direction: LocalizedLine, deadline: number): void {
     const pending = this.conversationLanguageSettle;
-    if (!pending) return;
-    clearTimeout(pending.timer);
-    this.delegationSettles.delete(pending.timer);
-    this.conversationLanguageSettle = null;
-    this.settleConversationLanguage(pending.turn, pending.generation);
+    if (
+      pending
+      && this.conversationLanguage === 'ja'
+      && !this.userSpeaking
+      && pending.turn === this.userSpeechTurn
+      && pending.generation === this.voiceGeneration
+    ) {
+      this.resultTransition = { direction, deadline, turn: pending.turn, generation: pending.generation, acceptsTranscript: true };
+      return;
+    }
+    void this.restartResultVoice(direction, deadline);
+  }
+
+  /** The fixed result deadline remains unchanged; only bridge creation follows the bounded final-turn grace. */
+  private finishResultTransition(turn: number, generation: number): void {
+    const transition = this.resultTransition;
+    if (!transition || transition.turn !== turn || transition.generation !== generation) return;
+    this.resultTransition = null;
+    void this.restartResultVoice(transition.direction, transition.deadline);
   }
 
   private settleConversationLanguage(turn: number, generation: number): void {
