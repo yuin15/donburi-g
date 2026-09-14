@@ -14,7 +14,7 @@ PCで公開ゲームを開き、PLAY NOW → BETを選択 → **SPIN** または
 
 ## 声を付ける場合
 
-入口の ADD AI VOICE · OPTIONAL を開き、別経路で共有する招待コードを入力して接続する。映像は必要なときだけ Add live video を選ぶ。マイクを許可し、VOICE READY後にPLAY。
+入口に常時表示される ADD AI VOICE · OPTIONAL へ、別経路で共有する招待コードを入力して接続する。映像は必要なときだけ Add live video を選ぶ。マイクを許可し、VOICE READY後にPLAY。
 
 - **MIC**：自分のマイク。入力があるとメーターが光る。
 - **VOICE**：ライバルの声。
