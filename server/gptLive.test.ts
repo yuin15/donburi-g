@@ -17,7 +17,7 @@ vi.mock('ws', async () => {
   } };
 });
 function setup(openingContext = '', language: 'ja' | 'en' = 'ja') {
-  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onUsage: vi.fn() };
+  const events = { onReady: vi.fn(), onError: vi.fn(), onAudio: vi.fn(), onSpeechAudioEnded: vi.fn(), onTranscript: vi.fn(), onDelegation: vi.fn(), onUserSpeech: vi.fn(), onUserSpeechEnd: vi.fn(), onCommandRejected: vi.fn(), onUsage: vi.fn() };
   return { bridge: new GptLiveBridge(events, openingContext, language), events };
 }
 beforeEach(() => { sockets.length = 0; vi.useFakeTimers(); });
@@ -48,7 +48,7 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('確定した自分のBETだけ');
     expect(start.session.instructions).toContain('双方の確定残高が$0の会話');
     expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
-    expect(start.session.instructions).toContain('初回だけは短い2文まで許し');
+    expect(start.session.instructions).toContain('質問や訂正には必要な説明');
     expect(start.session.instructions).toContain('自動の時間延長を誘わず');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
@@ -171,14 +171,14 @@ describe('live conversation pacing', () => {
     bridge.sendMic(voice);
     expect(events.onUserSpeech).toHaveBeenCalledOnce();
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
-    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice);
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'interrupted old reply' }));
-    expect(events.onTranscript).not.toHaveBeenCalled();
+    expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'interrupted old reply', { startMs: null, endMs: null });
     for (let i = 0; i < 3; i++) socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: quiet }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onAudio).toHaveBeenLastCalledWith(voice);
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'new reply' }));
-    expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'new reply', { startMs: null, endMs: null });
+    expect(events.onTranscript).toHaveBeenLastCalledWith('assistant', 'new reply', { startMs: null, endMs: null });
     const count = socket.send.mock.calls.length;
     bridge.requestReaction('stale game commentary');
     expect(socket.send).toHaveBeenCalledTimes(count);
@@ -186,6 +186,45 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps ordinary replies audible immediately and after the four-second user speech guard', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    bridge.sendMic(voice);
+    bridge.sendMic(voice);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice);
+    await vi.advanceTimersByTimeAsync(4_001);
+    socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    expect(events.onAudio).toHaveBeenCalledTimes(2);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed' }));
+    await closing;
+  });
+
+  it('releases only a sent invalid request and treats unknown provider errors as fatal', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.requestConfirmedLine('確定台詞', 'confirmed-id');
+    const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    socket.emit('message', JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', client_event_id: request.event_id } }));
+    expect(events.onCommandRejected).toHaveBeenCalledExactlyOnceWith({ kind: 'commentary', speechId: 'confirmed-id' });
+    expect(events.onError).not.toHaveBeenCalled();
+    socket.emit('message', JSON.stringify({ type: 'error', error: { type: 'server_error', client_event_id: request.event_id } }));
+    expect(events.onError).toHaveBeenCalledExactlyOnceWith('fatal');
+    const closing = bridge.close();
+    socket.emit('close');
+    await closing;
   });
 
   it('replaces pending game updates with the latest one instead of queuing every clock tick', async () => {

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerMessage } from '../../shared/protocol';
 
-const pcm = vi.hoisted(() => ({ prepare: vi.fn(), close: vi.fn(), play: vi.fn(), interrupt: vi.fn(), setMuted: vi.fn() }));
+const pcm = vi.hoisted(() => ({ prepare: vi.fn(), close: vi.fn(), play: vi.fn(), interrupt: vi.fn(), speechEnded: vi.fn(() => Promise.resolve()), setMuted: vi.fn() }));
 vi.mock('./LiveAudioPlayer', () => ({ LiveAudioPlayer: class {
-  prepare = pcm.prepare; close = pcm.close; play = pcm.play; interrupt = pcm.interrupt; setMuted = pcm.setMuted;
+  prepare = pcm.prepare; close = pcm.close; play = pcm.play; interrupt = pcm.interrupt; speechEnded = pcm.speechEnded; setMuted = pcm.setMuted;
 } }));
 
 const media = vi.hoisted(() => ({ connect: vi.fn(), disconnect: vi.fn(), rooms: [] as Array<{
@@ -22,9 +22,9 @@ vi.mock('livekit-client', () => ({
 import { LiveClient } from './live';
 
 function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let resolve!: (value: T) => void, reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 class Socket {
   static OPEN = 1;
@@ -487,6 +487,71 @@ it('connects and plays voice without an avatar or a LiveKit room, with one playb
   expect(pcm.play).toHaveBeenCalledOnce();
   expect(pcm.close).toHaveBeenCalledOnce();
   expect(stopTrack).toHaveBeenCalledOnce();
+});
+
+it('switches an avatar connection to prepared browser PCM, keeps microphone capture, and ignores later LiveKit disconnects', async () => {
+  const instance = client();
+  const connection = instance.connect('test', 'avatar');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  ws.message({ type: 'voice_status', status: 'ready' });
+  await connection;
+  ws.message({ type: 'voice_route', route: 'audio', transitionId: 'route-one' });
+  // The server has not stopped the provider yet. A disconnect delivered while
+  // detaching the old room must not tear down the microphone or PCM fallback.
+  media.rooms[0].handlers.get('disconnected')?.();
+  expect(ws.close).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(pcm.prepare).toHaveBeenCalledOnce());
+  expect(media.disconnect).toHaveBeenCalledOnce();
+  expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'voice_route_ready', transitionId: 'route-one' });
+  const audio = Buffer.alloc(4800).toString('base64');
+  ws.message({ type: 'voice_audio', audio, speechId: 'confirmed' });
+  expect(pcm.play).toHaveBeenCalledWith(audio, 'confirmed');
+  ws.message({ type: 'voice_speech_end', speechId: 'confirmed' });
+  await vi.waitFor(() => expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'voice_speech_done', speechId: 'confirmed' })));
+  instance.send({ type: 'mic', audio: 'AAAA' });
+  expect(ws.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'mic', audio: 'AAAA' }));
+  await instance.disconnect();
+});
+
+it('uses PCM readiness when fallback arrives before the avatar message starts an attachment', async () => {
+  const instance = client();
+  const connection = instance.connect('test', 'avatar');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'voice_route', route: 'audio', transitionId: 'before-avatar' });
+  await vi.waitFor(() => expect(pcm.prepare).toHaveBeenCalledOnce());
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  ws.message({ type: 'voice_status', status: 'ready' });
+  await connection;
+  expect(media.connect).not.toHaveBeenCalled();
+  expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toEqual({ type: 'voice_route_ready', transitionId: 'before-avatar' });
+  await instance.disconnect();
+});
+
+it.each(['resolves', 'rejects'] as const)('keeps PCM fallback connected when the cancelled avatar connect later %s', async outcome => {
+  const pending = deferred<void>();
+  media.connect.mockReturnValueOnce(pending.promise);
+  const instance = client();
+  const connection = instance.connect('test', 'avatar');
+  const ws = await socket();
+  ws.open();
+  ws.message({ type: 'avatar', livekitUrl: 'test-url', livekitToken: 'test-token' });
+  await vi.waitFor(() => expect(media.connect).toHaveBeenCalledOnce());
+  ws.message({ type: 'voice_status', status: 'ready' });
+  ws.message({ type: 'voice_route', route: 'audio', transitionId: `during-${outcome}` });
+  await connection;
+  if (outcome === 'resolves') pending.resolve();
+  else pending.reject(new Error('old_connect_rejected'));
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(ws.close).not.toHaveBeenCalled();
+  const routeAck = [...ws.send.mock.calls].reverse()
+    .map(call => JSON.parse(call[0] as string))
+    .find((message: { type?: string }) => message.type === 'voice_route_ready');
+  expect(routeAck).toEqual({ type: 'voice_route_ready', transitionId: `during-${outcome}` });
+  await instance.disconnect();
 });
 
 it('does not open a paid connection when voice-only playback setup finishes after cancellation', async () => {

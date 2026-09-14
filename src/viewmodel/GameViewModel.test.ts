@@ -179,6 +179,20 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
+  it('hides an ended avatar video while keeping the live voice session and future video choice', async () => {
+    const h = setup();
+    await h.vm.connectLive('private-invite-value', true);
+    const session = h.sessions.at(-1)!;
+    expect(h.vm.state.connection).toMatchObject({ voiceReady: true, showVideo: true });
+    session.handlers.route?.();
+    expect(h.vm.state.connection).toEqual(expect.objectContaining({
+      voiceReady: true,
+      showVideo: false,
+      text: 'Live video ended · Voice continues',
+    }));
+    h.vm.dispose();
+  });
+
   it('keeps setup errors for the classified retry instead of switching to CPU before rejection', async () => {
     const h = setup(async handlers => {
       const session = new Session(handlers);

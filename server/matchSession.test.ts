@@ -420,14 +420,42 @@ describe('provider status lifecycle', () => {
     await vi.advanceTimersByTimeAsync(1);
     const statuses = providerMessages(messages);
     expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'failed' });
-    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'connected' });
     expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
+    expect(provider.stop).not.toHaveBeenCalled();
+    const route = messages.find((message): message is Extract<ServerMessage, { type: 'voice_route' }> => message.type === 'voice_route');
+    expect(route).toBeDefined();
+    session.handleRaw(JSON.stringify({ type: 'voice_route_ready', transitionId: route!.transitionId }));
     expect(provider.stop).toHaveBeenCalledWith('test-session');
     expect(release).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(60_000);
     expect(messages.some(message => message.type === 'match_ended')).toBe(true);
+  });
+
+  it('falls back from avatar media only after the matching browser PCM ACK, ignores old ACKs, and preserves tagged completion order', async () => {
+    const { session, messages } = setup('avatar-route-ack', 'manual', 'avatar');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    provider.mediaFailures[0]!();
+    await vi.advanceTimersByTimeAsync(1);
+    const route = messages.find((message): message is Extract<ServerMessage, { type: 'voice_route' }> => message.type === 'voice_route');
+    expect(route).toBeDefined();
+    expect(provider.stop).not.toHaveBeenCalled();
+    session.handleRaw(JSON.stringify({ type: 'voice_route_ready', transitionId: 'stale-route' }));
+    provider.events?.onAudio('AAAA');
+    provider.events?.onAudio('BBBB', 'new-confirmed');
+    provider.events?.onSpeechAudioEnded('new-confirmed');
+    expect(messages.some(message => message.type === 'voice_audio')).toBe(false);
+    session.handleRaw(JSON.stringify({ type: 'voice_route_ready', transitionId: route!.transitionId }));
+    expect(messages.slice(-2)).toEqual([
+      expect.objectContaining({ type: 'voice_audio', audio: 'BBBB', speechId: 'new-confirmed' }),
+      expect.objectContaining({ type: 'voice_speech_end', speechId: 'new-confirmed' }),
+    ]);
+    expect(provider.stop).toHaveBeenCalledWith('test-session');
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId: 'new-confirmed' }));
+    await session.shutdown('test_finished');
   });
 
   it('closes connected providers for a browser voice_close and lets the CPU match finish', async () => {
@@ -478,7 +506,7 @@ describe('provider status lifecycle', () => {
     await vi.advanceTimersByTimeAsync(60_001);
     const statuses = providerMessages(messages);
     expect(statuses).toContainEqual({ type: 'provider_status', provider: 'liveAvatar', state: 'failed' });
-    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'closed' });
+    expect(statuses).toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'connected' });
     expect(statuses).not.toContainEqual({ type: 'provider_status', provider: 'gptLive', state: 'failed' });
   });
 
@@ -667,8 +695,12 @@ describe('live match cleanup', () => {
     session.handleRaw('{"type":"start"}');
     await vi.advanceTimersByTimeAsync(60_000);
     expect(messages.filter(m => m.type === 'match_ended')).toMatchObject([{ snapshot: { status: 'result', round: 30 } }]);
-    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'error')).toHaveLength(1);
+    expect(messages.filter(m => m.type === 'voice_status' && m.status === 'error')).toHaveLength(failure === 'clear' ? 0 : 1);
     expect(provider.gptConnect).toHaveBeenCalledTimes(failure === 'connect' ? 2 : 1);
+    if (failure === 'clear') {
+      expect(provider.stop).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+    }
     expect(provider.stop).toHaveBeenCalledOnce();
     expect(provider.mic).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(8_000);
@@ -805,7 +837,7 @@ describe('live match cleanup', () => {
     provider.bridges[0].onUsage?.({ seconds: 60, finalized: true });
     await session.shutdown('test_finished');
     provider.bridges[1].onUsage?.({ seconds: 1, finalized: false });
-    expect(logs.mock.calls.map(([line]) => JSON.parse(line))).toEqual([
+    expect(logs.mock.calls.map(([line]) => JSON.parse(line)).filter(value => value.event === 'voice_session_usage')).toEqual([
       { event: 'voice_session_usage', phase: 'match', seconds: 60, finalized: true },
       { event: 'voice_session_usage', phase: 'result', seconds: 1, finalized: false },
     ]);
@@ -2480,8 +2512,9 @@ it('runs a complete voice-only duel and its final reply without creating any ava
   const playBridge = provider.events!;
   playBridge.onAudio('AAAA');
   expect(messages.at(-1)).toMatchObject({ type: 'voice_audio', audio: 'AAAA' });
+  const beforeSpeech = messages.length;
   playBridge.onUserSpeech();
-  expect(messages.at(-1)).toMatchObject({ type: 'voice_interrupt' });
+  expect(messages).toHaveLength(beforeSpeech);
   session.handleRaw('{"type":"start"}');
   session.handleRaw('{"type":"spin","matchId":"audio-game","commandId":"press"}');
   await vi.advanceTimersByTimeAsync(60_000);
