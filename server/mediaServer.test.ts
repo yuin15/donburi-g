@@ -176,6 +176,19 @@ describe('avatar interrupt acknowledgment', () => {
 });
 
 describe('avatar media lifecycle', () => {
+  it('seals the final PCM chunk with the same utterance ID', async () => {
+    const { media, socket } = await connectMedia();
+    media.speak('beginning');
+    const id = lastCommand(socket).event_id;
+    media.speak('final-syllable');
+    expect(lastCommand(socket)).toEqual({ type: 'agent.speak', event_id: id, audio: 'final-syllable' });
+    buffers[0]!.end();
+    expect(lastCommand(socket)).toEqual({ type: 'agent.speak_end', event_id: id });
+    media.speak('next-reply');
+    expect(lastCommand(socket).event_id).not.toBe(id);
+    media.close();
+  });
+
   it('waits for both the GPT terminal fence and the final tagged Avatar utterance', async () => {
     const spoken = vi.fn();
     const media = new MediaServerLeg('wss://test.invalid', vi.fn(), spoken);

@@ -53,14 +53,22 @@ it('decodes signed little-endian PCM, schedules contiguous audio, and clears old
   expect(close).toHaveBeenCalledOnce();
 });
 
-it('does not build an unbounded speech backlog when network frames arrive in a burst', async () => {
+it('preserves a complete utterance when more than 750 ms of PCM arrives in a burst', async () => {
   const player = new LiveAudioPlayer();
   await player.prepare();
-  for (let i = 0; i < 11; i++) player.play(silence);
-  expect(sources.filter(source => source.stop.mock.calls.length)).toHaveLength(8);
-  expect(sources[10].start.mock.calls[0][0]).toBeLessThan(10.75);
+  for (let i = 0; i < 11; i++) player.play(silence, 'reply');
+  const completed = vi.fn();
+  void player.speechEnded('reply').then(completed);
+  expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
+  sources.forEach((source, i) => expect(source.start.mock.calls[0][0]).toBeCloseTo(10.04 + i * 0.1));
+  for (const source of sources.slice(0, -1)) source.onended?.();
+  await Promise.resolve();
+  expect(completed).not.toHaveBeenCalled();
+  sources.at(-1)!.onended?.();
+  await Promise.resolve();
+  expect(completed).toHaveBeenCalledOnce();
   await player.close();
-  expect(sources.every(source => source.stop.mock.calls.length === 1)).toBe(true);
+  expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
 });
 
 it('acknowledges a tagged line only after every scheduled PCM source has ended', async () => {
