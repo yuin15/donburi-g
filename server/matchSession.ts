@@ -76,6 +76,7 @@ const DIRECT_LOAN_TRANSCRIPT_SETTLE_MS = 250;
 const DIRECT_LOAN_ACCEPTANCE_SETTLE_MS = 250;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE = 'お金がなくなっちゃった。5ドル貸してくれない？';
+const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転はない。軽く勝負を諦め、直前の会話へ合わせて雑談に一度だけ自然に誘う。一文だけで終え、その後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、回転、資金、時間延長、再戦は誘わない。';
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 
@@ -91,8 +92,14 @@ export class MatchSession {
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
     if (!this.voiceReady || this.closed) return;
+    const zeroBalanceChat = text === ZERO_BALANCE_CHAT_REACTION;
+    if (zeroBalanceChat) this.zeroBalanceChatRequested = true;
     this.pushContext();
-    this.gpt?.requestReaction(text);
+    const reactionRequested = this.gpt?.requestReaction(text);
+    if (zeroBalanceChat && reactionRequested === false) {
+      this.zeroBalanceChatRequested = false;
+      this.pushContext();
+    }
   });
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
@@ -124,6 +131,8 @@ export class MatchSession {
   private recentUserText = '';
   /** One per MatchSession; a fresh match receives a fresh invitation state. */
   private zeroBalanceChatConsidered = false;
+  /** Set only when the one-shot invitation request was accepted by GPT-Live. */
+  private zeroBalanceChatRequested = false;
   private extensionOfferConsidered = false;
   private extensionOffer: { acceptAfter: number; expiresAt: number } | null = null;
   private loanOfferConsidered = false;
@@ -847,7 +856,7 @@ export class MatchSession {
     this.pushContext();
     this.reactions.offer(
       'zero-balance-chat',
-      '双方の確定残高が$0で未確定回転はない。軽く勝負を諦め、「お金なくなっちゃったし、なんか話そうか？」のように直前の会話へ合わせて一度だけ自然に雑談へ誘う。逆転、回転、資金、時間延長、再戦は誘わない。',
+      ZERO_BALANCE_CHAT_REACTION,
       100,
       () => this.isBothBalancesExhausted() && !this.userSpeaking,
       false,
@@ -1483,9 +1492,15 @@ export class MatchSession {
 
   private gameContext(): string {
     const snapshot = getSnapshot(this.state);
-    const conversationPolicy = this.hasBothZeroBalances()
-      ? '会話方針: 双方の確定残高が$0で、未確定回転はない。勝負を軽く諦めて普通の雑談へ移る。逆転、回転、資金が必要な行動、自動の時間延長、再戦を誘わず、資金切れや雑談への誘いも繰り返さない。ユーザーの話題を優先する。'
-      : '会話方針: 通常のゲーム会話。';
+    const conversationPolicy = this.isBothBalancesExhausted()
+      ? this.zeroBalanceChatRequested
+        ? '会話方針: 双方の確定残高が$0。雑談への移行はすでに一度伝えた。これは発話要求ではない。新しい誘い、資金切れの説明、逆転、回転、資金が必要な行動、自動の時間延長、再戦を出さず、ユーザーを待つ。ユーザーが話したらその話題にだけ自然に短く答える。'
+        : '会話方針: 双方の確定残高が$0で、未確定回転はない。雑談への移行案内はまだ発話しない。これは状態通知であり発話要求ではない。次の一度だけの移行案内を待ち、逆転、回転、資金が必要な行動、自動の時間延長、再戦を出さない。'
+      : this.hasBothZeroBalances()
+        ? snapshot.status === 'ready'
+          ? '会話方針: 双方の確定残高が$0だが、まだ試合開始前。雑談への移行案内を発話せず待つ。'
+          : '会話方針: 双方の確定残高が$0で試合は終了済み。雑談への移行案内や再戦を誘わず、渡された確定結果の短い一言だけに従う。'
+        : '会話方針: 通常のゲーム会話。';
     // Whole seconds keep the 100ms match tick and incoming mic chunks from resending
     // identical context. A confirmed spin, score, upgrade or result updates immediately.
     const recentSpin = Object.keys(this.lastSpins).length

@@ -1762,16 +1762,34 @@ describe('live match cleanup', () => {
     state.elapsed = state.processedSecond = 52;
     state.remaining = 8;
     await vi.advanceTimersByTimeAsync(100);
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('双方の確定残高が$0で、未確定回転はない'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('雑談への移行案内はまだ発話しない'));
     expect(provider.confirmedLine).not.toHaveBeenCalledWith('もう少し時間が欲しい？ 伸ばしてあげようか？');
     await vi.advanceTimersByTimeAsync(3000);
     expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(5000);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('雑談への移行はすでに一度伝えた'));
+    (session as unknown as { startedAt: number }).startedAt = Date.now() - 53_000;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('これは発話要求ではない'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.not.stringContaining('移行案内を待ち'));
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(4000);
     expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);
     state.scores.player = 4;
     state.scores.rival = 2;
     await vi.advanceTimersByTimeAsync(100);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('会話方針: 通常のゲーム会話。'));
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps a $0 ready lobby silent until the match starts', async () => {
+    const { session } = setup('zero-balance-ready', 'manual', 'audio');
+    await session.initialize();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = state.scores.rival = 0;
+    const context = (session as unknown as { gameContext(): string }).gameContext();
+    expect(context).toContain('まだ試合開始前。雑談への移行案内を発話せず待つ');
+    expect(context).not.toContain('雑談への移行はすでに一度伝えた');
     await session.shutdown('test_finished');
   });
 
@@ -1821,7 +1839,7 @@ describe('live match cleanup', () => {
     state.remaining = 1;
     (session as unknown as { startedAt: number }).startedAt = Date.now() - 60_000;
     await vi.advanceTimersByTimeAsync(100);
-    expect(provider.openingContexts.at(-1)).toContain('会話方針: 双方の確定残高が$0で、未確定回転はない');
+    expect(provider.openingContexts.at(-1)).toContain('会話方針: 双方の確定残高が$0で試合は終了済み。雑談への移行案内や再戦を誘わず');
     expect(provider.reaction).toHaveBeenCalledWith(expect.stringContaining('逆転、再戦、追加の回転は誘わず'));
     await session.shutdown('test_finished');
   });

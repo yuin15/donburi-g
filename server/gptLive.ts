@@ -221,9 +221,9 @@ export class GptLiveBridge {
     this.flushContext();
   }
 
-  requestReaction(text: string): void {
-    if (Date.now() < this.conversationUntil) return;
-    this.append('commentary', `会話中なら省略。ゲームへの短い一言だけ: ${text}`.slice(0, 1800), null);
+  requestReaction(text: string): boolean {
+    if (Date.now() < this.conversationUntil) return false;
+    return this.append('commentary', `会話中なら省略。次の指示に合う短い一言だけを発話し、同じ誘いを足さず黙って待つ: ${text}`.slice(0, 1800), null) !== null;
   }
 
   requestDelegationResult(delegationId: string, content: string, speechId: string): void {

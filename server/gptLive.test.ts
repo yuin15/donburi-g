@@ -212,6 +212,23 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('accepts a $0 transition reaction as one short line and tells the model to wait afterward', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    expect(bridge.requestReaction('雑談へ一度だけ誘う。')).toBe(true);
+    const reaction = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+    expect(reaction).toMatchObject({ type: 'session.commentary.append' });
+    expect(reaction.content).toContain('短い一言だけを発話');
+    expect(reaction.content).toContain('同じ誘いを足さず黙って待つ');
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('drops a normal reply until its quiet boundary, then queues the confirmed line on the supported commentary path', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
