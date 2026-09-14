@@ -1,8 +1,8 @@
-type Cue = 'spin' | 'choose' | 'win' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result';
+type Cue = 'spin' | 'choose' | 'win' | 'bellWin' | 'rivalWin' | 'jackpot' | 'lead' | 'warning' | 'ruleChange' | 'result' | 'victory' | 'defeat' | 'draw';
 
 // Original synthesized cabinet sounds; no samples or recorded voices.
-const NOTES: Record<Exclude<Cue, 'spin' | 'jackpot'>, number[]> = {
-  choose: [660], win: [784, 1047, 1319], rivalWin: [523, 659],
+const NOTES: Record<Exclude<Cue, 'spin' | 'win' | 'bellWin' | 'jackpot' | 'victory' | 'defeat' | 'draw'>, number[]> = {
+  choose: [660], rivalWin: [523, 659],
   lead: [523, 784, 1047], warning: [880, 660, 880], ruleChange: [330, 494, 740, 988], result: [523, 659, 784, 1047],
 };
 
@@ -39,19 +39,83 @@ export class GameAudio {
       });
       return;
     }
-    if (cue === 'jackpot') {
-      // Quick ascending fanfare, then a ringing major chord and coin chimes.
-      [523, 659, 784, 1047, 1319, 1568, 2093].forEach((pitch, index) => {
-        this.note(pitch, index * .065, .24, .8, 'triangle');
-        this.note(pitch * 2, index * .065, .13, .14);
+    if (cue === 'win') {
+      // Cherry win: a short low impact, then a compact collect at about .5s.
+      this.note(156, 0, .11, .68, 'triangle');
+      [784, 988, 1319].forEach((pitch, index) => {
+        this.note(pitch, .035 + index * .075, .17, .54 - index * .06, 'triangle');
       });
-      [523, 659, 784].forEach(pitch => this.note(pitch, .48, .64, .55, 'triangle'));
-      [2093, 2637, 3136].forEach((pitch, index) => this.note(pitch, .66 + index * .11, .25, .35));
+      [1760, 2349, 3136].forEach((pitch, index) => {
+        this.note(pitch, .42 + index * .055, .14, .16, 'sine');
+      });
+      return;
+    }
+    if (cue === 'bellWin') {
+      // Bell win: a fuller phrase, with metallic chimes arriving from .65-.85s.
+      this.note(220, 0, .15, .42, 'triangle');
+      [659, 784, 988, 1319].forEach((pitch, index) => {
+        this.note(pitch, .06 + index * .12, .22, .48, 'triangle');
+      });
+      [1976, 2489, 3136].forEach((pitch, index) => {
+        const delay = .65 + index * .085;
+        this.note(pitch, delay, .2, .18, 'sine');
+        this.note(pitch * 2, delay + .008, .12, .055, 'sine');
+      });
+      return;
+    }
+    if (cue === 'jackpot') {
+      // Jackpot: low impact at zero, an ascending lift, then four small collect waves.
+      this.note(72, 0, .24, .86, 'triangle');
+      this.note(108, .008, .2, .42, 'sawtooth');
+      [220, 277, 330, 415, 494, 587, 659].forEach((pitch, index) => {
+        this.note(pitch, .10 + index * .075, .19, .34, 'triangle');
+      });
+      [
+        [1319, 1760, .70], [1568, 2093, .91], [1760, 2637, 1.12],
+        [2093, 3136, 1.34], [2349, 3520, 1.55],
+      ].forEach(([low, high, delay]) => {
+        this.note(low, delay, .22, .18, 'sine');
+        this.note(high, delay + .014, .17, .09, 'sine');
+      });
+      return;
+    }
+    if (cue === 'victory') {
+      // Final match victory: bright launch, restrained coin rain, and a 2.2-2.8s resolution.
+      this.note(110, 0, .24, .64, 'triangle');
+      [523, 659, 784, 988, 1175, 1319, 1568].forEach((pitch, index) => {
+        this.note(pitch, .08 + index * .075, .23, .40, 'triangle');
+      });
+      [784, 988, 1175].forEach((pitch, index) => {
+        this.note(pitch, .70 + index * .06, .45, .19, 'sine');
+      });
+      // One oscillator per coin keeps the rain audible without a wall of chirps.
+      [1760, 2093, 2349, 2637, 3136, 2349, 3520, 2637].forEach((pitch, index) => {
+        this.note(pitch, .92 + index * .13, .14, .13, 'sine');
+      });
+      [1047, 1319, 1568].forEach((pitch, index) => {
+        this.note(pitch, 2.22 + index * .08, .42, .30, 'triangle');
+      });
+      this.note(2093, 2.54, .30, .16, 'sine');
+      return;
+    }
+    if (cue === 'defeat') {
+      // A restrained descending phrase for a lost match.
+      this.note(196, 0, .18, .34, 'triangle');
+      [392, 330, 262, 196].forEach((pitch, index) => {
+        this.note(pitch, .08 + index * .16, .23, .25, 'sine');
+      });
+      return;
+    }
+    if (cue === 'draw') {
+      // A suspended, neutral cadence distinct from both victory and defeat.
+      [440, 554, 494, 659].forEach((pitch, index) => {
+        this.note(pitch, index * .16, .22, .22, 'sine');
+      });
       return;
     }
     NOTES[cue].forEach((pitch, index) => {
       this.note(pitch, index * .085, cue === 'choose' ? .1 : .24, cue === 'rivalWin' ? .55 : .8, cue === 'choose' ? 'sine' : 'triangle');
-      if (cue === 'win' || cue === 'result' || cue === 'ruleChange') this.note(pitch * 2, index * .085, .18, cue === 'ruleChange' ? .34 : .18);
+      if (cue === 'result' || cue === 'ruleChange') this.note(pitch * 2, index * .085, .18, cue === 'ruleChange' ? .34 : .18);
     });
   }
 

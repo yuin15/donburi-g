@@ -314,8 +314,10 @@ export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type
 }
 /**
  * The authoritative, all-or-nothing loan entry point. A transfer is possible
- * only while the borrower cannot place the minimum bet and the lender can
- * cover the fixed amount. `balances` shares `scores`, so snapshots stay equal.
+ * only while the player cannot place the minimum bet for a rival-to-player
+ * loan, and the lender can cover the fixed amount. A player may voluntarily
+ * lend to the rival regardless of the rival's current balance. `balances`
+ * shares `scores`, so snapshots stay equal.
  */
 export function transferLoan(state: MatchState, direction: LoanDirection): Extract<GameEvent, { type: 'loan_transfer' }> | null {
   const [lender, borrower] = direction === 'rival_to_player'
@@ -323,8 +325,7 @@ export function transferLoan(state: MatchState, direction: LoanDirection): Extra
     : ['player', 'rival'] as const;
   if (
     state.status !== 'playing'
-    || (direction === 'player_to_rival' && state.loanUsed[direction])
-    || state.scores[borrower] >= BETS[0]
+    || (direction === 'rival_to_player' && state.scores[borrower] >= BETS[0])
     || state.scores[lender] < LOAN_AMOUNT
   ) return null;
   const before = getSnapshot(state);

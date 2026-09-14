@@ -1,6 +1,7 @@
 # Dependencies / build outputs
 node_modules/
 dist/
+review-dist/
 build/
 coverage/
 *.tsbuildinfo

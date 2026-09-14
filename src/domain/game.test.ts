@@ -190,7 +190,7 @@ describe('authoritative match domain', () => {
     expect(applyTimeExtension(state)).toBeNull();
   });
 
-  it('moves exactly $5 once in each direction without minting bankroll', () => {
+  it('moves exactly $5 for a bankrupt player and for every voluntary player loan without minting bankroll', () => {
     const state = createMatch(123, 'loan');
     startMatch(state);
     state.scores.player = 0;
@@ -205,7 +205,11 @@ describe('authoritative match domain', () => {
     const reverse = transferLoan(state, 'player_to_rival');
     expect(reverse?.after.scores).toEqual({ player: 4, rival: 5 });
     expect(reverse?.after.scores).toEqual(reverse?.after.balances);
-    expect(transferLoan(state, 'player_to_rival')).toBeNull();
+    state.scores.player = 10;
+    state.scores.rival = 5;
+    const repeat = transferLoan(state, 'player_to_rival');
+    expect(repeat?.after.scores).toEqual({ player: 5, rival: 10 });
+    expect((repeat?.after.scores.player ?? 0) + (repeat?.after.scores.rival ?? 0)).toBe((repeat?.before.scores.player ?? 0) + (repeat?.before.scores.rival ?? 0));
   });
 
   it('rejects loans before play, with a funded borrower, an underfunded lender, or after result', () => {
@@ -220,6 +224,7 @@ describe('authoritative match domain', () => {
     expect(transferLoan(state, 'rival_to_player')).toBeNull();
     advanceMatch(state, 60);
     expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    expect(transferLoan(state, 'player_to_rival')).toBeNull();
   });
 
   it('skips only rival turns during an authoritative distraction without pausing time or catching up', () => {

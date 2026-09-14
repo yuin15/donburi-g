@@ -1,6 +1,9 @@
 import * as THREE from 'three';
-import type { Side, SpinView, SymbolId, UpgradeId } from '../../shared/protocol';
+import type { Bet, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol';
+import type { BetControlsState } from './BetControls3D';
 import { PAYOUT } from '../domain/game';
+import { rewardDuration } from '../viewmodel/RewardPresentation';
+import type { CoinStyle } from './CoinCelebration';
 import { CabinetArt } from './CabinetArt';
 import { planTravel, planTravelToStop, settledOffset, symbolAtOffset, SYMBOLS, travelAt, type ReelTravel } from './ReelMotion';
 import { buildReelStrip, MAX_REEL_STRIP_LENGTH } from './ReelStrip';
@@ -201,6 +204,32 @@ export class ReelScene {
     mesh.position.set(rect.x + rect.w / 2, STAGE_HEIGHT - rect.y - rect.h / 2, z);
   }
 
+  setBetControls(state: BetControlsState): void {
+    if (!this.disposed && this.cabinet.betControls.setState(state, performance.now())) this.requestRender();
+  }
+
+  hoverBet(bet: Bet | null): void {
+    if (!this.disposed && this.cabinet.betControls.hover(bet, performance.now())) this.requestRender();
+  }
+
+  pressBet(bet: Bet): void {
+    if (this.disposed) return;
+    this.cabinet.betControls.press(bet, performance.now());
+    this.requestRender();
+  }
+
+  previewBetLines(lines: readonly WinningLine[]): void {
+    if (this.disposed) return;
+    this.cabinet.betControls.preview(lines, performance.now());
+    this.requestRender();
+  }
+
+  cancelBetPreview(): void {
+    if (this.disposed) return;
+    this.cabinet.betControls.cancelPreview();
+    this.requestRender();
+  }
+
   /** Confirmed upgrades are staged until the next spin or explicit still view. */
   setUpgrades(player: readonly UpgradeId[], rival: readonly UpgradeId[]): void {
     if (this.disposed) return;
@@ -289,6 +318,8 @@ export class ReelScene {
     }
     this.requestRender();
   }
+  setCoinStyle(style: CoinStyle): void { this.cabinet.setCoinStyle(style); this.requestRender(); }
+
   setResult(winner: Side | 'draw' | null): void {
     if (this.cabinet.setResult(winner)) this.requestRender();
   }
@@ -382,7 +413,7 @@ export class ReelScene {
     const cells = side === 'player' ? allCells : allCells.filter(cell => cell.row === 1);
     const winningSymbol = allCells.reduce<SymbolId | null>((best, cell) => !best || PAYOUT[cell.symbol] > PAYOUT[best] ? cell.symbol : best, null);
     const jackpot = winningSymbol === 'seven' || payout >= PAYOUT.seven;
-    const duration = this.motionPreference.matches ? 180 : jackpot ? 1200 : 650;
+    const duration = this.motionPreference.matches ? 180 : rewardDuration(payout, winningSymbol);
     const until = payout > 0 ? still ? Infinity : now + duration : 0;
     if (payout > 0) this.cabinet.flash(payout, now, duration, still, side, cells, winningSymbol);
     if (side === 'player') {
@@ -530,6 +561,7 @@ export class ReelScene {
     }
     const portraitMoving = this.posePortrait(now);
     const animating = this.cabinet.update(now, this.motionPreference.matches) || portraitMoving;
+    if (this.effectsHost) this.effectsHost.dataset.victory = String(this.cabinet.celebratingResult);
     this.materials.forEach((material, i) => {
       const rows = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival', i % 3);
       material.uniforms.liftedRows.value.set(rows[0], rows[1], rows[2]);

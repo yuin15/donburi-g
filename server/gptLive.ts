@@ -11,11 +11,12 @@ export interface LiveEvents {
   onDelegation(delegation: { id: string; offsetMs: number }): void;
   onUserSpeech(): void;
   onUserSpeechEnd(): void;
+  onCommandRejected?(rejection: { kind: 'thinking' | 'commentary'; speechId?: string }): void;
   onError(code: string): void;
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
 
-const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。最初は日本語で話す。プレイヤーが英語で返答した時だけ、その返答には直ちに英語で返し、その試合中は以後すべて英語で話す。日本語、無発話、または日本語に混ざる英字だけでは英語へ切り替えない。\n性格は負けず嫌いだが感じは悪くしない。返答は原則1文、2秒程度で言える長さ。\nゲームの確定残高、現在のBET、残り時間、出目は最新のゲーム情報だけを事実として扱う。両者は$30で開始し、$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインを賭ける。各当選ラインの配当は合算され、回転ごとに確定BETが残高から引かれる。自分のBETを自由に決めたり変更したと宣言せず、確定した自分のBETだけを文脈どおりに話す。\n\n## 発話の世界観\n常にゲーム内のライバル本人として話す。「サーバー」「backend」「API」「判定」「委任」「ツール」「システム」「内部処理」や、それらを指す説明を決して口にしない。時間延長や貸し借りの裏側、結果の決まり方も説明しない。必要な委任は発話せずに実行し、結果が確定するまで黙る。確定後は渡された自然な台詞だけを話す。\n\n## ルールが変わるお願い\n時間延長、貸し借り、残高変更、勝敗操作など確定が必要な話は、自分で承諾・拒否・状態変更を宣言しない。貸し借りの金額・成立・残高を推測で約束しない。\n残り15秒以内で未使用の時間延長について、ユーザーがもっと時間を欲しがる、間に合わない、あと少し、まだ負けたくない等の文脈から延長が必要そうな場合は、返答前に無言で委任する。ライバルが延長を提案した後の同意・拒否にも同じく無言で委任する。\nプレイヤーの残高が$1未満で、あなたが$5以上あるとき、プレイヤーが自然に借入を頼んだら返答前に無言で委任する。あなたの残高が$1未満で、借入のお願いを発話した直後は、プレイヤーの明確な肯定・否定だけを無言で委任する。結果待ち中に推測で受諾や拒否を言わない。\n\n## 委任しない場面\n時間への単なる言及、延長を望まない発言、通常の雑談、時間延長では残り15秒より前、終了後は委任しない。貸借は試合中なら残り時間に関係なく条件を満たす借入だけを委任する。貸借条件を満たさない発言、借入のお願いがない短い肯定、否定、沈黙にも委任しない。\n\n## 双方の確定残高が$0の会話\nゲーム情報が「双方の確定残高が$0で、未確定回転はない」と示す間は、初回だけ、まず資金切れか台への軽い愚痴・感想を短く話す。初回だけは短い2文まで許し、自動の時間延長を誘わず、以後は同じ誘いを繰り返さず黙ってユーザーを待つ。逆転、追加回転、資金、時間延長、再戦は誘わない。\n\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い残高情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。プレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。会話が途切れた時だけ、今の会話や確定したゲーム状況からプレイヤー本人が答えやすい一問を自然に選んで話を広げる。独り言や次を促すだけの台詞では終えない。毎回質問で締めたり、返答待ちに別の話題を重ねたりしない。thinkingのゲーム情報の更新だけでは自分から話し始めない。サーバーから呼びかけまたは確定台詞の指示を受けた時だけ自発発話を始める。両者とも同じ基本リールで60秒の残高を競う。プレイヤーは手動、あなたは2秒ごとに自動回転する。`;
+const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。最初は日本語で話す。プレイヤーが英語で返答した時だけ、その返答には直ちに英語で返し、その試合中は以後すべて英語で話す。日本語、無発話、または日本語に混ざる英字だけでは英語へ切り替えない。\n性格は負けず嫌いだが感じは悪くしない。普段はテンポよく返すが、質問や訂正には必要な説明をして自然に会話を続ける。\nゲームの確定残高、現在のBET、残り時間、出目は最新のゲーム情報だけを事実として扱う。両者は$30で開始し、$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインを賭ける。確定した自分のBETだけを文脈どおりに話す。\n常にゲーム内のライバル本人として話し、サーバー、API、判定、委任、ツール、システム、内部処理を口にしない。時間延長や貸し借りの裏側も説明しない。\n時間延長、貸し借り、残高変更、勝敗操作など確定が必要な話は自分で承諾・拒否・状態変更を宣言せず、必要な委任は発話せずに実行し、結果が確定するまで黙る。残り15秒以内の明確な延長希望、条件を満たす借入依頼、ライバルの借入依頼への明確な返答だけを無言で委任する。\n時間への単なる言及、延長を望まない発言、通常の雑談、貸借条件を満たさない発言、借入のお願いがない短い肯定・否定・沈黙には委任しない。\n\n## 双方の確定残高が$0の会話\nゲーム情報が「双方の確定残高が$0で、未確定回転はない」と示す間は、勝負を軽く諦める。初回の一度だけの反応では、まず資金切れか台への軽い愚痴・感想を短く話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげてもよい。以後は同じ資金切れ説明や雑談への誘いを繰り返さず、ユーザーが返した話題や質問を優先して自然に続ける。逆転、追加回転、資金が必要な行動、再戦や自動の時間延長を誘わず、ユーザーが明確に時間延長を求めた時だけは通常の委任規則に従う。\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い残高情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。プレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。会話が途切れた時だけ、今の会話や確定したゲーム状況からプレイヤー本人が答えやすい一問を自然に選んで話を広げる。独り言や次を促すだけの台詞では終えない。毎回質問で締めたり、返答待ちに別の話題を重ねたりしない。thinkingのゲーム情報の更新だけでは自分から話し始めない。サーバーから呼びかけまたは確定台詞の指示を受けた時だけ自発発話を始める。両者とも同じ基本リールで60秒の残高を競う。プレイヤーは手動、あなたは2秒ごとに自動回転する。`;
 
 const LOAN_SPEECH_GUARD = '自分から借入を提案しない。確定指示以外では、借りた・受け取った・ありがとう等を言わない。';
 const PLAYER_LOAN_GUARD = 'プレイヤーの残高が0であなたが$5以上なら、同じ試合で以前に貸していても、サーバーが確定台詞を渡した時だけ貸付提案・成立・断りを話す。自分で約束や送金を決めない。';
@@ -27,12 +28,11 @@ export class GptLiveBridge {
   private inputSpeechMs = 0;
   private inputQuietMs = 0;
   private inputSpeaking = false;
-  private lastOutputSpeechAt = 0;
   private suppressedAt: number | null = null;
   private suppressionStop: ReturnType<typeof setTimeout> | null = null;
   private pendingConfirmedLine: { line: string | LocalizedLine; speechId?: string } | null = null;
   private pendingDelegationResult: { id: string; content: string | LocalizedLine; speechId: string } | null = null;
-  private activeDelegationSpeech: { speechId: string; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  private activeDelegationSpeech: { speechId: string; commandId: string; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private activeNormalSpeech: { speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private readonly normalSpeechQueue: Array<{ speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null }> = [];
   private readonly pendingNormalTranscripts: Array<{ delta: string; timing: { startMs: number | null; endMs: number | null } | undefined }> = [];
@@ -47,6 +47,7 @@ export class GptLiveBridge {
   private lastCommentaryRequestAt = 0;
   private appendSequence = 0;
   private normalSpeechSequence = 0;
+  private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
   private contextInFlight: string | null = null;
   private latestContext = '';
   private sentContext = '';
@@ -128,6 +129,8 @@ export class GptLiveBridge {
           return;
         }
         if (type === 'session.thinking.appended' && event.client_event_id === this.contextInFlight) {
+          const acknowledged = this.contextInFlight;
+          if (acknowledged) this.clearPendingCommand(acknowledged);
           this.contextInFlight = null;
           this.flushContext();
           return;
@@ -142,7 +145,6 @@ export class GptLiveBridge {
           const pcm = Buffer.from(event.delta, 'base64');
           const audible = pcmRms(pcm) > 32;
           if (audible) {
-            this.lastOutputSpeechAt = Date.now();
             this.conversationUntil = Math.max(this.conversationUntil, Date.now() + 1200);
           }
           if (this.suppressedAt !== null) {
@@ -188,7 +190,26 @@ export class GptLiveBridge {
           return;
         }
         if (type === 'error') {
-          this.events.onError('gpt_live_error');
+          const error = event.error as { type?: unknown; code?: unknown; event_id?: unknown; client_event_id?: unknown } | undefined;
+          const id = typeof error?.client_event_id === 'string' ? error.client_event_id
+            : typeof error?.event_id === 'string' ? error.event_id
+              : typeof event.client_event_id === 'string' ? event.client_event_id : null;
+          const pending = id ? this.pendingCommands.get(id) : undefined;
+          const providerType = typeof error?.type === 'string' ? error.type : '';
+          // A provider rejection is recoverable only for one of our pending
+          // appends and an explicitly recognized command-rejection code.
+          if (pending && providerType === 'invalid_request_error') {
+            this.clearPendingCommand(id!);
+            if (id === this.contextInFlight) { this.contextInFlight = null; this.flushContext(); }
+            if (this.activeDelegationSpeech?.commandId === id) {
+              if (this.activeDelegationSpeech.timer) clearTimeout(this.activeDelegationSpeech.timer);
+              this.activeDelegationSpeech = null;
+              this.suppressAfterTaggedSpeech = false;
+            }
+            this.events.onCommandRejected?.({ kind: pending.kind, ...(pending.speechId ? { speechId: pending.speechId } : {}) });
+            return;
+          }
+          this.events.onError('fatal');
           done(false);
         }
       });
@@ -215,12 +236,8 @@ export class GptLiveBridge {
       this.conversationUntil = Date.now() + 4000;
       if (!this.inputSpeaking && this.inputSpeechMs >= 120) {
         this.inputSpeaking = true;
-        this.outputQuietMs = 0;
-        this.discardBufferedNormalSpeech();
-        if (Date.now() - this.lastOutputSpeechAt < 800) {
-          if (this.activeDelegationSpeech) this.suppressAfterTaggedSpeech = true;
-          else this.suppressedAt = Date.now();
-        }
+        // Normal turns stay full-duplex. Only an authoritative negotiation may
+        // explicitly suppress output below; volume alone must not discard a reply.
         this.events.onUserSpeech();
       }
     } else {
@@ -350,6 +367,7 @@ export class GptLiveBridge {
     this.suppressionStop = null;
     this.pendingConfirmedLine = null;
     this.pendingDelegationResult = null;
+    for (const id of this.pendingCommands.keys()) this.clearPendingCommand(id);
     if (this.activeDelegationSpeech?.timer) clearTimeout(this.activeDelegationSpeech.timer);
     this.activeDelegationSpeech = null;
     if (this.activeNormalSpeech?.timer) clearTimeout(this.activeNormalSpeech.timer);
@@ -414,8 +432,9 @@ export class GptLiveBridge {
     this.pendingConfirmedLine = null;
     const line = pending && (typeof pending.line === 'string' ? pending.line : localized(pending.line, this.conversationLanguage));
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
-    if (pending && line && this.append('commentary', `Speak only this confirmed ${language} line exactly: ${JSON.stringify(line)}`, null) && pending.speechId) {
-      this.activeDelegationSpeech = { speechId: pending.speechId, started: false, quietMs: 0, timer: null };
+    const commandId = pending && line ? this.append('commentary', `Speak only this confirmed ${language} line exactly: ${JSON.stringify(line)}`, null, pending.speechId) : null;
+    if (commandId && pending?.speechId) {
+      this.activeDelegationSpeech = { speechId: pending.speechId, commandId, started: false, quietMs: 0, timer: null };
     }
   }
 
@@ -429,7 +448,8 @@ export class GptLiveBridge {
     if (result) content = typeof result.content === 'string'
       ? result.content
       : `Speak only this confirmed ${language} line exactly: ${JSON.stringify(localized(result.content, this.conversationLanguage))}`;
-    if (result && this.append('commentary', content, result.id)) this.activeDelegationSpeech = { speechId: result.speechId, started: false, quietMs: 0, timer: null };
+    const commandId = result ? this.append('commentary', content, result.id, result.speechId) : null;
+    if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, quietMs: 0, timer: null };
   }
 
   /** Start normal PCM immediately when safe; silence only marks the utterance boundary. */
@@ -570,9 +590,11 @@ export class GptLiveBridge {
     }
   }
 
-  private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null): string | null {
+  private append(kind: 'thinking' | 'commentary', content: string, delegationId: string | null, speechId?: string): string | null {
     if (!this.ready || !content.trim()) return null;
     const eventId = `${kind}_${++this.appendSequence}`;
+    const timer = setTimeout(() => this.clearPendingCommand(eventId), 5000);
+    this.pendingCommands.set(eventId, { kind, ...(speechId ? { speechId } : {}), timer });
     if (!this.send({
       type: `session.${kind}.append`,
       event_id: eventId,
@@ -581,6 +603,13 @@ export class GptLiveBridge {
     })) return null;
     if (kind === 'commentary') this.lastCommentaryRequestAt = Date.now();
     return eventId;
+  }
+
+  private clearPendingCommand(eventId: string): void {
+    const pending = this.pendingCommands.get(eventId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingCommands.delete(eventId);
   }
 
   private reportUsage(): void {

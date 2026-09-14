@@ -1,5 +1,6 @@
-import { PAYOUT } from '../domain/game';
+import { BETS, PAYOUT } from '../domain/game';
 
+const betButtons = BETS.map(bet => `<button type="button" data-bet="${bet}" aria-pressed="false" aria-label="Bet $${bet}, ${bet} ${bet === 1 ? 'line' : 'lines'} per spin"><span>$${bet} · ${bet} ${bet === 1 ? 'LINE' : 'LINES'}</span></button>`).join('');
 /** PC stage markup. Game rules and state transitions live outside this view. */
 export function mountGameTemplate(app: HTMLElement): void {
 app.innerHTML = `
@@ -25,13 +26,13 @@ app.innerHTML = `
     <div class="event-cue" id="eventCue" role="status" hidden></div>
     <div class="loan-transfer" id="loanTransfer" role="status" aria-live="assertive" hidden><small>LOAN</small><strong id="loanDirection"></strong><b id="loanAmount"></b></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
-    <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small><button data-bet="1">$1 <em>1 LINE</em></button><button data-bet="3">$3 <em>3 LINES</em></button><button data-bet="5">$5 <em>5 LINES</em></button></div>
-    <div id="lineIndicators" role="status" aria-label="Winning lines">
-      <svg class="line-indicator diagonal-down" data-line="diagonalDown" viewBox="0 0 100 40" aria-label="$5 diagonal down"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
-      <svg class="line-indicator top" data-line="top" viewBox="0 0 100 40" aria-label="$3 top row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
-      <svg class="line-indicator middle" data-line="middle" viewBox="0 0 100 40" aria-label="$1 middle row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$1</text></svg>
-      <svg class="line-indicator bottom" data-line="bottom" viewBox="0 0 100 40" aria-label="$3 bottom row"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$3</text></svg>
-      <svg class="line-indicator diagonal-up" data-line="diagonalUp" viewBox="0 0 100 40" aria-label="$5 diagonal up"><path d="M14 5H77L98 20 77 35H14Z"/><text x="46" y="20">$5</text></svg>
+    <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small>${betButtons}</div>
+    <span id="betStatus" class="sr-only" role="status" aria-live="polite"></span>
+    <div id="lineIndicators" role="group" aria-label="Active lines for the next spin">
+      ${([
+        ['diagonalDown', '$5 diagonal down'], ['top', '$3 top row'], ['middle', '$1 middle row'],
+        ['bottom', '$3 bottom row'], ['diagonalUp', '$5 diagonal up'],
+      ] as const).map(([line, label]) => `<span data-line="${line}" role="img" aria-label="${label}"></span>`).join('')}
     </div>
     <div class="sr-only" id="lastSpin">Cherry, Bell, Seven</div>
     <div id="machineTrim">CHOOSE BET · ACTIVE LINES PAY</div>
