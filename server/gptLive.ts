@@ -328,7 +328,8 @@ export class GptLiveBridge {
     // Transcript/delegation trail VAD. Hold ordinary output before the model
     // can race a rule-changing answer into the browser.
     this.userTurnGate = true;
-    this.discardBufferedNormalSpeech();
+    this.recordVoiceDiagnostic('user_gate_started', { activeNormal: this.activeNormalSpeech !== null, queuedNormal: this.normalSpeechQueue.length });
+    this.discardBufferedNormalSpeech('user_gate_started');
   }
 
   endUserSpeech(): void {
@@ -337,6 +338,7 @@ export class GptLiveBridge {
 
   finishUserTurnGate(dropNormal = false): void {
     this.userTurnGate = false;
+    this.recordVoiceDiagnostic('user_gate_released', { dropNormal, activeNormal: this.activeNormalSpeech !== null, queuedNormal: this.normalSpeechQueue.length });
     if (dropNormal) {
       // The provider can emit the old ordinary turn after our decision has
       // settled. Consume it through a fresh quiet boundary before releasing
@@ -372,7 +374,7 @@ export class GptLiveBridge {
 
   /** A deliberate browser/Avatar interrupt clears the old playback fence. */
   interruptPlayback(): void {
-    this.discardBufferedNormalSpeech();
+    this.discardBufferedNormalSpeech('playback_interrupted');
     this.normalPlaybackSpeechId = null;
     this.playbackSpeechIds.clear();
   }
@@ -409,7 +411,7 @@ export class GptLiveBridge {
 
   /** Drop a normal reply while the server resolves a rule-changing request. */
   suppressOutput(): void {
-    this.discardBufferedNormalSpeech();
+    this.discardBufferedNormalSpeech('output_suppressed');
     this.suppressedAt = Date.now();
     this.outputQuietMs = 0;
     if (this.suppressionStop) clearTimeout(this.suppressionStop);
@@ -437,11 +439,11 @@ export class GptLiveBridge {
     this.activeDelegationSpeech = null;
     if (this.activeNormalSpeech?.timer) clearTimeout(this.activeNormalSpeech.timer);
     if (this.activeNormalSpeech?.settleTimer) clearTimeout(this.activeNormalSpeech.settleTimer);
-    this.abortNormalCandidate(this.activeNormalSpeech);
+    this.abortNormalCandidate(this.activeNormalSpeech, 'closing');
     this.activeNormalSpeech = null;
     for (const speech of this.normalSpeechQueue) {
       if (speech.settleTimer) clearTimeout(speech.settleTimer);
-      this.abortNormalCandidate(speech);
+      this.abortNormalCandidate(speech, 'closing');
     }
     this.normalSpeechQueue.length = 0;
     this.pendingNormalTranscripts.length = 0;
@@ -574,6 +576,12 @@ export class GptLiveBridge {
     this.activeNormalSpeech = null;
     if (this.normalSpeechQueue.length >= 2) this.discardNormalSpeech(this.normalSpeechQueue[0]);
     this.normalSpeechQueue.push(speech);
+    this.recordVoiceDiagnostic('normal_collection_complete', {
+      chunks: speech.chunks.length,
+      transcripts: speech.transcripts.length,
+      gated: this.userTurnGate,
+      audioTiming: speech.audibleEndMs !== null,
+    });
     this.scheduleNormalCandidate(speech);
   }
 
@@ -616,7 +624,7 @@ export class GptLiveBridge {
   }
 
   private addNormalTranscript(speech: NormalSpeech, transcript: { delta: string; timing: { startMs: number | null; endMs: number | null } | undefined }): void {
-    this.abortNormalCandidate(speech);
+    this.abortNormalCandidate(speech, 'transcript_changed');
     speech.transcripts.push(transcript);
     speech.transcriptVersion += 1;
     this.scheduleNormalCandidate(speech);
@@ -643,15 +651,15 @@ export class GptLiveBridge {
     }
   }
 
-  private discardBufferedNormalSpeech(): void {
+  private discardBufferedNormalSpeech(reason = 'discarded'): void {
     this.normalSpeechEpoch += 1;
     if (this.activeNormalSpeech?.timer) clearTimeout(this.activeNormalSpeech.timer);
     if (this.activeNormalSpeech?.settleTimer) clearTimeout(this.activeNormalSpeech.settleTimer);
-    this.abortNormalCandidate(this.activeNormalSpeech);
+    this.abortNormalCandidate(this.activeNormalSpeech, reason);
     this.activeNormalSpeech = null;
     for (const speech of this.normalSpeechQueue) {
       if (speech.settleTimer) clearTimeout(speech.settleTimer);
-      this.abortNormalCandidate(speech);
+      this.abortNormalCandidate(speech, reason);
     }
     this.normalSpeechQueue.length = 0;
     this.normalCandidateSpeechId = null;
@@ -671,23 +679,32 @@ export class GptLiveBridge {
   private reviewNormalSpeech(speech: NormalSpeech): void {
     if (this.userTurnGate || speech.settleTimer || this.normalCandidateSpeechId !== null || speech !== this.normalSpeechQueue[0]) return;
     const transcriptEndMs = speech.transcripts.reduce<number | null>((latest, item) => item.timing?.endMs === null || item.timing?.endMs === undefined ? latest : Math.max(latest ?? item.timing.endMs, item.timing.endMs), null);
-    if (!speech.transcripts.length || !this.events.onNormalSpeechCandidate || (speech.audibleEndMs !== null && (transcriptEndMs === null || transcriptEndMs < speech.audibleEndMs))) {
+    const auditor = this.events.onNormalSpeechCandidate;
+    const rejection = !speech.transcripts.length ? 'missing_transcript'
+      : !auditor ? 'missing_auditor'
+        : speech.audibleEndMs !== null && (transcriptEndMs === null || transcriptEndMs < speech.audibleEndMs) ? 'coverage_incomplete'
+          : null;
+    if (rejection !== null) {
+      this.recordVoiceDiagnostic('normal_candidate_rejected', { reason: rejection, chunks: speech.chunks.length, transcripts: speech.transcripts.length });
       this.discardNormalSpeech(speech);
       this.scheduleNormalSpeechRelease();
       return;
     }
+    if (!auditor) return;
     this.normalCandidateSpeechId = speech.speechId;
     const epoch = speech.epoch;
     const transcriptVersion = speech.transcriptVersion;
     const transcript = speech.transcripts.map(item => item.delta).join('');
     const controller = new AbortController();
     speech.candidateController = controller;
+    this.recordVoiceDiagnostic('normal_candidate_started', { chunks: speech.chunks.length, transcripts: speech.transcripts.length, audioTiming: speech.audibleEndMs !== null });
     let decision: Promise<boolean>;
     try {
-      decision = Promise.resolve(this.events.onNormalSpeechCandidate({ speechId: speech.speechId, transcript, signal: controller.signal }));
+      decision = Promise.resolve(auditor({ speechId: speech.speechId, transcript, signal: controller.signal }));
     } catch {
       if (this.normalCandidateSpeechId === speech.speechId) this.normalCandidateSpeechId = null;
       if (speech.candidateController === controller) speech.candidateController = null;
+      this.recordVoiceDiagnostic('normal_candidate_rejected', { reason: 'audit_error', chunks: speech.chunks.length, transcripts: speech.transcripts.length });
       this.discardNormalSpeech(speech);
       this.scheduleNormalSpeechRelease();
       this.schedulePendingSpeech();
@@ -700,11 +717,15 @@ export class GptLiveBridge {
         speech.candidateController = null;
         const current = this.ready && !this.closing && !this.userTurnGate && epoch === this.normalSpeechEpoch && transcriptVersion === speech.transcriptVersion && speech === this.normalSpeechQueue[0];
         if (allowed && current) {
+          this.recordVoiceDiagnostic('normal_candidate_allowed', { chunks: speech.chunks.length, transcripts: speech.transcripts.length });
           this.normalSpeechQueue.shift();
           this.startNormalSpeech(speech);
         } else if (epoch === this.normalSpeechEpoch && speech === this.normalSpeechQueue[0] && transcriptVersion !== speech.transcriptVersion) {
           this.scheduleNormalCandidate(speech);
-        } else this.discardNormalSpeech(speech);
+        } else {
+          this.recordVoiceDiagnostic('normal_candidate_rejected', { reason: allowed ? 'stale' : 'audit_denied', chunks: speech.chunks.length, transcripts: speech.transcripts.length });
+          this.discardNormalSpeech(speech);
+        }
         this.scheduleNormalSpeechRelease();
         this.schedulePendingSpeech();
       })
@@ -712,6 +733,7 @@ export class GptLiveBridge {
         if (this.normalCandidateSpeechId !== speech.speechId || speech.candidateController !== controller || controller.signal.aborted) return;
         this.normalCandidateSpeechId = null;
         speech.candidateController = null;
+        this.recordVoiceDiagnostic('normal_candidate_rejected', { reason: 'audit_error', chunks: speech.chunks.length, transcripts: speech.transcripts.length });
         this.discardNormalSpeech(speech);
         this.scheduleNormalSpeechRelease();
         this.schedulePendingSpeech();
@@ -725,11 +747,12 @@ export class GptLiveBridge {
     if (index >= 0) this.normalSpeechQueue.splice(index, 1);
   }
 
-  private abortNormalCandidate(speech: NormalSpeech | null): void {
+  private abortNormalCandidate(speech: NormalSpeech | null, reason = 'discarded'): void {
     if (!speech?.candidateController) return;
     speech.candidateController.abort();
     speech.candidateController = null;
     if (this.normalCandidateSpeechId === speech.speechId) this.normalCandidateSpeechId = null;
+    this.recordVoiceDiagnostic('normal_candidate_aborted', { reason, chunks: speech.chunks.length, transcripts: speech.transcripts.length });
   }
 
   private findNormalSpeechForTranscript(timing: { startMs: number | null; endMs: number | null } | undefined): NormalSpeech | null {
@@ -828,6 +851,11 @@ export class GptLiveBridge {
     this.usageReported = true;
     // Never forward the provider's session snapshot, instructions, IDs, or transcripts.
     this.events.onUsage?.({ seconds: this.usageSeconds, finalized: this.finalized });
+  }
+
+  /** Metadata-only boundary diagnostics; never include PCM, text, IDs, or timestamps. */
+  private recordVoiceDiagnostic(kind: string, fields: Record<string, string | number | boolean>): void {
+    console.info(JSON.stringify({ event: 'voice_diagnostic', kind, ...fields }));
   }
 
   private send(payload: Record<string, unknown>): boolean {

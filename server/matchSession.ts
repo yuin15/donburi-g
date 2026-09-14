@@ -156,6 +156,8 @@ export class MatchSession {
   private playerLoanOffer: { speechId: string; audibleAt: number | null; replyExpiresAt: number | null; expiresAt: number; transcriptAfter: number; replyTurn: number | null; transcriptGraceExpiresAt: number | null } | null = null;
   private playerLoanOfferMadeForCurrentZero = false;
   private userSpeaking = false;
+  /** The bridge generation that opened the current VAD turn, if any. */
+  private userSpeechGeneration: number | null = null;
   private userSpeechTurn = 0;
   private assistantOutputUntil = 0;
   private transcriptSequence = 0;
@@ -280,7 +282,7 @@ export class MatchSession {
         const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
         const durationMs = Buffer.byteLength(audio, 'base64') / 48;
         this.voiceDiagnostic.receivedMs += durationMs;
-        if (!outputAllowed() || this.resultTransition || (kind === 'normal' && this.hasPendingAgreementGate())) {
+        if (!outputAllowed() || this.resultTransition || (kind === 'normal' && this.hasPendingAgreementGateForGeneration(generation))) {
           this.voiceDiagnostic.droppedMs += durationMs;
           this.scheduleVoiceDiagnostics();
           if (kind === 'normal' && speechId && !forwardedSpeechIds.has(speechId) && !discardedNormalSpeechIds.has(speechId)) {
@@ -391,6 +393,7 @@ export class MatchSession {
         this.agreementTurns.set(this.userSpeechTurn, this.createAgreementTurn(generation, now, input?.startMs ?? null, this.captureAgreementOffers(), reserved));
         this.gpt?.beginUserSpeech();
         this.userSpeaking = true;
+        this.userSpeechGeneration = generation;
         this.conversationPacer.noteUserSpeech();
         this.reactions.conversationActivity();
         if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
@@ -399,6 +402,7 @@ export class MatchSession {
       onUserSpeechEnd: (input?: { startMs: number | null; endMs: number | null }) => {
         if (!current() || resultOnly || this.resultTransition) return;
         this.userSpeaking = false;
+        this.userSpeechGeneration = null;
         const pending = this.agreementTurns.get(this.userSpeechTurn);
         if (pending) {
           pending.endedAt = Date.now();
@@ -563,6 +567,8 @@ export class MatchSession {
     this.voiceReady = false;
     this.voiceConnected = false;
     this.voiceGeneration += 1;
+    this.userSpeaking = false;
+    this.userSpeechGeneration = null;
     this.resultTransition = null;
     this.conversationLanguageSettle = null;
     this.resultSpeechStarted = false;
@@ -625,7 +631,7 @@ export class MatchSession {
           if (!this.agreementTurns.has(turn)) {
             const timer = setTimeout(() => {
               const pending = this.agreementTurns.get(turn);
-              if (pending?.timer === timer && this.userSpeechTurn < turn) this.finishAgreementTurn(turn);
+              if (pending?.timer === timer && this.userSpeechTurn < turn) this.finishAgreementTurn(turn, false, 'superseded');
             }, 700);
             this.agreementTurns.set(turn, {
               generation: this.voiceGeneration, timer, deadlineTimer: null,
@@ -871,6 +877,11 @@ export class MatchSession {
     this.voiceReady = false;
     this.resultSpeechStarted = false;
     const generation = ++this.voiceGeneration;
+    // The result is immutable. Do not let a bounded classifier owned by the
+    // closed play bridge later suppress this bridge or advertise a hold in
+    // its context. `conversationLanguageSettle` is deliberately separate and
+    // has already completed before this method is reached.
+    this.discardAgreementWorkBeforeGeneration(generation);
     const current = () => !this.closed && !this.voiceDisabled && generation === this.voiceGeneration && Date.now() < deadline;
     try {
       // Do not overlap GPT sessions or replay old output after the avatar buffer was cleared.
@@ -1333,13 +1344,23 @@ export class MatchSession {
     pending.timer = null;
   }
 
-  private finishAgreementTurn(turn: number, dropNormal = false): void {
+  private finishAgreementTurn(
+    turn: number,
+    dropNormal = false,
+    reason: 'applied' | 'deadline' | 'empty_transcript' | 'settled' | 'superseded' | 'match_ended' = 'settled',
+  ): void {
     const pending = this.agreementTurns.get(turn);
     if (!pending) return;
     this.clearAgreementTimer(pending);
     if (pending.deadlineTimer) clearTimeout(pending.deadlineTimer);
     this.agreementTurns.delete(turn);
     if (pending.startedAt !== null) this.rememberFinishedAgreementTurn(turn, pending);
+    this.recordVoiceDiagnostic('agreement_finish', {
+      reason,
+      dropNormal,
+      pendingCount: this.agreementTurns.size,
+      generationMatched: pending.generation === this.voiceGeneration,
+    });
     this.releaseAgreementGate(dropNormal);
     if (this.state.status === 'playing' && !this.hasPendingAgreementGate()) this.tick();
   }
@@ -1361,7 +1382,7 @@ export class MatchSession {
   private expireAgreementTurn(turn: number, generation: number): void {
     const pending = this.agreementTurns.get(turn);
     if (!pending || pending.generation !== generation) return;
-    this.finishAgreementTurn(turn, true);
+    this.finishAgreementTurn(turn, true, 'deadline');
     // A timed-out classifier is fail-closed: any normal answer buffered for
     // that turn stays discarded even though the finite deadline can now end.
     this.releaseAgreementGate(true);
@@ -1382,6 +1403,38 @@ export class MatchSession {
 
   private hasPendingAgreementGate(): boolean {
     return this.userSpeaking || this.agreementTurns.size > 0 || this.assistantAudits.size > 0;
+  }
+
+  /**
+   * PCM belongs to one Live bridge generation. A bounded classifier from the
+   * play bridge must continue to hold PLAY, but cannot silence the separate
+   * result bridge after the match is immutable.
+   */
+  private hasPendingAgreementGateForGeneration(generation: number): boolean {
+    return (this.userSpeaking && this.userSpeechGeneration === generation)
+      || [...this.agreementTurns.values()].some(pending => pending.generation === generation)
+      || [...this.assistantAudits.values()].some(audit => audit.generation === generation);
+  }
+
+  /** Remove only abandoned play work; completed contexts remain audit history. */
+  private discardAgreementWorkBeforeGeneration(generation: number): void {
+    for (const [turn, pending] of this.agreementTurns) {
+      if (pending.generation >= generation) continue;
+      this.clearAgreementTimer(pending);
+      if (pending.deadlineTimer) clearTimeout(pending.deadlineTimer);
+      this.agreementTurns.delete(turn);
+    }
+    for (const [speechId, audit] of this.assistantAudits) {
+      if (audit.generation >= generation) continue;
+      clearTimeout(audit.timer);
+      this.assistantAudits.delete(speechId);
+    }
+    if (this.userSpeechGeneration !== null && this.userSpeechGeneration < generation) {
+      this.userSpeaking = false;
+      this.userSpeechGeneration = null;
+    }
+    // No old turn will now call releaseAgreementGate against the new bridge.
+    this.dropNormalAtNextGateRelease = false;
   }
 
   private releaseAgreementGate(dropNormal: boolean): void {
@@ -1430,7 +1483,7 @@ export class MatchSession {
         const wait = Math.max(25, Math.min(AGREEMENT_TRANSCRIPT_SETTLE_MS, existing.endedAt + AGREEMENT_TRANSCRIPT_GRACE_MS - now));
         existing.timer = setTimeout(() => this.queueConversationAgreement(turn, generation), wait);
       } else {
-        this.finishAgreementTurn(turn);
+        this.finishAgreementTurn(turn, false, 'empty_transcript');
       }
       return;
     }
@@ -1451,17 +1504,27 @@ export class MatchSession {
     const transcript = this.transcriptForAgreementTurn(turn).trim();
     if (!transcript) {
       pending.resolving = false;
-      this.finishAgreementTurn(turn);
+      this.finishAgreementTurn(turn, false, 'empty_transcript');
       return;
     }
     const conversation = this.transcriptHistory.slice(-20).map(item => `${item.role === 'user' ? 'P' : 'R'}:${item.delta}`).join('').slice(-1600);
     const id = `${this.sessionId}:turn:${turn}`;
+    const resolveStartedAt = Date.now();
     const outcome = await this.agreements.resolve({
       id, snapshot: getSnapshot(this.state), transcript, conversation,
       activeOffers: pending.activeOffers,
     }, this.voiceAbort.signal);
-    if (this.closed || generation !== this.voiceGeneration || this.agreementTurns.get(turn) !== pending) return;
-    if (pending.version !== version) {
+    const versionMatched = pending.version === version;
+    const stillCurrent = !this.closed && generation === this.voiceGeneration && this.agreementTurns.get(turn) === pending;
+    this.recordVoiceDiagnostic('agreement_resolve', {
+      state: outcome.state,
+      elapsedMs: Date.now() - resolveStartedAt,
+      versionMatched,
+      generationMatched: generation === this.voiceGeneration,
+      current: stillCurrent,
+    });
+    if (!stillCurrent) return;
+    if (!versionMatched) {
       pending.resolving = false;
       this.queueConversationAgreement(turn, generation);
       return;
@@ -1472,24 +1535,29 @@ export class MatchSession {
     }
     pending.resolving = false;
     if (applied) {
-      this.finishAgreementTurn(turn, true);
+      this.finishAgreementTurn(turn, true, 'applied');
       return;
     }
     // `none`/`reject` remain revisionable briefly. A trailing delta can create
     // a new classifier request; only the hard deadline makes the result final.
     if (this.state.remaining <= 0) {
-      this.finishAgreementTurn(turn, outcome.state === 'unavailable');
+      this.finishAgreementTurn(turn, outcome.state === 'unavailable', 'match_ended');
       return;
     }
     const wait = Math.max(25, Math.min(AGREEMENT_TRANSCRIPT_GRACE_MS, pending.deadlineAt - Date.now()));
     if (outcome.state === 'unavailable') pending.dropNormalOnFinish = true;
-    pending.timer = setTimeout(() => this.finishAgreementTurn(turn, pending.dropNormalOnFinish), wait);
+    pending.timer = setTimeout(() => this.finishAgreementTurn(turn, pending.dropNormalOnFinish, 'settled'), wait);
     if (this.state.status === 'playing') this.tick();
   }
 
   /** Gate every normal Live utterance through the same authoritative ledger. */
   private async auditNormalSpeechCandidate(candidate: { speechId: string; transcript: string; signal?: AbortSignal }, generation: number): Promise<boolean> {
-    if (this.closed || generation !== this.voiceGeneration) return false;
+    if (this.closed || generation !== this.voiceGeneration) {
+      this.recordVoiceDiagnostic('agreement_audit', {
+        state: 'not_started', allowed: false, reason: this.closed ? 'closed' : 'generation_changed',
+      });
+      return false;
+    }
     const cutoff = Date.now() - 12_000;
     for (const [id, prior] of this.finishedAgreementTurns) if (prior.finishedAt < cutoff) this.finishedAgreementTurns.delete(id);
     // The bridge delivers a normal candidate after the current VAD turn's
@@ -1502,8 +1570,11 @@ export class MatchSession {
     const version = context?.version ?? 0;
     const controller = new AbortController();
     const timer = setTimeout(() => {
+      const activeAudit = this.assistantAudits.get(candidate.speechId);
+      if (!activeAudit || activeAudit.generation !== generation || activeAudit.timer !== timer) return;
       controller.abort();
       this.assistantAudits.delete(candidate.speechId);
+      this.recordVoiceDiagnostic('agreement_audit', { state: 'timeout', allowed: false, reason: 'timeout' });
       this.releaseAgreementGate(true);
     }, ASSISTANT_AUDIT_MAX_HOLD_MS);
     this.assistantAudits.set(candidate.speechId, { generation, turn, version, activeOffers: offers, timer });
@@ -1519,21 +1590,53 @@ export class MatchSession {
       // an uncaused commit or offer must remain fail-closed.
       const stillCausedBySameTurn = !this.userSpeaking
         && (context === undefined || (turn !== null && this.finishedAgreementTurns.get(turn) === context && context.version === version));
-      if (candidate.signal?.aborted || controller.signal.aborted || this.closed || generation !== this.voiceGeneration || current?.generation !== generation || !stillCausedBySameTurn || audit.state === 'unavailable') return false;
-      if (audit.state === 'safe') return true;
-      if (this.state.status !== 'playing' || turn === null || context === undefined) return false;
+      let reason: string | null = null;
+      if (candidate.signal?.aborted) reason = 'candidate_aborted';
+      else if (controller.signal.aborted) reason = 'timeout';
+      else if (this.closed) reason = 'closed';
+      else if (generation !== this.voiceGeneration) reason = 'generation_changed';
+      else if (current?.generation !== generation) reason = 'audit_replaced';
+      else if (!stillCausedBySameTurn) reason = 'cause_changed';
+      else if (audit.state === 'unavailable') reason = 'unavailable';
+      if (reason !== null) {
+        this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: false, reason });
+        return false;
+      }
+      if (audit.state === 'safe') {
+        this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: true, reason: 'safe' });
+        return true;
+      }
+      if (this.state.status !== 'playing') {
+        this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: false, reason: 'not_playing' });
+        return false;
+      }
+      if (turn === null || context === undefined) {
+        this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: false, reason: 'no_current_context' });
+        return false;
+      }
       if (audit.state === 'commit') {
         for (const agreement of audit.agreements) this.applyAgreement(`${this.sessionId}:turn:${turn}`, agreement);
+        this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: false, reason: 'committed' });
+        return false;
+      }
+      if (audit.state !== 'offer') {
+        this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: false, reason: 'unavailable' });
         return false;
       }
       // The offer itself is re-authored with a server ID; it is never an
       // implicit agreement and cannot share an apply key with its future yes.
       for (const action of audit.actions) this.issueAuditedOffer(action);
+      this.recordVoiceDiagnostic('agreement_audit', { state: audit.state, allowed: false, reason: 'offer_replaced' });
       return false;
     } finally {
       clearTimeout(timer);
-      this.assistantAudits.delete(candidate.speechId);
-      this.releaseAgreementGate(false);
+      const activeAudit = this.assistantAudits.get(candidate.speechId);
+      // Result handoff may already have removed this old-generation audit.
+      // Its late provider completion must not release or suppress new output.
+      if (activeAudit && activeAudit.generation === generation && activeAudit.timer === timer) {
+        this.assistantAudits.delete(candidate.speechId);
+        this.releaseAgreementGate(false);
+      }
     }
   }
 

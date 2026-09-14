@@ -1366,6 +1366,109 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('cleans a bounded play-generation agreement before forwarding safe result PCM', async () => {
+    const { session, messages } = setup('result-old-pending-pcm', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const internals = session as unknown as {
+      voiceGeneration: number;
+      userSpeaking: boolean;
+      agreementTurns: Map<number, unknown>;
+      restartResultVoice(direction: { ja: string; en: string }, deadline: number): Promise<void>;
+    };
+    const playGeneration = internals.voiceGeneration;
+    agreementBridge().onUserSpeech({ startMs: 0, endMs: 10 });
+    expect(internals.agreementTurns.has(1)).toBe(true);
+    expect(internals.userSpeaking).toBe(true);
+
+    await internals.restartResultVoice({ ja: 'synthetic result', en: 'synthetic result' }, Date.now() + 8_000);
+    expect(internals.agreementTurns.has(1)).toBe(false);
+    expect(internals.userSpeaking).toBe(false);
+    expect(internals.voiceGeneration).not.toBe(playGeneration);
+    expect(provider.openingContexts.at(-1)).not.toContain('結果が出るまで発話を保留');
+    await vi.advanceTimersByTimeAsync(6_500);
+    expect(provider.finishUserTurnGate).not.toHaveBeenCalled();
+    await expect(agreementBridge().onNormalSpeechCandidate!({
+      speechId: 'result-safe-pcm', transcript: 'synthetic ordinary result reply', signal: new AbortController().signal,
+    })).resolves.toBe(true);
+
+    provider.events?.onAudio(Buffer.alloc(4_800, 4).toString('base64'), 'result-safe-pcm', 'normal');
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_audio', speechId: 'result-safe-pcm' }));
+    await session.shutdown('test_finished');
+  });
+
+  it('does not let a late old audit clear a reused result speech ID', async () => {
+    const oldAudit = deferred<{ state: 'safe' }>();
+    const resultAudit = deferred<{ state: 'safe' }>();
+    agreement.auditAssistantSpeech
+      .mockReturnValueOnce(oldAudit.promise)
+      .mockReturnValueOnce(resultAudit.promise);
+    const { session, messages } = setup('result-reused-speech-id', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const internals = session as unknown as {
+      voiceGeneration: number;
+      assistantAudits: Map<string, { generation: number }>;
+      restartResultVoice(direction: { ja: string; en: string }, deadline: number): Promise<void>;
+    };
+    const playCandidate = agreementBridge().onNormalSpeechCandidate!({
+      speechId: 'normal-1', transcript: 'synthetic delayed play reply', signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => expect(internals.assistantAudits.has('normal-1')).toBe(true));
+
+    await internals.restartResultVoice({ ja: 'synthetic result', en: 'synthetic result' }, Date.now() + 8_000);
+    const resultCandidate = agreementBridge().onNormalSpeechCandidate!({
+      speechId: 'normal-1', transcript: 'synthetic result reply', signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => expect(internals.assistantAudits.get('normal-1')?.generation).toBe(internals.voiceGeneration));
+
+    oldAudit.resolve({ state: 'safe' });
+    await expect(playCandidate).resolves.toBe(false);
+    expect(internals.assistantAudits.get('normal-1')?.generation).toBe(internals.voiceGeneration);
+    expect(provider.finishUserTurnGate).not.toHaveBeenCalled();
+
+    resultAudit.resolve({ state: 'safe' });
+    await expect(resultCandidate).resolves.toBe(true);
+    provider.events?.onAudio(Buffer.alloc(4_800, 4).toString('base64'), 'normal-1', 'normal');
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_audio', speechId: 'normal-1' }));
+    await session.shutdown('test_finished');
+  });
+
+  it('records agreement diagnostics without conversation, audio, or provider identifiers', async () => {
+    const diagnostic = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const { session } = setup('diagnostic-metadata', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+
+    completeAgreementTurn('private-turn-id', 'private player transcript that must never be logged', 0, 100);
+    await settleAgreement();
+    await vi.advanceTimersByTimeAsync(350);
+    await expect(agreementBridge().onNormalSpeechCandidate!({
+      speechId: 'private-provider-speech-id',
+      transcript: 'private assistant transcript that must never be logged',
+      signal: new AbortController().signal,
+    })).resolves.toBe(true);
+
+    const entries = diagnostic.mock.calls
+      .map(([value]) => typeof value === 'string' ? value : '')
+      .filter(value => value.includes('voice_diagnostic'));
+    const parsed = entries.map(value => JSON.parse(value) as Record<string, unknown>);
+    expect(parsed).toContainEqual(expect.objectContaining({
+      event: 'voice_diagnostic', kind: 'agreement_resolve', state: 'none', versionMatched: true,
+    }));
+    expect(parsed).toContainEqual(expect.objectContaining({
+      event: 'voice_diagnostic', kind: 'agreement_finish', reason: 'settled', pendingCount: 0,
+    }));
+    expect(parsed).toContainEqual(expect.objectContaining({
+      event: 'voice_diagnostic', kind: 'agreement_audit', state: 'safe', allowed: true, reason: 'safe',
+    }));
+    expect(entries.join('\n')).not.toContain('private player transcript');
+    expect(entries.join('\n')).not.toContain('private assistant transcript');
+    expect(entries.join('\n')).not.toContain('private-provider-speech-id');
+    diagnostic.mockRestore();
+    await session.shutdown('test_finished');
+  });
+
   it('plays a safe ordinary reply after context expiry but rejects uncaused commits and offers', async () => {
     agreement.resolve.mockResolvedValueOnce({ state: 'none', id: 'expired-context:turn:1' });
     const { session, messages } = setup('expired-context', 'manual', 'audio');

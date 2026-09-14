@@ -617,6 +617,41 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
+  it('emits metadata-only diagnostics for a gated normal candidate denied by audit', async () => {
+    const diagnostic = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const { bridge, events } = setup();
+      events.onNormalSpeechCandidate.mockResolvedValueOnce(false);
+      const connecting = bridge.connect();
+      const socket = sockets[0];
+      socket.readyState = 1;
+      socket.emit('message', JSON.stringify({ type: 'session.started' }));
+      await connecting;
+      const voice = Buffer.alloc(4800, 4).toString('base64');
+      bridge.beginUserSpeech();
+      socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+      socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'must never reach diagnostics', start_ms: 1_000, end_ms: 1_200 }));
+      await vi.advanceTimersByTimeAsync(1_020);
+      bridge.finishUserTurnGate(false);
+      await Promise.resolve();
+      const entries = diagnostic.mock.calls.map(([entry]) => JSON.parse(String(entry)) as Record<string, unknown>);
+      expect(entries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ event: 'voice_diagnostic', kind: 'user_gate_started' }),
+        expect.objectContaining({ event: 'voice_diagnostic', kind: 'normal_collection_complete', chunks: 1, transcripts: 1, gated: true }),
+        expect.objectContaining({ event: 'voice_diagnostic', kind: 'user_gate_released', dropNormal: false }),
+        expect.objectContaining({ event: 'voice_diagnostic', kind: 'normal_candidate_started', chunks: 1, transcripts: 1 }),
+        expect.objectContaining({ event: 'voice_diagnostic', kind: 'normal_candidate_rejected', reason: 'audit_denied' }),
+      ]));
+      expect(JSON.stringify(entries)).not.toContain('must never reach diagnostics');
+      expect(events.onAudio).not.toHaveBeenCalled();
+      const closing = bridge.close();
+      socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+      await closing;
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
   it('holds a timestamped subtitle that arrives before its normal PCM until the matching audible range arrives', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
@@ -784,6 +819,7 @@ describe('live conversation pacing', () => {
   });
 
   it('aborts an in-flight normal candidate before a stale audit can commit', async () => {
+    const diagnostic = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -808,6 +844,9 @@ describe('live conversation pacing', () => {
     await vi.advanceTimersByTimeAsync(1_020);
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '変更された字幕' }));
     expect(candidateSignal.aborted).toBe(true);
+    expect(diagnostic.mock.calls.map(([entry]) => JSON.parse(String(entry)))).toContainEqual(expect.objectContaining({
+      event: 'voice_diagnostic', kind: 'normal_candidate_aborted', reason: 'transcript_changed',
+    }));
     resolveAudit();
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(120);
@@ -816,6 +855,7 @@ describe('live conversation pacing', () => {
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
+    diagnostic.mockRestore();
   });
 
   it('drops a candidate when its timed subtitle does not cover the end of its PCM', async () => {
