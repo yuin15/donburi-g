@@ -45,6 +45,7 @@ interface SettlementTurn {
 interface ForwardedSpeech {
   id: string; cause: SettlementTurn | null; conversation: string; offers: AgreementOffers;
   previousSegment: ForwardedSpeech | null;
+  nextTurn: { cause: SettlementTurn; conversation: string } | null;
   transcript: string | null; chunks: Buffer[]; bytes: number; release: () => void; timer: NodeJS.Timeout; ended: boolean;
 }
 
@@ -415,7 +416,10 @@ export class MatchSession {
         const now = Date.now();
         this.markLoanOfferReplyStarted();
         this.markPlayerLoanOfferReplyStarted();
-        this.agreementTurns.set(this.userSpeechTurn, this.createAgreementTurn(generation, now, input?.startMs ?? null));
+        const turn = this.createAgreementTurn(generation, now, input?.startMs ?? null);
+        this.agreementTurns.set(this.userSpeechTurn, turn);
+        const ongoing = this.forwardedSpeeches.get(`${generation}:${this.activeOutputSpeechId}`);
+        if (ongoing && !ongoing.ended) ongoing.nextTurn = { cause: turn, conversation: this.settlementConversation() };
         const bridge = this.gpt;
         const interrupt = bridge?.beginUserSpeech({ interruptPlayback: false });
         if (bridge && interrupt !== null && interrupt !== undefined) void this.interruptUserPlayback(bridge, interrupt, generation);
@@ -1505,22 +1509,27 @@ export class MatchSession {
     if (this.state.status !== 'playing') return;
     const key = `${generation}:${speechId}`;
     let speech = this.forwardedSpeeches.get(key);
-    const previousSegment = speech?.ended ? speech : null;
+    const nextTurn = speech?.nextTurn;
+    const previousSegment = speech && (speech.ended || nextTurn) ? speech : null;
     if (previousSegment) {
-      // An interrupted/expired collection may still have a forwarded tail.
-      // Preserve it as a new job with the same cause and agreement aliases.
+      // A new player turn changes settlement ownership without ending playback
+      // or losing any PCM. Keep the preceding segment's original cause for ASR.
+      if (!previousSegment.ended) this.finishForwardedSpeech(generation, speechId);
+      previousSegment.nextTurn = null;
       this.forwardedSpeeches.set(`${key}:part:${this.forwardedSpeeches.size}`, previousSegment);
       this.forwardedSpeeches.delete(key);
       speech = undefined;
     }
     if (!speech) {
       const captured = this.speechCauses.get(key);
-      const cause = previousSegment ? previousSegment.cause : captured ? captured.cause : this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn) ?? null;
+      const cause = nextTurn?.cause ?? (previousSegment ? previousSegment.cause : captured ? captured.cause : this.agreementTurns.get(this.userSpeechTurn) ?? this.finishedAgreementTurns.get(this.userSpeechTurn) ?? null);
       if (cause) cause.replyUntil = 0;
       speech = {
-        id: `${this.sessionId}:speech:${key}`, cause,
+        // A late tail keeps its agreement aliases; a new turn needs distinct ones.
+        id: previousSegment && !nextTurn ? previousSegment.id : `${this.sessionId}:speech:${key}${nextTurn ? `:turn:${nextTurn.cause.id}` : ''}`, cause,
         previousSegment,
-        conversation: captured?.conversation ?? this.settlementConversation(), offers: emptyOffers(),
+        nextTurn: null,
+        conversation: nextTurn?.conversation ?? captured?.conversation ?? this.settlementConversation(), offers: emptyOffers(),
         transcript: null, chunks: [], bytes: 0, release: () => undefined, timer: setTimeout(() => this.finishForwardedSpeech(generation, speechId), 1_100), ended: false,
       };
       const current = speech;
@@ -1586,6 +1595,7 @@ export class MatchSession {
     const speech = this.forwardedSpeeches.get(`${generation}:${speechId}`);
     if (!speech || speech.ended) return;
     speech.ended = true;
+    speech.nextTurn = null;
     clearTimeout(speech.timer);
     speech.release();
   }

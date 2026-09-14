@@ -1738,13 +1738,52 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('reconciles a forwarded tail with the same cause after its earlier collection completed', async () => {
+  it.each(['audio', 'avatar'] as const)('keeps distinct requests and delayed settlements within continuous %s playback', async voiceMode => {
+    const { session, messages } = setup('continuous-requests', 'manual', voiceMode);
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    completeAgreementTurn('first', 'synthetic first extension request', 0, 100);
+    await settleAgreement();
+    const delayed = deferred<string>();
+    asr.transcribe.mockReturnValueOnce(delayed.promise).mockResolvedValueOnce('synthetic second acceptance');
+    agreement.auditAssistantSpeech.mockResolvedValue({ state: 'commit', agreements: [{ action: 'time_extension', offerId: null }] });
+    const first = Buffer.alloc(4800, 4);
+    const second = Buffer.alloc(4800, 5);
+    provider.events!.onNormalSpeechStarted!('continuous');
+    provider.events!.onAudio(first.toString('base64'), 'continuous', 'normal');
+    completeAgreementTurn('second', 'synthetic second extension request', 200, 300);
+    provider.events!.onAudio(second.toString('base64'), 'continuous', 'normal');
+    await vi.advanceTimersByTimeAsync(350);
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(0);
+    delayed.resolve('synthetic first acceptance');
+    provider.events!.onSpeechAudioEnded('continuous');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(2);
+    expect((session as unknown as { state: MatchState }).state.duration).toBe(80);
+    expect(agreement.applyOnce.mock.calls.map(([id]) => id)).toEqual(['continuous-requests:turn:1', 'continuous-requests:turn:2']);
+    expect(asr.transcribe.mock.calls.map(([pcm]) => pcm)).toEqual([first, second]);
+    expect(agreement.auditAssistantSpeech.mock.calls[0][2]).toContain('P:synthetic first extension request');
+    expect(agreement.auditAssistantSpeech.mock.calls[0][2]).not.toContain('synthetic second extension request');
+    expect(agreement.auditAssistantSpeech.mock.calls[1][2]).toContain('P:synthetic second extension request');
+    expect(messages.filter(message => message.type === 'voice_interrupt')).toHaveLength(0);
+    expect(provider.interruptWait).not.toHaveBeenCalled();
+    if (voiceMode === 'avatar') expect(provider.mediaComplete).toHaveBeenCalledExactlyOnceWith('continuous');
+    else expect(messages.filter(message => message.type === 'voice_speech_end')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it.each([false, true])('keeps a completed collection tail on its original cause (new turn before end: %s)', async beforeEnd => {
     agreement.resolve.mockImplementationOnce(async turn => ({ state: 'accepted', id: turn.id, agreements: [{ action: 'rival_to_player', offerId: null }] }));
     const { session, messages } = setup('forwarded-tail', 'manual', 'audio');
     await session.initialize(); session.handleRaw('{"type":"start"}');
     completeAgreementTurn('request', 'synthetic request', 0, 100); await settleAgreement();
-    await settleSpokenAction('rival_to_player', 'same-speech');
-    completeAgreementTurn('unrelated', 'synthetic newer question', 200, 300); await settleAgreement();
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }] });
+    provider.events!.onNormalSpeechStarted!('same-speech');
+    provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'same-speech', 'normal');
+    if (beforeEnd) completeAgreementTurn('unrelated', 'synthetic newer question', 200, 300);
+    provider.events!.onSpeechAudioEnded('same-speech');
+    await vi.advanceTimersByTimeAsync(1);
+    if (!beforeEnd) completeAgreementTurn('unrelated', 'synthetic newer question', 200, 300);
+    await settleAgreement();
     const tail = Buffer.alloc(4800, 5);
     agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'commit', agreements: [{ action: 'time_extension', offerId: null }] });
     provider.events!.onAudio(tail.toString('base64'), 'same-speech', 'normal');
