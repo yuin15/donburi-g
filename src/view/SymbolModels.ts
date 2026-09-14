@@ -16,7 +16,7 @@ export function createSymbolModels(environment: THREE.Texture): SymbolModels {
   const detail = createFinishDetails('enamel');
   const fruitEnvironment = createFruitEnvironment();
   const gold = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .95, roughness: .17, clearcoat: .25, clearcoatRoughness: .07, envMap: environment, envMapIntensity: 1.55 });
-  const fruit = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0, roughness: .28, ior: 1.46,
+  const fruit = new THREE.MeshPhysicalMaterial({ vertexColors: true, map: finish, metalness: 0, roughness: .28, ior: 1.46,
     clearcoat: .75, clearcoatRoughness: .14, envMap: fruitEnvironment, envMapIntensity: .7 });
   const plant = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .28, roughness: .26, clearcoat: .7, envMap: environment, envMapIntensity: .75 });
   const enamel = new THREE.MeshPhysicalMaterial({ vertexColors: true, map: finish, metalness: .16, roughness: .20,
@@ -26,7 +26,7 @@ export function createSymbolModels(environment: THREE.Texture): SymbolModels {
   const outline = new THREE.MeshBasicMaterial({ color: 0x271a0e, side: THREE.BackSide });
   const palette: Record<string, number> = {
     bell_gold: 0xd39832, bell_trim: 0xffd889, bell_inner: 0x5f3b13, bell_ridge: 0x684015,
-    cherry_fruit: 0xb80723, cherry_stem: 0x536c1c, cherry_leaf: 0x19572a, cherry_vein: 0x8a9e45, cherry_gold: 0xd4a247,
+    cherry_fruit: 0xffedef, cherry_stem: 0x536c1c, cherry_leaf: 0x19572a, cherry_vein: 0x8a9e45, cherry_gold: 0xd4a247,
     seven_gold: 0xe6b745, seven_border: 0x080604, seven_enamel: 0xffebeb, seven_chrome: 0xe7e9e1,
   };
   const geometries: THREE.BufferGeometry[] = [];

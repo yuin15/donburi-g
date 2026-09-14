@@ -9,7 +9,7 @@ Integration proposal: https://github.com/yuin15/donburi-g/pull/125 (Draft; produ
 - **Lever:** the existing Houdini arm, knob and collar are separate named groups around their original mount. A 720ms pull/hold/spring-return accompanies an accepted player spin. Rival spins do not move it. Reduced motion and stop/reset restore the neutral pose.
 - **Coins:** the existing 24-coin pool and 650/1200ms win lifetimes are retained. Coins fan out beside the reels/portrait, then accelerate and shrink into their own balance label. A brief glint marks arrival. Score positions come from `StageLayout.OVERLAYS`, not an unrelated hard-coded screen location. No game balance or payout calculations are delayed or changed.
 - **Gold sweep:** a thin travelling highlight is restricted to the gold finish, accompanied by a stronger moving point light. The light remains enabled on the cabinet layer as well as the foreground effects layer. No permanent idle animation or shadow-map regeneration was added.
-- **Cherries:** fruit no longer uses red cabinet enamel or metal strip-light reflections. It uses a red dielectric material and two soft, localized spherical light lobes. This retains the small bright highlight and curved edge sheen without bright bands enclosing the highlight. Reel atlas, lifted winning cherries, small rival reels and payout icons use the same material.
+- **サクランボと赤い宝石:** 7と同じ既存の赤い塗装テクスチャを、サクランボの実と筐体の宝石・レバー先端へ再適用。テクスチャの赤が二重に暗くならないよう、下地色も元の淡い色へ戻しています。PRで調整した光沢・反射・クリアコートと、サクランボ専用の柔らかい照明は維持しています。通常リール・当たり時の立体絵柄・相手側の小型リール・配当アイコンは同じ絵柄材質を使用します。
 
 ## Asset preservation
 

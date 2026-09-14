@@ -45,7 +45,7 @@ export class CabinetModel {
       roughnessMap: this.stoneDetail.roughness, clearcoat: 1, clearcoatRoughness: .075, envMap: environment, envMapIntensity: .9 });
     const black = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: .15, roughness: .19, clearcoat: 1, clearcoatRoughness: .075, envMap: environment, envMapIntensity: .95 });
     const chrome = new THREE.MeshStandardMaterial({ color: 0xe6edf8, metalness: 1, roughness: .105, envMap: environment, envMapIntensity: 1.15 });
-    const ruby = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0, roughness: .085, ior: 1.9,
+    const ruby = new THREE.MeshPhysicalMaterial({ vertexColors: true, map: this.enamel, metalness: 0, roughness: .085, ior: 1.9,
       clearcoat: 1, clearcoatRoughness: .045, envMap: environment, envMapIntensity: 1.3 });
     const buttonPaint = lacquer.clone();
     buttonPaint.metalness = .12; buttonPaint.roughness = .16;
@@ -56,7 +56,7 @@ export class CabinetModel {
       cabinet_gold: 0xd6a246, cabinet_highlight: 0xffdfa1, cabinet_shadow: 0x41280e,
       cabinet_engraving: 0x735328, cabinet_body: 0x6d4d49, cabinet_lacquer: 0xffe9e0,
       cabinet_black: 0x08090e, cabinet_back: 0x121016, cabinet_vent: 0x24232a,
-      cabinet_button: 0xffdddd, cabinet_spin_button: 0xffd6db, cabinet_ruby: 0xc80935,
+      cabinet_button: 0xffdddd, cabinet_spin_button: 0xffd6db, cabinet_ruby: 0xffe0e5,
     };
     const buckets = new Map<string, { material: THREE.MeshStandardMaterial; pieces: THREE.BufferGeometry[] }>();
     this.lever.name = 'cabinet-lever';
