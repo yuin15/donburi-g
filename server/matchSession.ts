@@ -26,6 +26,7 @@ import { MediaServerLeg } from './mediaServer.js';
 import { acceptsImmediateLoanOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain.js';
 import { pcmRms } from './pcm.js';
 import { ReactionQueue } from './reactions.js';
+import { ProactiveConversationPacer } from './proactiveConversation.js';
 
 const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('purchase'), commandId: z.string().min(1).max(80), matchId: z.string().min(1).max(100), upgradeId: z.enum(['steady', 'jackpot']), expectedCount: z.number().int().min(0).max(2) }),
@@ -90,10 +91,11 @@ export class MatchSession {
   private messagesInWindow = 0;
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
-    if (!this.voiceReady || this.closed) return;
+    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply()) return;
     this.pushContext();
     this.gpt?.requestReaction(text);
   });
+  private readonly conversationPacer = new ProactiveConversationPacer();
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
@@ -237,7 +239,10 @@ export class MatchSession {
         const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
         if (!outputAllowed() || ((this.extensionDecisionPending || this.loanDecisionPending || this.awaitingExtensionTranscript()) && !speechId)) return;
         if (speechId && audible) this.markLoanOfferAudible(speechId);
-        if (audible) this.assistantOutputUntil = Date.now() + 750;
+        if (audible) {
+          this.assistantOutputUntil = Date.now() + 750;
+          this.conversationPacer.noteAssistantSpeech();
+        }
         if (this.voiceMode === 'avatar') {
           if (speechId) this.media?.speak(audio, speechId);
           else this.media?.speak(audio);
@@ -256,6 +261,7 @@ export class MatchSession {
         if (this.transcriptHistory.length > 40) this.transcriptHistory.splice(0, this.transcriptHistory.length - 40);
         if (role === 'user') {
           this.recentUserText = `${this.recentUserText}${delta}`.slice(-500);
+          this.conversationPacer.noteUserTranscript(delta);
           this.reactions.conversationActivity();
           if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
           if (this.extensionOffer && rejectsTimeExtensionOffer(this.currentUserTurnTranscript())) {
@@ -285,6 +291,7 @@ export class MatchSession {
         this.userSpeechTurnStartedRemaining = this.state.remaining;
         this.markLoanOfferReplyStarted();
         this.userSpeaking = true;
+        this.conversationPacer.noteUserSpeech();
         this.reactions.conversationActivity();
         if (this.isLoanOfferActive(Date.now())) this.suppressLoanOfferReply();
         else {
@@ -296,6 +303,7 @@ export class MatchSession {
         if (!current() || resultOnly) return;
         this.tick();
         this.userSpeaking = false;
+        this.conversationPacer.noteUserSpeechEnd();
         this.queueSettledRivalLoanReply(generation);
         this.queueDirectTimeExtensionRequest(generation);
         this.queueDirectLoanRequest(generation);
@@ -590,6 +598,7 @@ export class MatchSession {
     this.startedAt = now;
     this.pushContext();
     this.emitSnapshot();
+    this.conversationPacer.start(now);
     this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
     this.timer = setInterval(() => this.tick(), 100);
   }
@@ -600,6 +609,7 @@ export class MatchSession {
     this.publishEvents(advanceMatch(this.state, elapsed, Boolean(this.extensionSpeech)));
     this.maybeOfferTimeExtension();
     this.maybeOfferLoan();
+    this.maybeInviteConversation();
   }
 
   private publishEvents(events: GameEvent[]): void {
@@ -671,6 +681,7 @@ export class MatchSession {
           ? 'あなたは勝った。嫌味になりすぎない勝利コメントを一言。'
           : '引き分け。再戦したくなる一言。';
       this.reactions.close();
+      this.conversationPacer.stop();
       if (this.timer) clearInterval(this.timer);
       const deadline = Math.min(this.sessionDeadline, Date.now() + RESULT_REACTION_MS);
       this.resultStop = setTimeout(() => void this.shutdown('result_complete'), Math.max(0, deadline - Date.now()));
@@ -764,6 +775,7 @@ export class MatchSession {
       || this.extensionOffer
       || this.extensionDecisionPending
       || this.extensionSpeech
+      || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
       || Date.now() < this.assistantOutputUntil
     ) return;
@@ -801,6 +813,7 @@ export class MatchSession {
       || this.extensionNegotiation
       || this.loanDecisionPending
       || this.state.remaining > 15
+      || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
       || Date.now() < this.assistantOutputUntil
     ) return;
@@ -815,6 +828,31 @@ export class MatchSession {
     // Existing commentary is the supported Live speech mechanism. This is an
     // invitation only; the domain clock changes after a later explicit reply.
     this.gpt?.requestConfirmedLine(EXTENSION_OFFER_LINE);
+  }
+
+  private maybeInviteConversation(): void {
+    const now = Date.now();
+    const blocked = Boolean(
+      this.extensionOffer
+      || this.loanOffer
+      || this.extensionSpeech
+      || this.extensionDelegation
+      || this.loanDelegation
+      || this.extensionDecisionPending
+      || this.loanDecisionPending
+      || this.directLoanRequestSettle
+      || this.loanOfferReplySettle
+      || this.directExtensionRequestSettle
+      || this.directLoanDecision
+      || this.directExtensionDecision
+      || this.delegationSettles.size
+    );
+    if (!this.conversationPacer.due(now, {
+      available: this.voiceReady && !this.voiceDisabled && this.state.status === 'playing' && !this.userSpeaking && now >= this.assistantOutputUntil,
+      blocked,
+    })) return;
+    if (this.gpt?.requestConversationInvitation()) this.conversationPacer.markInvitationSent(now);
+    else this.conversationPacer.retryAfterRejectedRequest(now);
   }
 
   /** Route only after transcript deltas following the delegation have settled. */
@@ -1449,10 +1487,17 @@ export class MatchSession {
       ? `直近の確定回転: ${(['player', 'rival'] as const).map(side => {
         const spin = this.lastSpins[side];
         const name = side === 'player' ? 'プレイヤー' : 'あなた';
-        return spin ? `${name}${spin.round}回目、BET $${spin.bet ?? snapshot.bets[side]}、配当$${spin.payout}` : `${name}はまだ回転していない`;
+        const symbols = spin?.symbols.join(',') ?? '';
+        const lines = spin?.winningLines?.join(',') || '当選なし';
+        return spin ? `${name}${spin.round}回目、BET $${spin.bet ?? snapshot.bets[side]}、配当$${spin.payout}、中央図柄[${symbols}]、当選ライン[${lines}]` : `${name}はまだ回転していない`;
       }).join(';')}。`
       : '直近の確定回転: まだ回転していない。';
     const leader = snapshot.balances.player === snapshot.balances.rival ? '同点' : snapshot.balances.player > snapshot.balances.rival ? 'プレイヤー' : 'あなた';
+    const wins = (side: 'player' | 'rival') => Object.entries(snapshot.stats[side].wins).filter(([, count]) => count > 0).map(([symbol, count]) => `${symbol}:${count}`).join(',') || '0';
+    const bothBalancesEmpty = snapshot.balances.player === 0 && snapshot.balances.rival === 0;
+    const conversationContext = bothBalancesEmpty
+      ? '会話方針: 両者とも確定残高0。ゲームへの誘導はせず、軽い雑談を選ぶ。'
+      : `確定当選数: プレイヤー[${wins('player')}],あなた[${wins('rival')}]。`;
     const reelContext = this.state.upgradesEnabled || this.state.upgradeSpent > 0
       ? `プレイヤー改造[${snapshot.upgrades.player.join(',')}],あなた改造[${snapshot.upgrades.rival.join(',')}]。`
       : '';
@@ -1483,7 +1528,7 @@ export class MatchSession {
             ? `貸借: あなたは$1未満、プレイヤーは$5以上。一度だけ$5をお願いできる。${loanOfferContext}`
             : '貸借: 現在は確定不可または使用済み。委任しない。通常の会話を続ける。';
     // Static rules belong in the startup persona; repeat only the current facts.
-    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${extensionContext}${loanContext}${reelContext}${recentSpin}`;
+    return `最新確定: 残り${Math.ceil(snapshot.remaining)}秒、プレイヤー$${snapshot.balances.player}(BET $${snapshot.bets.player})、あなた$${snapshot.balances.rival}(BET $${snapshot.bets.rival})、首位=${leader}。状態=${snapshot.status},勝者=${snapshot.winner ?? '未確定'}。${conversationContext}${extensionContext}${loanContext}${reelContext}${recentSpin}`;
   }
 
   private emitSnapshot(): void {

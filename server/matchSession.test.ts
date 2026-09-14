@@ -9,7 +9,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
-  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
@@ -31,6 +31,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   close = provider.gptClose;
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
+  requestConversationInvitation = provider.conversationInvitation;
   requestConfirmedLine = provider.confirmedLine;
   cancelConfirmedSpeech = provider.cancelConfirmedSpeech;
   requestDelegationResult = provider.delegationResult;

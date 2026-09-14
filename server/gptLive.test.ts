@@ -144,6 +144,25 @@ describe('voice transport teardown', () => {
   });
 });
 describe('live conversation pacing', () => {
+  it('accepts one proactive invitation only when the commentary path is currently safe', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    expect(bridge.requestConversationInvitation()).toBe(true);
+    expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'session.commentary.append', delegation_id: null });
+    expect(bridge.requestConversationInvitation()).toBe(false);
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    bridge.sendMic(voice);
+    bridge.sendMic(voice);
+    expect(bridge.requestConversationInvitation()).toBe(false);
+    const closing = bridge.close();
+    socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
+    await closing;
+  });
+
   it('interrupts on microphone speech despite continuous silent output, then preserves the new reply', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
