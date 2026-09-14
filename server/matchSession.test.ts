@@ -8,8 +8,8 @@ import { parseServerEnvelope } from '../shared/wire';
 const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
-  gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
-  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
+  gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[], bridgeLanguages: [] as Array<'ja' | 'en'>,
+  context: vi.fn(), reaction: vi.fn(), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
@@ -26,17 +26,39 @@ vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
   completeSpeechInput = vi.fn();
 } }));
 vi.mock('./gptLive', () => ({ GptLiveBridge: class {
-  constructor(events: LiveEvents, context = '') { provider.events = events; provider.bridges.push(events); provider.openingContexts.push(context); }
+  private language: 'ja' | 'en';
+  constructor(events: LiveEvents, context = '', language: 'ja' | 'en' = 'ja') {
+    provider.events = events;
+    provider.bridges.push(events);
+    provider.openingContexts.push(context);
+    provider.bridgeLanguages.push(language);
+    this.language = language;
+  }
   connect = provider.gptConnect;
   close = provider.gptClose;
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
-  requestConfirmedLine = provider.confirmedLine;
+  requestConfirmedLine = (line: string | { ja: string; en?: string }, speechId?: string) => {
+    const value = typeof line === 'string' ? line : line[this.language] ?? line.ja;
+    if (speechId) provider.confirmedLine(value, speechId);
+    else provider.confirmedLine(value);
+  };
   cancelConfirmedSpeech = provider.cancelConfirmedSpeech;
-  requestDelegationResult = provider.delegationResult;
+  requestDelegationResult = (id: string, line: string | { ja: string; en?: string }, speechId: string) => provider.delegationResult(
+    id,
+    typeof line === 'string' ? line : this.language === 'en'
+      ? `Speak only this confirmed English line exactly: ${JSON.stringify(line.en ?? line.ja)}`
+      : `Say only this Japanese line: ${JSON.stringify(line.ja)}`,
+    speechId,
+  );
   requestDelegationThinking = provider.delegationThinking;
   suppressOutput = provider.suppress;
   suppressOutputAfterTaggedSpeech = provider.suppress;
+  setConversationLanguage = (language: 'ja' | 'en') => {
+    this.language = language;
+    provider.language(language);
+  };
+  beginUserSpeech = provider.beginUserSpeech;
   sendMic = provider.mic;
 } }));
 vi.mock('./rivalBrain', async importOriginal => ({
@@ -84,6 +106,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   provider.seed = [1, 0, 0, 0];
   provider.bridges.length = 0;
+  provider.bridgeLanguages.length = 0;
   provider.openingContexts.length = 0;
   provider.mediaFailures.length = 0;
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network disabled in lifecycle tests'); }));
@@ -99,6 +122,70 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it('settles a complete English turn before preserving English for the rest of the match', async () => {
+    const { session } = setup('english-turn', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'これは ABC の話', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(provider.language).toHaveBeenLastCalledWith('ja');
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(200);
+    provider.events?.onTranscript('user', 'Absolutely!', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(249);
+    expect(provider.language).not.toHaveBeenCalledWith('en');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.language).toHaveBeenLastCalledWith('en');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', '日本語に ABC が混ざる返答', { startMs: 400, endMs: 700 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(provider.language).toHaveBeenLastCalledWith('en');
+    await session.shutdown('test_finished');
+  });
+
+  it('uses English fixed lines for loans, extensions, and the result bridge after an English turn', async () => {
+    vi.mocked(chooseLoanDecision).mockResolvedValueOnce('accept_loan');
+    vi.mocked(chooseTimeExtension).mockResolvedValueOnce('accept_extension_10s');
+    const { session, messages } = setup('english-fixed-lines', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'Hello!', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(250);
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 0;
+    state.scores.rival = 10;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'Can you lend me money?', { startMs: 200, endMs: 300 });
+    provider.events?.onDelegation({ id: 'english-loan', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(provider.delegationResult).toHaveBeenCalledWith('english-loan', expect.stringContaining('All right, I will lend you $5.'), expect.any(String));
+    expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ line: 'All right, I will lend you $5. Do not waste it.' });
+    provider.events?.onUserSpeechEnd();
+    state.scores.player = 5;
+    state.scores.rival = 5;
+    await vi.advanceTimersByTimeAsync(52_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'Please extend the time.', { startMs: 500, endMs: 700 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(150);
+    const [line, speechId] = provider.confirmedLine.mock.calls.find(([line]) => line === 'All right, I will give you 10 more seconds. Do not give up yet.') ?? [];
+    expect(line).toBe('All right, I will give you 10 more seconds. Do not give up yet.');
+    provider.events?.onSpeechAudioEnded(speechId as string);
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ line: 'All right, I will give you 10 more seconds. Do not give up yet.' });
+    await vi.advanceTimersByTimeAsync(18_000);
+    expect(provider.bridgeLanguages.at(-1)).toBe('en');
+    expect(provider.openingContexts.at(-1)).toContain('今すぐEnglishで');
+    expect(provider.reaction).toHaveBeenLastCalledWith(expect.stringContaining('You '));
+    await session.shutdown('test_finished');
+  });
+
   it('deduplicates purchases, preserves spin totals, and sends valid recovery snapshots', async () => {
     const { session, messages } = setup('shop', 'manual', 'audio');
     await session.initialize();
@@ -798,7 +885,7 @@ describe('live match cleanup', () => {
     provider.events?.onUserSpeechEnd();
     provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
     await vi.advanceTimersByTimeAsync(150);
-    expect(provider.confirmedLine).toHaveBeenCalledWith('もう一度、延長してって言ってくれる？', undefined);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('もう一度、延長してって言ってくれる？');
     expect(messages.some(message => message.type === 'time_extension')).toBe(false);
     provider.events?.onDelegation({ id: 'late-direct-extension', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
