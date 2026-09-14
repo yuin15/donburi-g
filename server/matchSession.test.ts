@@ -38,8 +38,8 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   close = provider.gptClose;
   updateGameContext = provider.context;
   requestReaction = provider.reaction;
-  requestRequiredReaction = (line: string | { ja: string; en?: string }, speechId: string) => {
-    provider.requiredReaction(typeof line === 'string' ? line : line[this.language] ?? line.ja, speechId);
+  requestRequiredReaction = (line: string | { ja: string; en?: string }) => {
+    provider.requiredReaction(typeof line === 'string' ? line : line[this.language] ?? line.ja);
     return provider.requiredReaction.mock.results.at(-1)?.value !== false;
   };
   requestConfirmedLine = (line: string | { ja: string; en?: string }, speechId?: string) => {
@@ -103,12 +103,6 @@ function startLoanOffer(): string {
   return speechId as string;
 }
 function finishLoanOffer(session: MatchSession, speechId: string): void {
-  provider.events?.onSpeechAudioEnded(speechId);
-  session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
-}
-function finishRequiredWin(session: MatchSession): void {
-  const speechId = provider.requiredReaction.mock.calls.at(-1)?.[1];
-  expect(speechId).toEqual(expect.any(String));
   provider.events?.onSpeechAudioEnded(speechId);
   session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
 }
@@ -944,8 +938,8 @@ describe('live match cleanup', () => {
     });
     await vi.advanceTimersByTimeAsync(1);
     const winner = side === 'player' ? 'プレイヤー' : '私';
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(`確定当たり情報（発話内容ではない）: ${winner}:`), expect.any(String));
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(symbol === 'seven' ? '7揃い' : symbol === 'bell' ? 'ベル' : 'チェリー'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(`確定当たり情報（発話内容ではない）: ${winner}:`));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(symbol === 'seven' ? '7揃い' : symbol === 'bell' ? 'ベル' : 'チェリー'));
     await session.shutdown('test_finished');
   });
 
@@ -977,12 +971,8 @@ describe('live match cleanup', () => {
       rival: { side: 'rival', round: 4, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 36 },
     });
     await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: チェリー 2ライン'), expect.any(String));
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'), expect.any(String));
-    finishRequiredWin(session);
-
-    await vi.advanceTimersByTimeAsync(1);
-    provider.requiredReaction.mockClear();
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: チェリー 2ライン'));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'));
     state.rounds = { player: 5, rival: 5 };
     handleGameEvent({
       type: 'spin', seq: 2, at: 5,
@@ -990,13 +980,13 @@ describe('live match cleanup', () => {
       rival: { side: 'rival', round: 5, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 42 },
     });
     await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: 7揃い、ベル'), expect.any(String));
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: 7揃い、ベル'));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'));
 
     await session.shutdown('test_finished');
   });
 
-  it('keeps more than five deduplicated wins through a user turn and sends them one ACK at a time', async () => {
+  it('sends more than five deduplicated wins immediately during a user turn', async () => {
     const { session } = setup('required-fifo', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1015,24 +1005,15 @@ describe('live match cleanup', () => {
     provider.events?.onUserSpeech();
     for (let round = 1; round <= 6; round += 1) {
       const side = round % 2 ? 'player' as const : 'rival' as const;
-      state.rounds[side] = round;
+      state.rounds = { player: round, rival: round };
       handleGameEvent({ type: 'side_spin', seq: round, at: round, spin: { side, round, symbols: grid[1], grid, winningLines: [round % 3 === 0 ? 'bottom' : round % 3 === 1 ? 'top' : 'middle'], payout: 6, total: 30 + round } });
     }
     handleGameEvent({ type: 'side_spin', seq: 7, at: 7, spin: { side: 'player', round: 1, symbols: grid[1], grid, winningLines: ['top'], payout: 3, total: 31 } });
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(provider.requiredReaction).not.toHaveBeenCalled();
-    provider.events?.onUserSpeechEnd();
-    await vi.advanceTimersByTimeAsync(250);
-    for (let count = 1; count <= 6; count += 1) {
-      expect(provider.requiredReaction).toHaveBeenCalledTimes(count);
-      finishRequiredWin(session);
-      await vi.advanceTimersByTimeAsync(1);
-    }
     expect(provider.requiredReaction).toHaveBeenCalledTimes(6);
     await session.shutdown('test_finished');
   });
 
-  it('retries a required win when the bridge is busy', async () => {
+  it('drops a required win when the immediate append is unavailable', async () => {
     const { session } = setup('required-busy', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1047,36 +1028,13 @@ describe('live match cleanup', () => {
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.requiredReaction).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(248);
+    await vi.advanceTimersByTimeAsync(250);
     expect(provider.requiredReaction).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(2);
-    expect(provider.requiredReaction).toHaveBeenCalledTimes(2);
     await session.shutdown('test_finished');
   });
 
-  it('retries a required win after it is rejected before playback starts', async () => {
-    const { session } = setup('required-rejected', 'manual', 'audio');
-    await session.initialize();
-    session.handleRaw('{"type":"start"}');
-    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
-    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
-    sessionTimers.timer = null;
-    await vi.advanceTimersByTimeAsync(3_001);
-    provider.requiredReaction.mockClear();
-    const state = (session as unknown as { state: MatchState }).state;
-    state.rounds.player = 1;
-    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
-    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
-    await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenCalledOnce();
-    provider.events?.onCommandRejected?.({ kind: 'commentary', speechId: 'extension-speech-id' });
-    await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenCalledTimes(2);
-    await session.shutdown('test_finished');
-  });
-
-  it('drops an unstarted required win and advances to the next queued hit', async () => {
-    const { session } = setup('required-dropped', 'manual', 'audio');
+  it('sends a next required hit without waiting for the previous hit ACK', async () => {
+    const { session } = setup('required-untracked', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
@@ -1088,18 +1046,14 @@ describe('live match cleanup', () => {
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     state.rounds.player = 1;
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
-    await vi.advanceTimersByTimeAsync(1);
     state.rounds.player = 2;
     handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 39 } });
-    expect(provider.requiredReaction).toHaveBeenCalledOnce();
-    provider.events?.onRequiredReactionDropped?.('extension-speech-id');
-    await vi.advanceTimersByTimeAsync(1);
     expect(provider.requiredReaction).toHaveBeenCalledTimes(2);
-    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('チェリー'), expect.any(String));
+    expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('チェリー'));
     await session.shutdown('test_finished');
   });
 
-  it('sends a required win while it is still within the two-second TTL', async () => {
+  it('sends a required win immediately while the user is speaking', async () => {
     const { session } = setup('required-fresh', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1112,17 +1066,14 @@ describe('live match cleanup', () => {
     const state = (session as unknown as { state: MatchState }).state;
     state.rounds.player = 1;
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
-    const sendRequired = (session as unknown as { sendRequiredWinReaction: () => void }).sendRequiredWinReaction.bind(session);
+    state.elapsed = 1;
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
-    await vi.advanceTimersByTimeAsync(1_999);
-    provider.events?.onUserSpeechEnd();
-    sendRequired();
     expect(provider.requiredReaction).toHaveBeenCalledOnce();
     await session.shutdown('test_finished');
   });
 
-  it('drops a required win made stale by a conversation before it can send', async () => {
-    const { session } = setup('required-stale-conversation', 'manual', 'audio');
+  it('drops a stale catch-up required win before it can send', async () => {
+    const { session } = setup('required-stale-catchup', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
@@ -1130,38 +1081,12 @@ describe('live match cleanup', () => {
     sessionTimers.timer = null;
     await vi.advanceTimersByTimeAsync(3_001);
     provider.requiredReaction.mockClear();
-    provider.events?.onUserSpeech();
     const state = (session as unknown as { state: MatchState }).state;
+    state.elapsed = 3;
     state.rounds.player = 1;
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
-    await vi.advanceTimersByTimeAsync(2_000);
-    provider.events?.onUserSpeechEnd();
-    await vi.advanceTimersByTimeAsync(250);
     expect(provider.requiredReaction).not.toHaveBeenCalled();
-    await session.shutdown('test_finished');
-  });
-
-  it('does not let an old active ACK send a stale later hit', async () => {
-    const { session } = setup('required-active-ack', 'manual', 'audio');
-    await session.initialize();
-    session.handleRaw('{"type":"start"}');
-    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
-    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
-    sessionTimers.timer = null;
-    await vi.advanceTimersByTimeAsync(3_001);
-    provider.requiredReaction.mockClear();
-    const state = (session as unknown as { state: MatchState }).state;
-    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
-    state.rounds.player = 1;
-    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
-    await vi.advanceTimersByTimeAsync(1);
-    state.rounds.player = 2;
-    handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 39 } });
-    await vi.advanceTimersByTimeAsync(2_000);
-    finishRequiredWin(session);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(provider.requiredReaction).toHaveBeenCalledOnce();
     await session.shutdown('test_finished');
   });
 

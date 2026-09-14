@@ -89,7 +89,7 @@ const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転
 // 100ms of PCM16, 24kHz mono. GPT-Live needs real-time input to progress speech.
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 const REQUIRED_WIN_REACTION_TTL_MS = 2_000;
-type RequiredWinReaction = { line: LocalizedLine; wins: Record<Side, Record<SymbolId, number>>; queuedAt: number };
+type RequiredWins = Record<Side, Record<SymbolId, number>>;
 
 export class MatchSession {
   private readonly state: MatchState;
@@ -108,7 +108,7 @@ export class MatchSession {
   private messagesInWindow = 0;
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
-    if (!this.voiceReady || this.closed || this.requiredWinSpeech) return false;
+    if (!this.voiceReady || this.closed) return false;
     const zeroBalanceChat = text === ZERO_BALANCE_CHAT_REACTION;
     if (!zeroBalanceChat) {
       this.pushContext();
@@ -121,11 +121,7 @@ export class MatchSession {
     }
     return reactionRequested;
   });
-  /** Confirmed wins bypass optional commentary caps and remain until their playback ACK. */
-  private readonly requiredWinReactions: RequiredWinReaction[] = [];
   private readonly requiredWinKeys = new Set<string>();
-  private requiredWinSpeech: { id: string } | null = null;
-  private requiredWinRetry: NodeJS.Timeout | null = null;
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
@@ -238,7 +234,6 @@ export class MatchSession {
           if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
           this.finishLoanOfferSpeech(speechId);
           this.gpt?.completeConfirmedSpeech(speechId);
-          this.finishRequiredWinReaction(speechId);
         });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
@@ -280,7 +275,6 @@ export class MatchSession {
         if (!resultOnly) {
           this.gameReady = true;
           this.emit({ type: 'voice_status', status: 'ready' });
-          this.scheduleRequiredWinReaction();
         }
       },
       onAudio: (audio, speechId) => {
@@ -400,7 +394,6 @@ export class MatchSession {
         this.queueDirectTimeExtensionRequest(generation);
         this.queueDirectLoanRequest(generation);
         this.queueDirectPlayerLoanOffer(generation);
-        this.scheduleRequiredWinReaction();
       },
       onDelegation: delegation => {
         if (!current() || resultOnly || this.resultTransition) return;
@@ -423,16 +416,6 @@ export class MatchSession {
           this.loanDecisionPending = false;
           this.pushContext();
         }
-        if (this.requiredWinSpeech?.id === rejection.speechId) {
-          this.requiredWinSpeech = null;
-          this.scheduleRequiredWinReaction();
-        }
-      },
-      onRequiredReactionDropped: speechId => {
-        if (!current() || this.requiredWinSpeech?.id !== speechId) return;
-        this.requiredWinSpeech = null;
-        this.requiredWinReactions.shift();
-        this.scheduleRequiredWinReaction();
       },
       onError: code => { if (current()) this.handleGptError(code); },
       // Old-session usage still belongs to this game even after its output is invalidated.
@@ -481,8 +464,6 @@ export class MatchSession {
     if (this.hardStop) clearTimeout(this.hardStop);
     if (this.lobbyStop) clearTimeout(this.lobbyStop);
     if (this.resultStop) clearTimeout(this.resultStop);
-    if (this.requiredWinRetry) clearTimeout(this.requiredWinRetry);
-    this.requiredWinRetry = null;
     if (this.conversationLanguageSettle) {
       clearTimeout(this.conversationLanguageSettle.timer);
       this.delegationSettles.delete(this.conversationLanguageSettle.timer);
@@ -562,8 +543,6 @@ export class MatchSession {
   private stopVoice(): Promise<void> {
     if (this.voiceStopping) return this.voiceStopping;
     this.voiceDisabled = true;
-    if (this.requiredWinRetry) clearTimeout(this.requiredWinRetry);
-    this.requiredWinRetry = null;
     if (this.routeTransition) {
       clearTimeout(this.routeTransition.timer);
       this.routeTransition.resolve(false);
@@ -678,7 +657,6 @@ export class MatchSession {
       if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
       this.finishLoanOfferSpeech(message.speechId);
       this.gpt?.completeConfirmedSpeech(message.speechId);
-      this.finishRequiredWinReaction(message.speechId);
       return;
     }
     if (message.type === 'voice_route_ready') {
@@ -840,8 +818,6 @@ export class MatchSession {
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
-      if (this.requiredWinRetry) clearTimeout(this.requiredWinRetry);
-      this.requiredWinRetry = null;
       const direction: LocalizedLine = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
         ? { ja: '双方とも残高を使い切った。逆転、再戦、追加の回転は誘わず、軽く勝負を諦めた短い一言だけを話す。', en: 'Both balances are empty. Briefly accept the result without suggesting another spin or rematch.' }
         : event.snapshot.winner === 'player'
@@ -1937,7 +1913,7 @@ export class MatchSession {
   }
 
   private enqueueRequiredWinReaction(eventAt: number, ...spins: SpinView[]): void {
-    const wins: RequiredWinReaction['wins'] = {
+    const wins: RequiredWins = {
       player: { cherry: 0, bell: 0, seven: 0 },
       rival: { cherry: 0, bell: 0, seven: 0 },
     };
@@ -1948,62 +1924,12 @@ export class MatchSession {
       for (const symbol of winningSymbols(spin)) wins[spin.side][symbol] += 1;
     }
     if (!Object.values(wins.player).some(Boolean) && !Object.values(wins.rival).some(Boolean)) return;
-    const queuedAt = Date.now() - Math.max(0, this.state.elapsed - eventAt) * 1000;
-    this.requiredWinReactions.push({ wins, line: this.requiredWinLine(wins), queuedAt });
-    this.scheduleRequiredWinReaction();
+    const ageMs = Math.max(0, this.state.elapsed - eventAt) * 1000;
+    if (ageMs >= REQUIRED_WIN_REACTION_TTL_MS || !this.voiceReady || this.closed || this.voiceDisabled || this.state.status !== 'playing') return;
+    this.gpt?.requestRequiredReaction?.(this.requiredWinLine(wins));
   }
 
-  private scheduleRequiredWinReaction(delayMs = 0): void {
-    if (this.requiredWinRetry || this.requiredWinSpeech || this.requiredWinReactions.length === 0) return;
-    const timer = setTimeout(() => {
-      if (this.requiredWinRetry !== timer) return;
-      this.requiredWinRetry = null;
-      this.sendRequiredWinReaction();
-    }, delayMs);
-    this.requiredWinRetry = timer;
-  }
-
-  private sendRequiredWinReaction(): void {
-    this.dropExpiredRequiredWinReactions();
-    if (this.closed || this.voiceDisabled || this.state.status !== 'playing') return;
-    if (
-      !this.voiceReady
-      || this.userSpeaking
-      || Date.now() < this.assistantOutputUntil
-      || this.activeOutputSpeechId
-      || this.extensionSpeech
-      || this.loanOffer
-      || this.loanDecisionPending
-      || this.extensionDecisionPending
-    ) {
-      this.scheduleRequiredWinReaction(250);
-      return;
-    }
-    const reaction = this.requiredWinReactions[0];
-    if (!reaction) return;
-    const id = randomUUID();
-    if (this.gpt?.requestRequiredReaction?.(reaction.line, id)) {
-      this.requiredWinSpeech = { id };
-      return;
-    }
-    this.scheduleRequiredWinReaction(250);
-  }
-
-  private finishRequiredWinReaction(speechId: string): void {
-    if (this.requiredWinSpeech?.id !== speechId) return;
-    this.requiredWinSpeech = null;
-    this.requiredWinReactions.shift();
-    this.scheduleRequiredWinReaction();
-  }
-
-  private dropExpiredRequiredWinReactions(now = Date.now()): void {
-    const firstPending = this.requiredWinSpeech ? 1 : 0;
-    while (this.requiredWinReactions[firstPending] && now - this.requiredWinReactions[firstPending].queuedAt >= REQUIRED_WIN_REACTION_TTL_MS) {
-      this.requiredWinReactions.splice(firstPending, 1);
-    }
-  }
-
-  private requiredWinLine(wins: RequiredWinReaction['wins']): LocalizedLine {
+  private requiredWinLine(wins: RequiredWins): LocalizedLine {
     const ja = [
       this.describeRequiredWinsJa('プレイヤー', wins.player),
       this.describeRequiredWinsJa('私', wins.rival),
