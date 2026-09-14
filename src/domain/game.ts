@@ -1,5 +1,5 @@
 import type { Bet, MatchSnapshot, MatchStats, ReelGrid, Side, SpinView, SymbolId, UpgradeId, WinningLine } from '../../shared/protocol.js';
-import { MANUAL_SPIN_INTERVAL, MATCH_SECONDS, RIVAL_SPIN_INTERVAL, TIME_EXTENSION_SECONDS } from '../../shared/protocol.js';
+import { EXTENSION_REQUEST_REMAINING_SECONDS, MANUAL_SPIN_INTERVAL, MATCH_SECONDS, MAX_MATCH_SECONDS, RIVAL_SPIN_INTERVAL } from '../../shared/protocol.js';
 import { cloneMatchStats, createMatchStats, recordSpin } from './matchStats.js';
 import { upgradePrice } from '../../shared/shop.js';
 
@@ -298,11 +298,25 @@ export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot 
   return getSnapshot(state);
 }
 
-/** The domain is the only place that can turn a model decision into extra time. */
+/** The domain is the only place that can turn an authorized extension into extra time. */
 export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
-  if (state.status !== 'playing') return null;
+  return applyTimeExtensionWithin(state, EXTENSION_REQUEST_REMAINING_SECONDS);
+}
+
+/** An explicit player request may use the same one-shot +10 second rule at any point in a live match. */
+export function applyPlayerRequestedTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  return applyTimeExtensionWithin(state, MATCH_SECONDS);
+}
+
+function applyTimeExtensionWithin(state: MatchState, maximumRemaining: number): Extract<GameEvent, { type: 'time_extended' }> | null {
+  if (
+    state.status !== 'playing'
+    || state.extensionUsed
+    || state.duration !== MATCH_SECONDS
+    || state.remaining > maximumRemaining
+  ) return null;
   const before = getSnapshot(state);
-  state.duration += TIME_EXTENSION_SECONDS;
+  state.duration = MAX_MATCH_SECONDS;
   state.remaining = Math.max(0, state.duration - state.elapsed);
   state.extensionUsed = true;
   return { type: 'time_extended', seq: nextSeq(state), at: state.elapsed, before, after: getSnapshot(state) };

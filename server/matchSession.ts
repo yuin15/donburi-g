@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type SpinView } from '../shared/protocol.js';
 import {
   abortMatch,
+  applyPlayerRequestedTimeExtension,
   applyTimeExtension,
   advanceMatch,
   createMatch,
@@ -162,7 +163,6 @@ export class MatchSession {
   private rivalLoanLanguagePending: { turn: number; generation: number } | null = null;
   private userSpeaking = false;
   private userSpeechTurn = 0;
-  private userSpeechTurnStartedRemaining: number | null = null;
   private assistantOutputUntil = 0;
   private transcriptSequence = 0;
   private transcriptHistory: Array<{ sequence: number; role: 'user' | 'assistant'; delta: string; startMs: number | null; endMs: number | null; userTurn: number | null }> = [];
@@ -184,7 +184,7 @@ export class MatchSession {
   private directExtensionRequestSettle: { turn: number; generation: number; timer: NodeJS.Timeout } | null = null;
   private readonly directExtensionRequestTurns = new Set<number>();
   private directExtensionDecision: { turn: number; transcriptSequence: number } | null = null;
-  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: LocalizedLine; timer: NodeJS.Timeout; fenceSent: boolean; directDecision: { turn: number; transcriptSequence: number } | null } | null = null;
+  private extensionSpeech: { id: string; generation: number; before: MatchSnapshot; line: LocalizedLine; timer: NodeJS.Timeout; fenceSent: boolean; directDecision: { turn: number; transcriptSequence: number } | null; playerRequested: boolean } | null = null;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -304,6 +304,11 @@ export class MatchSession {
         }
         if (speechId && this.discardedSpeechIds.has(speechId)) { this.voiceDiagnostic.droppedMs += durationMs; return; }
         if (speechId && audible) {
+          // Once the player can hear the authoritative acceptance, the clock
+          // must already reflect it. A new microphone turn (for example,
+          // "thanks" or ambient noise) may otherwise cancel the pending direct
+          // decision before the playback-complete ACK arrives.
+          if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
           this.markLoanOfferAudible(speechId);
           this.markPlayerLoanOfferAudible(speechId);
         }
@@ -394,7 +399,6 @@ export class MatchSession {
         this.cancelPendingPlayerLoanIntent();
         this.userSpeechTurn += 1;
         this.gpt?.beginUserSpeech();
-        this.userSpeechTurnStartedRemaining = this.state.remaining;
         this.markLoanOfferReplyStarted();
         this.markPlayerLoanOfferReplyStarted();
         this.userSpeaking = true;
@@ -1430,7 +1434,6 @@ export class MatchSession {
     const turn = this.userSpeechTurn;
     if (
       turn === 0
-      || this.userSpeechTurnStartedRemaining === null
       || this.conversationLanguage !== 'ja'
       || (!this.userSpeaking && (!pending || pending.turn !== turn || pending.generation !== generation))
     ) {
@@ -1778,7 +1781,7 @@ export class MatchSession {
     this.queueDirectLoanRequest(generation);
   }
 
-  /** A clear late-game request still reaches the existing decision without a Live delegation. */
+  /** A clear player request reaches the deterministic acceptance path without a Live delegation. */
   private queueDirectTimeExtensionRequest(generation: number): void {
     const turn = this.userSpeechTurn;
     if (!requestsTimeExtension(this.currentUserTurnTranscript()) || this.extensionDecisionPending || this.directExtensionRequestTurns.has(turn) || this.userSpeaking) return;
@@ -1818,9 +1821,8 @@ export class MatchSession {
     ) return;
     const transcript = this.currentUserTurnTranscript();
     if (!requestsTimeExtension(transcript)) return;
-    const { conversation } = this.selectedDelegationTranscript(Number.MAX_SAFE_INTEGER);
     this.tick();
-    if (this.state.status !== 'playing') return;
+    if (this.state.status !== 'playing' || this.state.extensionUsed) return;
     this.directExtensionRequestTurns.add(turn);
     if (this.directExtensionRequestTurns.size > 16) this.directExtensionRequestTurns.delete(this.directExtensionRequestTurns.values().next().value!);
     const directDecision = { turn, transcriptSequence: this.transcriptSequence };
@@ -1831,7 +1833,7 @@ export class MatchSession {
     this.gpt?.suppressOutput();
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
-    void this.decideTimeExtension(null, transcript, conversation, generation, false, directDecision);
+    void this.decideTimeExtension(null, transcript, '', generation, false, directDecision, true);
   }
 
   /** A trailing delta can revise only the still-pending direct extension decision for this turn. */
@@ -2095,6 +2097,7 @@ export class MatchSession {
     }
     const transcript = selectedTurn.map(item => item.delta).join('').slice(-240);
     const conversation = orderedHistory.slice(-20).map(item => `${item.role === 'user' ? 'P' : 'R'}:${item.delta}`).join('').slice(-500);
+    const playerRequested = requestsTimeExtension(transcript);
     if (
       !transcript
       || generation !== this.voiceGeneration
@@ -2104,6 +2107,7 @@ export class MatchSession {
       || this.loanDecisionPending
       || this.loanOffer
       || this.state.status !== 'playing'
+      || this.state.extensionUsed
     ) {
       this.gpt?.requestDelegationThinking(id, 'Continue the ordinary conversation without changing or explaining a rule.');
       return;
@@ -2113,22 +2117,17 @@ export class MatchSession {
     this.gpt?.suppressOutput();
     this.media?.interrupt();
     this.emit({ type: 'voice_interrupt' });
-    void this.decideTimeExtension(id, transcript, conversation, generation, offerActive);
+    void this.decideTimeExtension(id, transcript, conversation, generation, offerActive, null, playerRequested);
   }
 
   private awaitingExtensionTranscript(): boolean {
     return this.extensionDecisionPending;
   }
 
-  private async decideTimeExtension(delegationId: string | null, requestTranscript: string, conversation: string, generation: number, offerActive: boolean, directDecision: { turn: number; transcriptSequence: number } | null = null): Promise<void> {
-    const requestedAt = getSnapshot(this.state);
-    const decision = await chooseTimeExtension(
-      requestedAt,
-      requestTranscript,
-      conversation,
-      this.voiceAbort.signal,
-      offerActive,
-    );
+  private async decideTimeExtension(delegationId: string | null, requestTranscript: string, conversation: string, generation: number, offerActive: boolean, directDecision: { turn: number; transcriptSequence: number } | null = null, playerRequested = false): Promise<void> {
+    const decision = playerRequested
+      ? 'accept_extension_10s'
+      : await chooseTimeExtension(getSnapshot(this.state), requestTranscript, conversation, this.voiceAbort.signal, offerActive);
     if (
       this.closed
       || generation !== this.voiceGeneration
@@ -2186,7 +2185,8 @@ export class MatchSession {
       }
       const id = randomUUID();
       const timer = setTimeout(() => this.commitExtensionSpeech(true), EXTENSION_SPEECH_FALLBACK_MS);
-      this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false, directDecision };
+      const confirmedPlayerRequest = playerRequested || (!offerActive && decision === 'accept_extension_10s');
+      this.extensionSpeech = { id, generation, before, line, timer, fenceSent: false, directDecision, playerRequested: confirmedPlayerRequest };
       this.requestExtensionDecisionLine(delegationId, line, id);
     }, cancel);
   }
@@ -2208,7 +2208,7 @@ export class MatchSession {
       this.emit({ type: 'voice_interrupt' });
     }
     if (this.closed || pending.generation !== this.voiceGeneration) return;
-    const extended = applyTimeExtension(this.state);
+    const extended = pending.playerRequested ? applyPlayerRequestedTimeExtension(this.state) : applyTimeExtension(this.state);
     this.extensionDecisionPending = false;
     this.extensionNegotiation = false;
     if (!extended) return;
@@ -2271,9 +2271,11 @@ export class MatchSession {
           ? 'ライバルは時間延長を提案済み。プレイヤーの短い同意は、結果が出るまで発話せずに扱う。拒否は延長しない。'
           : ''
       : '';
-    const extensionContext = snapshot.status === 'playing'
-      ? `時間延長: プレイヤーから明確な要求があれば毎回+10秒を確定する。要求を断らず、確定台詞まで別の返答をしない。${offerContext}`
-      : '時間延長: 試合は終了している。';
+    const extensionContext = snapshot.status === 'playing' && !this.state.extensionUsed
+      ? `時間延長: 今この試合で未使用。プレイヤーから明確な要求があれば残り時間に関係なく必ず+10秒を一度だけ確定する。要求を断らず、確定台詞まで別の返答をしない。ライバル側からの提案は残り15秒以内だけ。${offerContext}`
+      : snapshot.status === 'playing'
+        ? '時間延長: この試合では使用済み。追加の延長は確定しない。通常の会話を続ける。'
+        : '時間延長: 試合は終了している。';
     const loanOfferContext = this.loanOffer
       ? this.loanOffer.audibleAt === null
         ? 'ライバルは$5の借入をお願いしたが、まだ音声が届く前なので同意として扱わない。'

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceMatch,
   applyTimeExtension,
+  applyPlayerRequestedTimeExtension,
   createMatch,
   distractRival,
   getPoolCounts,
@@ -169,25 +170,34 @@ describe('authoritative match domain', () => {
     expect('pools' in snapshot).toBe(false);
   });
 
-  it('authoritatively grants every requested +10 second extension', () => {
+  it('authoritatively grants one requested +10 second extension', () => {
     const state = createMatch(123, 'extended', 'manual');
     startMatch(state);
     advanceMatch(state, 54.25);
     const event = applyTimeExtension(state);
     expect(event).toMatchObject({ type: 'time_extended', before: { duration: 60 }, after: { duration: 70 } });
     expect(state.remaining).toBeCloseTo(15.75);
-    expect(applyTimeExtension(state)).toMatchObject({ before: { duration: 70 }, after: { duration: 80 } });
-    const end = advanceMatch(state, 80).find(candidate => candidate.type === 'match_end');
-    expect(end).toMatchObject({ snapshot: { elapsed: 80, duration: 80, remaining: 0, status: 'result' } });
+    expect(applyTimeExtension(state)).toBeNull();
+    const end = advanceMatch(state, 70).find(candidate => candidate.type === 'match_end');
+    expect(end).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0, status: 'result' } });
   });
 
-  it('extends early but not after the result', () => {
+  it('extends an early explicit player request but not after the result', () => {
     const state = createMatch(123, 'guarded');
     startMatch(state);
     advanceMatch(state, 44.9);
-    expect(applyTimeExtension(state)).toMatchObject({ after: { duration: 70 } });
+    expect(applyPlayerRequestedTimeExtension(state)).toMatchObject({ after: { duration: 70 } });
     advanceMatch(state, 70);
-    expect(applyTimeExtension(state)).toBeNull();
+    expect(applyPlayerRequestedTimeExtension(state)).toBeNull();
+  });
+
+  it('lets one explicit player request extend from any point while keeping the normal CPU guard late-only', () => {
+    const playerRequested = createMatch(123, 'player-requested');
+    startMatch(playerRequested);
+    advanceMatch(playerRequested, 5);
+    expect(applyTimeExtension(playerRequested)).toBeNull();
+    expect(applyPlayerRequestedTimeExtension(playerRequested)).toMatchObject({ after: { duration: 70, remaining: 65 } });
+    expect(applyPlayerRequestedTimeExtension(playerRequested)).toBeNull();
   });
 
   it('moves exactly $5 for a bankrupt player and for every voluntary player loan without minting bankroll', () => {
