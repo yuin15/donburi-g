@@ -79,7 +79,6 @@ const DIRECT_LOAN_ACCEPTANCE_SETTLE_MS = 250;
 const LOAN_OFFER_SPEECH_TIMEOUT_MS = 15_000;
 const LOAN_OFFER_LINE: LocalizedLine = { ja: 'お金がなくなっちゃった。5ドル貸してくれない？', en: 'I am out of money. Can you lend me $5?' };
 const PLAYER_LOAN_OFFER_LINE: LocalizedLine = { ja: 'お金を貸そうか？', en: 'Want me to lend you $5?' };
-const PLAYER_LOAN_DECLINE_LINE: LocalizedLine = { ja: 'やっぱりやめた。自分の資金で勝負して。', en: 'Actually, never mind. Play with your own money.' };
 const USER_TRANSCRIPT_SETTLE_MS = 250;
 const LOAN_TO_PLAYER_LINE: LocalizedLine = { ja: 'しょうがないな、$5だけ貸すよ。無駄にしないで。', en: 'All right, I will lend you $5. Do not waste it.' };
 const LOAN_TO_RIVAL_LINE: LocalizedLine = { ja: '助かった、$5借りるよ。ここから巻き返す。', en: 'That helps. I will borrow $5 and make a comeback.' };
@@ -1389,7 +1388,7 @@ export class MatchSession {
       || this.playerLoanDecisionTurns.has(turn)
       || this.playerLoanIntentPending
       || this.state.status !== 'playing'
-      || this.state.scores.player >= 1
+      || this.state.scores.player !== 0
       || this.state.scores.rival < LOAN_AMOUNT
       || this.loanDecisionPending
       || this.extensionDecisionPending
@@ -1423,7 +1422,7 @@ export class MatchSession {
       || pending.turn !== this.userSpeechTurn
       || pending.transcript !== this.currentUserTurnTranscript(this.playerLoanOffer?.transcriptAfter ?? 0)
       || this.state.status !== 'playing'
-      || this.state.scores.player >= 1
+      || this.state.scores.player !== 0
       || this.state.scores.rival < LOAN_AMOUNT
     ) {
       if (this.playerLoanIntentPending === pending) {
@@ -1439,12 +1438,12 @@ export class MatchSession {
     }
     this.playerLoanIntentPending = null;
     this.playerLoanOffer = null;
-    const accepted = this.random() < 0.5;
-    const line = accepted ? LOAN_TO_PLAYER_LINE : PLAYER_LOAN_DECLINE_LINE;
-    this.queueSettledPlayerLoanOutcome(pending, accepted, line, offerActive);
+    // Once a bankrupt player has made a confirmed borrower request, the
+    // server—not a probability roll—authoritatively lends the fixed amount.
+    this.queueSettledPlayerLoanOutcome(pending, LOAN_TO_PLAYER_LINE, offerActive);
   }
 
-  private queueSettledPlayerLoanOutcome(pending: { turn: number; generation: number; transcript: string }, accepted: boolean, line: LocalizedLine, offerActive: boolean): void {
+  private queueSettledPlayerLoanOutcome(pending: { turn: number; generation: number; transcript: string }, line: LocalizedLine, offerActive: boolean): void {
     const timer = setTimeout(() => {
       this.delegationSettles.delete(timer);
       const transcript = this.currentUserTurnTranscript(this.playerLoanOffer?.transcriptAfter ?? 0);
@@ -1453,11 +1452,11 @@ export class MatchSession {
         || pending.generation !== this.voiceGeneration
         || pending.turn !== this.userSpeechTurn
         || this.state.status !== 'playing'
-        || this.state.scores.player >= 1
+        || this.state.scores.player !== 0
         || this.state.scores.rival < LOAN_AMOUNT
         || (classifyPlayerLoanIntent(transcript, offerActive) === 'no_request' && !requestsLoan(transcript))
       ) return;
-      if (accepted && !this.completeLoanTransfer('rival_to_player', line)) {
+      if (!this.completeLoanTransfer('rival_to_player', line)) {
         this.gpt?.requestConfirmedLine(KEEP_PLAYING_LINE);
         return;
       }

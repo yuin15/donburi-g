@@ -1274,8 +1274,8 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it.each([0.5, 0.99])('declines a player loan request when the server roll is %s', async (roll) => {
-    const { session, messages } = setup(`declined-player-loan-${roll}`, 'manual', 'audio', () => roll);
+  it.each([0, 0.5, 0.99])('accepts a confirmed bankrupt-player loan request regardless of the server roll: %s', async (roll) => {
+    const { session, messages } = setup(`guaranteed-player-loan-${roll}`, 'manual', 'audio', () => roll);
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     const state = (session as unknown as { state: MatchState }).state;
@@ -1287,8 +1287,10 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(251);
     await vi.waitFor(() => expect(choosePlayerLoanIntent).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(251);
-    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
-    expect(provider.confirmedLine).toHaveBeenCalledWith('やっぱりやめた。自分の資金で勝負して。');
+    expect(messages.find((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer')).toMatchObject({
+      direction: 'rival_to_player', amount: 5, before: { scores: { player: 0, rival: 10 } }, after: { scores: { player: 5, rival: 5 } },
+    });
+    expect(provider.confirmedLine).toHaveBeenCalledWith('しょうがないな、$5だけ貸すよ。無駄にしないで。');
     await session.shutdown('test_finished');
   });
 
@@ -1904,8 +1906,8 @@ describe('live match cleanup', () => {
   });
 
   it('never transfers after a delayed decision reaches result or voice disconnect', async () => {
-    const late = deferred<'accept_loan'>();
-    vi.mocked(chooseLoanDecision).mockReturnValueOnce(late.promise);
+    const late = deferred<'loan_request'>();
+    vi.mocked(choosePlayerLoanIntent).mockReturnValueOnce(late.promise);
     const first = setup('late-player-loan', 'manual', 'audio');
     await first.session.initialize();
     first.session.handleRaw('{"type":"start"}');
@@ -1916,14 +1918,14 @@ describe('live match cleanup', () => {
     provider.events?.onDelegation({ id: 'late-loan-delegation', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     await vi.advanceTimersByTimeAsync(61_000);
-    late.resolve('accept_loan');
+    late.resolve('loan_request');
     await late.promise;
     await vi.advanceTimersByTimeAsync(1);
     expect(first.messages.some(message => message.type === 'loan_transfer')).toBe(false);
     await first.session.shutdown('test_finished');
 
-    const disconnected = deferred<'accept_loan'>();
-    vi.mocked(chooseLoanDecision).mockReturnValueOnce(disconnected.promise);
+    const disconnected = deferred<'loan_request'>();
+    vi.mocked(choosePlayerLoanIntent).mockReturnValueOnce(disconnected.promise);
     const second = setup('disconnected-player-loan', 'manual', 'audio');
     await second.session.initialize();
     second.session.handleRaw('{"type":"start"}');
@@ -1934,7 +1936,7 @@ describe('live match cleanup', () => {
     provider.events?.onDelegation({ id: 'disconnect-loan-delegation', offsetMs: 400 });
     await vi.advanceTimersByTimeAsync(150);
     second.session.handleRaw('{"type":"voice_close"}');
-    disconnected.resolve('accept_loan');
+    disconnected.resolve('loan_request');
     await disconnected.promise;
     await vi.advanceTimersByTimeAsync(1);
     expect(second.messages.some(message => message.type === 'loan_transfer')).toBe(false);

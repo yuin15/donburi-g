@@ -41,7 +41,7 @@ export function classifyPlayerLoanIntent(transcript: string, offerActive: boolea
   return 'no_request';
 }
 
-/** Classifies borrower intent only; the server always owns the 50% outcome. */
+/** Classifies borrower intent only; the server always owns the loan outcome. */
 export async function choosePlayerLoanIntent(snapshot: MatchSnapshot, transcript: string, recentConversation: string, offerActive: boolean, priorOfferContext: boolean, signal?: AbortSignal): Promise<PlayerLoanIntent> {
   const local = classifyPlayerLoanIntent(transcript, offerActive);
   if (local === 'loan_request') return local;
