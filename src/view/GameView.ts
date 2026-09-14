@@ -34,9 +34,11 @@ export class GameView implements GamePresentation {
     this.scene = new ReelScene(this.q('#stageArt'), (side, column) => this.audio.reelStop(side, column), this.q('#stageEffects'));
     this.scene.bindCabinetOverlays([
       { element: this.q('#start'), depth: 164 },
+      { element: this.q('#spinHint'), depth: 164 },
       { element: this.q('#betControls'), depth: 225 },
       { element: this.q('#upgradeShop'), depth: 145 },
       { element: this.q('#paytable'), depth: 148 },
+      { element: this.q('#machineTrim'), depth: 96 },
     ]);
   }
 
