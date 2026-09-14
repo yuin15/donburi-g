@@ -307,9 +307,12 @@ export class GptLiveBridge {
     }
   }
 
-  /** Hold new output until the owner clears actual downstream playback (or closes us). */
-  beginUserSpeech(): number | null {
+  /** Microphone activity gates language settling; only an explicit request stops playback. */
+  beginUserSpeech(options: { interruptPlayback?: boolean } = {}): number | null {
     this.conversationLanguagePending = true;
+    // Volume-only VAD can be an acknowledgement, background noise, or echo.
+    // Preserve both collected PCM and its playback fence through the last sample.
+    if (!options.interruptPlayback) return null;
     if (this.hasActivePlayback()) this.playbackInterrupt = ++this.playbackInterruptSequence;
     this.discardBufferedNormalSpeech();
     // An interrupted tagged line must not retain ownership of the next reply.
