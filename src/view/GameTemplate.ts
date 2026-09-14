@@ -56,8 +56,8 @@ app.innerHTML = `
   <footer>
     <section id="upgradeShop" aria-label="Upgrade your machine">
       <h2>UPGRADE</h2>
-      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $5</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
-      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $5</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon cherry" aria-hidden="true"></i><span>+6</span><button id="buySteady" aria-describedby="steadyLevel" disabled>BUY $10</button><span class="sr-only" id="steadyLevel">4 cherries in reel. This match only.</span></div>
+      <div class="shop-row"><i class="symbol-icon seven" aria-hidden="true"></i><span>+1</span><button id="buyJackpot" aria-describedby="jackpotLevel" disabled>BUY $10</button><span class="sr-only" id="jackpotLevel">2 sevens in reel. This match only.</span></div>
       <span class="sr-only" id="purchaseNotice" role="status">BUY → BOOST YOUR NEXT SPIN</span>
       <i id="purchaseSymbol" aria-hidden="true"></i>
     </section>
@@ -87,7 +87,7 @@ app.innerHTML = `
     <details class="voice-options"><summary>ADD AI VOICE · OPTIONAL</summary>
       <p>Talk to your rival while you play. Microphone audio is sent to OpenAI. An invite is required. Connections close after the match; conversations are not stored.</p>
       <label>Invite code<input id="invite" type="password" autocomplete="off" placeholder="Invite code"></label>
-      <label class="voice-video-option"><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
+      <label class="voice-video-option" hidden><input id="avatarVideo" type="checkbox">Add live video · uses LiveAvatar credits</label>
       <button id="liveConnect">CONNECT AI VOICE</button>
     </details>
     <small id="gateMessage" role="status">CPU play needs no external AI service.</small>
