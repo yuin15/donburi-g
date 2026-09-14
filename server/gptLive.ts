@@ -33,8 +33,9 @@ export class GptLiveBridge {
   private pendingConfirmedLine: { line: string | LocalizedLine; speechId?: string } | null = null;
   private pendingDelegationResult: { id: string; content: string | LocalizedLine; speechId: string } | null = null;
   private activeDelegationSpeech: { speechId: string; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
-  private activeNormalSpeech: { speechId: string; chunks: string[]; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
-  private readonly normalSpeechQueue: Array<{ speechId: string; chunks: string[] }> = [];
+  private activeNormalSpeech: { speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  private readonly normalSpeechQueue: Array<{ speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null }> = [];
+  private readonly pendingNormalTranscripts: Array<{ delta: string; timing: { startMs: number | null; endMs: number | null } | undefined }> = [];
   private normalPlaybackSpeechId: string | null = null;
   private readonly playbackSpeechIds = new Set<string>();
   private normalReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -177,7 +178,13 @@ export class GptLiveBridge {
           return;
         }
         if (type === 'session.output_transcript.delta' && typeof event.delta === 'string') {
-          if (this.suppressedAt === null) this.events.onTranscript('assistant', event.delta, transcriptTiming(event));
+          if (this.suppressedAt === null) {
+            const timing = transcriptTiming(event);
+            if (this.shouldHoldNormalTranscript()) {
+              if (this.pendingNormalTranscripts.length >= 12) this.pendingNormalTranscripts.shift();
+              this.pendingNormalTranscripts.push({ delta: event.delta, timing });
+            } else this.events.onTranscript('assistant', event.delta, timing);
+          }
           return;
         }
         if (type === 'error') {
@@ -425,7 +432,7 @@ export class GptLiveBridge {
     if (result && this.append('commentary', content, result.id)) this.activeDelegationSpeech = { speechId: result.speechId, started: false, quietMs: 0, timer: null };
   }
 
-  /** Group untagged Live PCM until the provider has yielded, then replay it as one real utterance. */
+  /** Start normal PCM immediately when safe; silence only marks the utterance boundary. */
   private collectNormalSpeech(audio: string, audible: boolean, durationMs: number): void {
     let speech = this.activeNormalSpeech;
     if (!speech && !audible) return;
@@ -433,13 +440,18 @@ export class GptLiveBridge {
       const created = {
         speechId: `normal-${++this.normalSpeechSequence}`,
         chunks: [] as string[],
+        started: false,
         quietMs: 0,
         timer: null as ReturnType<typeof setTimeout> | null,
       };
       this.activeNormalSpeech = created;
       speech = created;
     }
-    speech.chunks.push(audio);
+    if (speech.started) this.events.onAudio(audio, speech.speechId, 'normal');
+    else {
+      speech.chunks.push(audio);
+      this.scheduleNormalSpeechRelease();
+    }
     speech.quietMs = audible ? 0 : speech.quietMs + durationMs;
     if (speech.quietMs >= 900) this.finishNormalSpeech();
     else {
@@ -453,33 +465,58 @@ export class GptLiveBridge {
     if (!speech) return;
     if (speech.timer) clearTimeout(speech.timer);
     this.activeNormalSpeech = null;
+    if (speech.started) {
+      this.events.onSpeechAudioEnded(speech.speechId);
+      return;
+    }
     if (this.normalSpeechQueue.length >= 2) this.normalSpeechQueue.shift();
-    this.normalSpeechQueue.push({ speechId: speech.speechId, chunks: speech.chunks });
+    this.normalSpeechQueue.push(speech);
     this.scheduleNormalSpeechRelease();
   }
 
   private scheduleNormalSpeechRelease(): void {
-    if (this.normalReleaseTimer || this.hasActivePlayback() || !this.normalSpeechQueue.length) return;
+    if (this.normalReleaseTimer || this.hasActivePlayback() || (!this.normalSpeechQueue.length && !this.activeNormalSpeech)) return;
     const delay = Math.max(0, this.playbackQuietUntil - Date.now());
     const release = () => {
       this.normalReleaseTimer = null;
       if (this.hasActivePlayback() || Date.now() < this.playbackQuietUntil) { this.scheduleNormalSpeechRelease(); return; }
       if (this.pendingConfirmedLine || this.pendingDelegationResult) { this.schedulePendingSpeech(); return; }
-      const speech = this.normalSpeechQueue.shift();
+      const queuedSpeech = this.normalSpeechQueue.shift();
+      const speech = queuedSpeech ?? this.activeNormalSpeech;
       if (!speech) return;
-      this.normalPlaybackSpeechId = speech.speechId;
-      this.playbackSpeechIds.add(speech.speechId);
-      for (const audio of speech.chunks) this.events.onAudio(audio, speech.speechId, 'normal');
-      this.events.onSpeechAudioEnded(speech.speechId);
+      this.startNormalSpeech(speech);
+      if (queuedSpeech) this.events.onSpeechAudioEnded(speech.speechId);
     };
     if (delay === 0) release();
     else this.normalReleaseTimer = setTimeout(release, delay);
+  }
+
+  private startNormalSpeech(speech: { speechId: string; chunks: string[]; started: boolean }): void {
+    if (speech.started) return;
+    speech.started = true;
+    this.normalPlaybackSpeechId = speech.speechId;
+    this.playbackSpeechIds.add(speech.speechId);
+    for (const audio of speech.chunks.splice(0)) this.events.onAudio(audio, speech.speechId, 'normal');
+    this.flushNormalTranscripts();
+  }
+
+  private shouldHoldNormalTranscript(): boolean {
+    if (this.activeDelegationSpeech !== null || this.activeNormalSpeech?.started) return false;
+    return this.activeNormalSpeech !== null
+      || this.normalSpeechQueue.length > 0
+      || this.normalPlaybackSpeechId !== null
+      || Date.now() < this.playbackQuietUntil;
+  }
+
+  private flushNormalTranscripts(): void {
+    for (const transcript of this.pendingNormalTranscripts.splice(0)) this.events.onTranscript('assistant', transcript.delta, transcript.timing);
   }
 
   private discardBufferedNormalSpeech(): void {
     if (this.activeNormalSpeech?.timer) clearTimeout(this.activeNormalSpeech.timer);
     this.activeNormalSpeech = null;
     this.normalSpeechQueue.length = 0;
+    this.pendingNormalTranscripts.length = 0;
     if (this.normalReleaseTimer) clearTimeout(this.normalReleaseTimer);
     this.normalReleaseTimer = null;
   }
