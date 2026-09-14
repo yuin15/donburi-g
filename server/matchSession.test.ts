@@ -1099,7 +1099,73 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('carries an unspoken final win into the result context', async () => {
+  it('sends a required win while it is still within the two-second TTL', async () => {
+    const { session } = setup('required-fresh', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    provider.events?.onUserSpeech();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.rounds.player = 1;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    const sendRequired = (session as unknown as { sendRequiredWinReaction: () => void }).sendRequiredWinReaction.bind(session);
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    await vi.advanceTimersByTimeAsync(1_999);
+    provider.events?.onUserSpeechEnd();
+    sendRequired();
+    expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    await session.shutdown('test_finished');
+  });
+
+  it('drops a required win made stale by a conversation before it can send', async () => {
+    const { session } = setup('required-stale-conversation', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    provider.events?.onUserSpeech();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.rounds.player = 1;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    await vi.advanceTimersByTimeAsync(2_000);
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not let an old active ACK send a stale later hit', async () => {
+    const { session } = setup('required-active-ack', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    state.rounds.player = 1;
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    await vi.advanceTimersByTimeAsync(1);
+    state.rounds.player = 2;
+    handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 39 } });
+    await vi.advanceTimersByTimeAsync(2_000);
+    finishRequiredWin(session);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not carry an unspoken final win into the result context', async () => {
     const { session } = setup('required-result', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1115,8 +1181,26 @@ describe('live match cleanup', () => {
     state.winner = 'player';
     handleGameEvent({ type: 'match_end', seq: 2, at: 60, snapshot: getSnapshot(state) });
     await vi.advanceTimersByTimeAsync(1);
-    expect(provider.openingContexts.at(-1)).toContain('未発話の当たりの確定情報（発話で列挙しない）: プレイヤー: 7揃い');
-    expect(provider.openingContexts.at(-1)).toContain('実況や図柄・ライン数の説明はしない');
+    expect(provider.openingContexts.at(-1)).not.toContain('未発話の当たりの確定情報');
+    await session.shutdown('test_finished');
+  });
+
+  it('does not send a catch-up win whose game event is already stale', async () => {
+    const { session } = setup('required-catch-up-stale', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.elapsed = 5;
+    state.rounds.player = 1;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 2, spin: { side: 'player', round: 1, symbols: ['seven', 'seven', 'seven'], payout: 30, total: 60 } });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
     await session.shutdown('test_finished');
   });
 
