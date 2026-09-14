@@ -18,17 +18,17 @@ Slot-chan is a desktop browser game that turns a 60-second slot duel into a riva
 
 An ornate 3D cabinet, cherries, bells, sevens, sculpted reward text, and showers of coins make each win tangible. The rival responds visually through 18 expressions. Optional OpenAI voice conversation adds banter and spoken requests during the match, while the complete CPU game remains playable without a microphone or API access.
 
-Built by team donburi with TypeScript, Three.js, and procedural Houdini assets, Slot-chan combines a short, replayable game with an expressive opponent. All currency is simulated, with no deposits or cash-outs.
+Built by team donburi with TypeScript, Three.js, and custom 3D assets, Slot-chan combines a short, replayable game with an expressive opponent. All currency is simulated, with no deposits or cash-outs.
 
 ## 2. Meaningful use of OpenAI tools — 30%
 
-*Word count: 154 / 200.*
+*Word count: 141 / 200.*
 
 OpenAI supports both the playable rival and the development of the game's 3D world.
 
 GPT-Live receives current match context and streams conversational speech and transcripts. Players can talk while spinning, with interruption handling and English/Japanese language support. Spoken requests can reach validated game actions; a Responses API path classifies replies to a bounded loan offer. Game code retains control of money, time, and reel outcomes.
 
-Codex helped develop Houdini Python scripts for the cabinet, cherries, bell, seven, and coin. It supported contour construction, bevels, mesh normals, part naming, and OBJ export, then helped integrate materials, lighting, and animation in Three.js. This made feedback from the actual game screen actionable in both modeling and rendering code. Generation scripts and exported meshes are included for further iteration.
+Codex assisted 3D model development for the cabinet, cherries, bell, seven, and coin. It supported production scripts, mesh corrections, export optimization, and Three.js integration. Feedback from the actual game screen guided improvements to shapes, materials, lighting, and animation. Included generation scripts and exported meshes support further iteration.
 
 Codex also assisted implementation, refactoring, and debugging. OpenAI image generation contributed artwork and expression variants. Voice is optional, keeping the underlying game accessible when an AI connection is unavailable.
 
@@ -56,11 +56,11 @@ The demo targets desktop screens of at least 1280×720. It is designed for short
 
 ## 5. Execution and technical quality — 20%
 
-*Word count: 149 / 200.*
+*Word count: 145 / 200.*
 
 Slot-chan is implemented in TypeScript with Vite and Three.js. MVVM separates game rules, interaction state, and presentation, allowing visual changes without rewriting payout logic. CPU play and live sessions use shared game rules, while live actions are validated by the server.
 
-The 3D pipeline includes reproducible Houdini Python scripts and exported meshes. Codex supported modeling algorithms, mesh corrections, export optimization, and runtime integration. Shared geometry, materials, and an atlas rendered from the symbol models reduce repeated work; actual meshes animate during wins. Layered coin effects, sculpted text, lighting, and sound reinforce the outcome.
+3D production uses Blender and Houdini. Codex supported modeling, production scripts, mesh corrections, export optimization, and runtime integration. Shared geometry, materials, and an atlas rendered from the symbol models reduce repeated work; actual meshes animate during wins. Layered coin effects, sculpted text, lighting, and sound reinforce the outcome.
 
 The repository includes source assets, architecture notes, setup instructions, and visual evidence. Existing GitHub Actions checks cover types, lint, tests, server runtime, and production builds. API credentials remain server-side, and voice connections have bounded lifetimes.
 
@@ -68,7 +68,7 @@ The submission prioritizes a playable, visually expressive demo. Provider-depend
 
 ## 6. Existing code, open source, datasets, and third-party tools
 
-*Word count: 160 / 200.*
+*Word count: 170 / 200.*
 
 Development continued in the existing donburi-g repository. HeyGen's liveavatar-gpt-live-demos (MIT) informed the voice/avatar protocol architecture; its tutor interface, prompts, and bundled GSAP were not adopted.
 
@@ -76,7 +76,7 @@ Three.js, Vite, Vitest, ESLint, Express, ws, and Zod use MIT licenses. TypeScrip
 
 Codex and OpenAI voice/image services were used under their applicable service terms. Vercel provides hosting and was used as the gateway for expression generation. The retained LiveAvatar integration is subject to HeyGen's terms; its video option is currently hidden.
 
-Custom 3D assets were generated with Houdini Apprentice under SideFX's non-commercial terms. Background and character artwork was generated for this project; sound effects are synthesized. Third-party licenses do not grant a blanket license to project-owned code or artwork. Sources and notices are documented in the repository.
+3D production used Blender (GNU GPL) and Houdini Apprentice (SideFX non-commercial terms). Blender's software license does not automatically apply to exported artwork. Background and character artwork was generated for this project; sound effects are synthesized. Third-party licenses do not grant a blanket license to project-owned code or artwork. Sources and notices are documented in the repository.
 
 ---
 
@@ -87,7 +87,7 @@ Custom 3D assets were generated with Houdini Apprentice under SideFX's non-comme
 | Current rules and purchase costs | [Game model](../src/domain/game.ts), [shared prices](../shared/shop.ts), [game rules](game-rules.md) |
 | Streaming voice and match context | [GPT-Live client](../server/gptLive.ts), [match session](../server/matchSession.ts), [language handling](../server/conversationLanguage.ts) |
 | Bounded Responses API use | [Loan reply classification](../server/rivalBrain.ts); direct borrowing and time extension have local handlers |
-| Codex-assisted 3D development | [Houdini production source](../art-source/houdini/README.md), [cabinet and seven script](../art-source/houdini/build_cabinet.py), [symbols](../art-source/houdini/build_symbols.py), [coin](../art-source/houdini/build_coin.py), [OBJ exporter](../art-source/houdini/obj_export.py) |
+| Codex-assisted 3D development | [Procedural production source](../art-source/houdini/README.md), [cabinet and seven script](../art-source/houdini/build_cabinet.py), [symbols](../art-source/houdini/build_symbols.py), [coin](../art-source/houdini/build_coin.py), [OBJ exporter](../art-source/houdini/obj_export.py) |
 | Runtime models and presentation | [Symbol models](../src/view/SymbolModels.ts), [cabinet model](../src/view/CabinetModel.ts), [symbol atlas](../src/view/SymbolAtlas.ts), [win symbols](../src/view/WinSymbols.ts), [coin celebration](../src/view/CoinCelebration.ts), [victory title](../src/view/VictoryTitle.ts) |
 | Artwork and expressions | [Artwork provenance](visual-assets.md), [18 expressions](rival-expressions.md) |
 | Existing code, licenses, service terms | [Third-party notices](../THIRD_PARTY_NOTICES.md), [locked dependencies](../package-lock.json), [font notice](../src/view/assets/FONT-LICENSE.txt) |
