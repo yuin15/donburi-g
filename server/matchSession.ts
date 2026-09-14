@@ -92,11 +92,12 @@ export class MatchSession {
   private messagesInWindow = 0;
   private audioInWindow = 0;
   private reactions = new ReactionQueue(text => {
-    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply() || this.playerLoanOffer || this.playerLoanIntentPending) return;
+    if (!this.voiceReady || this.closed || this.conversationPacer.hasPendingReply() || this.playerLoanOffer || this.playerLoanIntentPending || !this.conversationPacer.canInitiate()) return;
+    this.conversationPacer.markInitiatedSpeechSent();
     this.pushContext();
     this.gpt?.requestReaction(text);
-  });
-  private readonly conversationPacer = new ProactiveConversationPacer();
+  }, () => this.conversationPacer.nextInitiatedAt());
+  private readonly conversationPacer: ProactiveConversationPacer;
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
   private hardStop: NodeJS.Timeout | null = null;
@@ -171,6 +172,7 @@ export class MatchSession {
     this.releaseQuota = releaseQuota;
     this.voiceMode = deps.voiceMode ?? 'avatar';
     this.random = deps.random ?? Math.random;
+    this.conversationPacer = new ProactiveConversationPacer(this.random);
   }
 
   private readonly random: () => number;
@@ -622,7 +624,7 @@ export class MatchSession {
     this.pushContext();
     this.emitSnapshot();
     this.conversationPacer.start(now);
-    this.reactions.offer('start', '対戦が今始まる。短く挑発して。', 10, () => this.state.status === 'playing' && this.state.elapsed < 6);
+    this.reactions.offer('start', '対戦が今始まる。プレイヤーへ短く声をかけ、一緒に遊ぶ空気を作って。', 10, () => this.state.status === 'playing' && this.state.elapsed < 8);
     this.timer = setInterval(() => this.tick(), 100);
   }
 
@@ -648,7 +650,7 @@ export class MatchSession {
     for (const event of events) this.handleGameEvent(event);
     if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing') {
       this.warnedTime = true;
-      this.reactions.offer('last-ten', '残り10秒を切った。短くラストスパートの一言。', 30, () => this.state.status === 'playing');
+      this.reactions.offer('last-ten', '残り10秒を切った。プレイヤーへラストスパートを短く呼びかけて。', 30, () => this.state.status === 'playing');
     }
     if (Date.now() - this.lastSnapshotAt >= 250) this.emitSnapshot();
   }
@@ -662,23 +664,23 @@ export class MatchSession {
       if (event.spin.payout >= PAYOUT.seven) {
         const player = event.spin.side === 'player';
         this.react(player ? 'player_jackpot' : 'rival_jackpot', player
-          ? 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。'
-          : 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.spin.round, event.spin.side);
+          ? 'プレイヤーが7揃いの大当たりを出した。共有して喜ぶか、次も見せてと短く声をかけて。'
+          : 'あなた自身が7揃いの大当たりを出した。プレイヤーにも次を狙おうと短く呼びかけて。', event.spin.round, event.spin.side);
       }
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を踏まえて短く反応して。', event.player.round);
-      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。驚きか悔しさを一言。', event.player.round);
-      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。喜びを一言。', event.rival.round);
+      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を共有し、プレイヤーへ短く声をかけて。', event.player.round);
+      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。共有して喜ぶか、次も見せてと短く声をかけて。', event.player.round);
+      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。プレイヤーにも次を狙おうと短く呼びかけて。', event.rival.round);
       return;
     }
     if (event.type === 'leader_change') {
       const side = event.leader === 'rival' ? 'rival' : 'player';
       const round = this.state.spinMode === 'manual' ? this.state.rounds[side] : Math.floor(event.at / 2);
-      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。短く悔しがって。', round, side);
-      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず軽口を一言。', round, side);
+      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。共有して次の回転を短く楽しみにさせて。', round, side);
+      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず、プレイヤーへ次を促す軽い一言にして。', round, side);
       return;
     }
     if (event.type === 'upgrade_open') {
@@ -693,17 +695,17 @@ export class MatchSession {
         player: event.player,
         rival: event.rival,
       });
-      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦を短く言って。`, 40, () => this.state.status === 'playing');
+      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦の独り言でなく、プレイヤーへ短く声をかけて。`, 40, () => this.state.status === 'playing');
       return;
     }
     if (event.type === 'match_end') {
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
       const direction = event.snapshot.winner === 'player'
-        ? 'あなたは負けた。試合中の流れを踏まえて短く悔しがって。'
+        ? 'あなたは負けた。プレイヤーの勝ちを認めて、次の勝負も楽しみにさせる短い一言。'
         : event.snapshot.winner === 'rival'
-          ? 'あなたは勝った。嫌味になりすぎない勝利コメントを一言。'
-          : '引き分け。再戦したくなる一言。';
+          ? 'あなたは勝った。嫌味になりすぎず、プレイヤーにも次を促す一言。'
+          : '引き分け。プレイヤーへ再戦したくなる一言。';
       this.reactions.close();
       this.conversationPacer.stop();
       if (this.timer) clearInterval(this.timer);
@@ -783,7 +785,8 @@ export class MatchSession {
 
   /** A bankrupt rival asks once, only after audio has had a moment to start its line. */
   private maybeOfferLoan(): void {
-    if (this.loanOffer && Date.now() >= this.loanOffer.expiresAt && !this.isLoanOfferTranscriptGraceActive(Date.now())) {
+    const now = Date.now();
+    if (this.loanOffer && now >= this.loanOffer.expiresAt && !this.isLoanOfferTranscriptGraceActive(now)) {
       this.loanOffer = null;
       this.pushContext();
     }
@@ -802,7 +805,8 @@ export class MatchSession {
       || this.extensionSpeech
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
-      || Date.now() < this.assistantOutputUntil
+      || now < this.assistantOutputUntil
+      || !this.conversationPacer.canInitiate(now)
     ) return;
     this.loanOfferConsidered = true;
     const speechId = randomUUID();
@@ -817,6 +821,7 @@ export class MatchSession {
       replyTurn: null,
       transcriptGraceExpiresAt: null,
     };
+    this.conversationPacer.markInitiatedSpeechSent(now);
     this.pushContext();
     this.gpt?.requestConfirmedLine(LOAN_OFFER_LINE, speechId);
   }
@@ -856,6 +861,7 @@ export class MatchSession {
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
       || now < this.assistantOutputUntil
+      || !this.conversationPacer.canInitiate(now)
     ) return;
     this.playerLoanOfferMadeForCurrentZero = true;
     const speechId = randomUUID();
@@ -868,13 +874,15 @@ export class MatchSession {
       replyTurn: null,
       transcriptGraceExpiresAt: null,
     };
+    this.conversationPacer.markInitiatedSpeechSent(now);
     this.pushContext();
     this.gpt?.requestConfirmedLine(PLAYER_LOAN_OFFER_LINE, speechId);
   }
 
   /** One optional, server-timed offer makes the final seconds conversational without changing CPU play. */
   private maybeOfferTimeExtension(): void {
-    if (this.extensionOffer && Date.now() >= this.extensionOffer.expiresAt) {
+    const now = Date.now();
+    if (this.extensionOffer && now >= this.extensionOffer.expiresAt) {
       this.extensionOffer = null;
       this.pushContext();
     }
@@ -893,15 +901,16 @@ export class MatchSession {
       || this.state.remaining > 15
       || this.conversationPacer.hasPendingReply()
       || this.userSpeaking
-      || Date.now() < this.assistantOutputUntil
+      || now < this.assistantOutputUntil
+      || !this.conversationPacer.canInitiate(now)
     ) return;
     this.extensionOfferConsidered = true;
     if (this.random() >= EXTENSION_OFFER_CHANCE) return;
-    const now = Date.now();
     this.extensionOffer = {
       acceptAfter: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS,
       expiresAt: now + EXTENSION_OFFER_AUDIBLE_DELAY_MS + EXTENSION_OFFER_REPLY_MS,
     };
+    this.conversationPacer.markInitiatedSpeechSent(now);
     this.pushContext();
     // Existing commentary is the supported Live speech mechanism. This is an
     // invitation only; the domain clock changes after a later explicit reply.

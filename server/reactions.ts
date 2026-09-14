@@ -18,7 +18,7 @@ export class ReactionQueue {
   private finalQueued = false;
   private conversationUntil = 0;
 
-  constructor(private readonly speak: (text: string) => void) {}
+  constructor(private readonly speak: (text: string) => void, private readonly nextInitiatedAt: () => number = () => 0) {}
 
   offer(id: string, text: string, priority: number, current: () => boolean, final = false): void {
     if (this.closed || this.seen.has(id) || this.finalQueued) return;
@@ -30,7 +30,7 @@ export class ReactionQueue {
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
     }
-    this.pending.set(id, { id, text, priority, current, final, expiresAt: Date.now() + (final ? 3000 : 1800) });
+    this.pending.set(id, { id, text, priority, current, final, expiresAt: Date.now() + (final ? 3000 : 6000) });
     this.schedule();
   }
 
@@ -53,6 +53,12 @@ export class ReactionQueue {
     this.timer = setTimeout(() => {
       this.timer = null;
       const now = Date.now();
+      const allowedAt = this.nextInitiatedAt();
+      if (now < allowedAt) {
+        for (const [id, reaction] of this.pending) if (reaction.expiresAt <= now || !reaction.current()) this.pending.delete(id);
+        this.schedule();
+        return;
+      }
       const ready = [...this.pending.values()].filter(r => r.expiresAt > now && r.current() && (r.final || (this.sent < 5 && now >= this.conversationUntil)));
       this.pending.clear();
       const choice = ready.sort((a, b) => b.priority - a.priority)[0];
@@ -60,6 +66,6 @@ export class ReactionQueue {
       this.sent += 1;
       this.nextAt = now + 3000;
       this.speak(choice.text);
-    }, Math.max(0, this.nextAt - Date.now()));
+    }, Math.max(0, this.nextAt, this.nextInitiatedAt()) - Date.now());
   }
 }

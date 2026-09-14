@@ -71,4 +71,36 @@ describe('ProactiveConversationPacer', () => {
     expect(pacer.due(13_499, ready)).toBe(false);
     expect(pacer.due(13_500, ready)).toBe(true);
   });
+
+  it('holds unsolicited speech for three seconds after an audible line and resets from the latest PCM', () => {
+    const pacer = new ProactiveConversationPacer(() => 0);
+    pacer.start(0);
+    expect(pacer.canInitiate(2_999)).toBe(false);
+    expect(pacer.canInitiate(3_000)).toBe(true);
+    pacer.markInitiatedSpeechSent(3_500);
+    expect(pacer.canInitiate(6_499)).toBe(false);
+    pacer.noteAssistantSpeech(4_000);
+    pacer.noteAssistantSpeech(5_000);
+    expect(pacer.canInitiate(7_999)).toBe(false);
+    expect(pacer.canInitiate(8_000)).toBe(true);
+  });
+
+  it('restarts the quiet gap from a user turn ending', () => {
+    const pacer = new ProactiveConversationPacer(() => 0);
+    pacer.start(0);
+    pacer.noteUserSpeech();
+    pacer.noteUserSpeechEnd(10_000);
+    expect(pacer.canInitiate(12_999)).toBe(false);
+    expect(pacer.canInitiate(13_000)).toBe(true);
+  });
+
+  it('keeps the randomized quiet gap below five seconds and blocks an accepted append until audio times out', () => {
+    const pacer = new ProactiveConversationPacer(() => 0.999);
+    pacer.start(0);
+    expect(pacer.canInitiate(4_997)).toBe(false);
+    expect(pacer.canInitiate(4_998)).toBe(true);
+    pacer.markInitiatedSpeechSent(4_998);
+    expect(pacer.canInitiate(12_997)).toBe(false);
+    expect(pacer.canInitiate(12_998)).toBe(true);
+  });
 });

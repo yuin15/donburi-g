@@ -63,12 +63,19 @@ function finishAudioExtension(session: MatchSession): void {
   session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
 }
 // All live sessions use the bankroll rules; automatic mode remains useful for lifecycle timing.
-function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar', random: () => number = () => 1) {
+function setup(id = 'test-match', spinMode: 'automatic' | 'manual' = 'automatic', voiceMode: 'audio' | 'avatar' = 'avatar', random: () => number = () => 1, usePacer = false) {
   const messages: ServerMessage[] = [];
   const close = vi.fn();
   const socket = { readyState: 1, close, send: (data: string) => messages.push(JSON.parse(data)) } as unknown as WebSocket;
   const release = vi.fn(async () => undefined);
-  return { session: new MatchSession(socket, id, release, { spinMode, voiceMode, random }), messages, release, close };
+  const session = new MatchSession(socket, id, release, { spinMode, voiceMode, random });
+  if (!usePacer) {
+    const pacer = session as unknown as { conversationPacer: { canInitiate: (now?: number) => boolean; nextInitiatedAt: () => number; markInitiatedSpeechSent: (now?: number) => void } };
+    vi.spyOn(pacer.conversationPacer, 'canInitiate').mockReturnValue(true);
+    vi.spyOn(pacer.conversationPacer, 'nextInitiatedAt').mockReturnValue(0);
+    vi.spyOn(pacer.conversationPacer, 'markInitiatedSpeechSent').mockImplementation(() => undefined);
+  }
+  return { session, messages, release, close };
 }
 function startLoanOffer(): string {
   const [line, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
@@ -1053,6 +1060,21 @@ describe('live match cleanup', () => {
     state.scores.player = 0;
     await vi.advanceTimersByTimeAsync(800);
     expect(provider.confirmedLine.mock.calls.filter(([line]) => line === 'お金を貸そうか？')).toHaveLength(2);
+    await session.shutdown('test_finished');
+  });
+
+  it('waits through the real three-second quiet gate before proactively offering a player loan', async () => {
+    const { session } = setup('quiet-player-loan', 'manual', 'audio', () => 0, true);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const internals = session as unknown as { state: MatchState; reactions: { close(): void } };
+    internals.reactions.close();
+    internals.state.scores.player = 0;
+    internals.state.scores.rival = 10;
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(provider.confirmedLine).not.toHaveBeenCalledWith('お金を貸そうか？', expect.any(String));
+    await vi.advanceTimersByTimeAsync(501);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('お金を貸そうか？', expect.any(String));
     await session.shutdown('test_finished');
   });
 
