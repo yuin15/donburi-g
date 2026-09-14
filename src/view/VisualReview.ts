@@ -82,7 +82,9 @@ export function mountVisualReview(port: ReviewPort): void {
     };
     requestAnimationFrame(measure);
     const examples: Array<{ stops: [number, number, number]; bet: 1 | 3 | 5 }> = [
-      { stops: [1, 2, 4], bet: 3 }, { stops: [3, 3, 3], bet: 3 }, { stops: [4, 4, 4], bet: 1 }, { stops: [0, 0, 0], bet: 5 },
+      // Current reel strip: [1] bell, [0] cherry, [8] seven. One active line
+      // isolates the advertised miss → bell → cherry → jackpot sequence.
+      { stops: [1, 2, 4], bet: 1 }, { stops: [1, 1, 1], bet: 1 }, { stops: [0, 0, 0], bet: 1 }, { stops: [8, 8, 8], bet: 1 },
     ];
     let total = 100, rivalTotal = 100;
     const matchStats = createMatchStats();
@@ -92,15 +94,15 @@ export function mountVisualReview(port: ReviewPort): void {
       const playerOutcome = evaluateGrid(playerGrid, examples[i].bet);
       total += playerOutcome.payout - examples[i].bet;
       const player: SpinView = { side: 'player', round, symbols: playerGrid[1], grid: playerGrid, stops: examples[i].stops, bet: examples[i].bet, winningLines: playerOutcome.winningLines, payout: playerOutcome.payout, total };
-      const rivalStops: [number, number, number] = i === 1 ? [3, 3, 3] : i === 2 ? [4, 4, 4] : [1, 2, 4];
-      const rivalBet = i === 2 ? 1 : 3;
+      const rivalStops: [number, number, number] = i === 1 ? [1, 1, 1] : i === 2 ? [0, 0, 0] : [1, 2, 4];
+      const rivalBet = 1;
       const rivalGrid = gridFromStops(rivalStops);
       const rivalOutcome = evaluateGrid(rivalGrid, rivalBet);
       rivalTotal += rivalOutcome.payout - rivalBet;
       const rival: SpinView = { side: 'rival', round, symbols: rivalGrid[1], grid: rivalGrid, stops: rivalStops, bet: rivalBet, winningLines: rivalOutcome.winningLines, payout: rivalOutcome.payout, total: rivalTotal };
       recordSpin(matchStats, player);
       recordSpin(matchStats, rival);
-      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, balances: { player: total, rival: rivalTotal }, bets: { player: 3, rival: 3 }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
+      port.snapshot({ matchId: 'visual-fixture', status: 'playing', elapsed: round * 2, remaining: 60 - round * 2, round, rounds: { player: round, rival: round }, balances: { player: total, rival: rivalTotal }, bets: { player: examples[i].bet, rival: rivalBet }, scores: { player: total, rival: rivalTotal }, stats: cloneMatchStats(matchStats), upgrades: { player: [], rival: [] }, eventSeq: i + 1 });
       port.spin(player, rival);
       await new Promise(resolve => window.setTimeout(resolve, i === 3 ? 2400 : 2000));
     }
@@ -123,4 +125,11 @@ export function mountVisualReview(port: ReviewPort): void {
 
   find('measureMotion').onclick = () => { void run(false); };
   port.preview('normal');
+  const parameters = new URLSearchParams(location.search);
+  const example = parameters.get('example');
+  // Reproducible material comparisons use the same existing review fixtures.
+  const exampleButton = [...controls.querySelectorAll<HTMLButtonElement>('[data-example]')]
+    .find(button => button.dataset.example === example);
+  if (exampleButton) exampleButton.click();
+  if (parameters.has('clean-frame')) controls.hidden = true;
 }

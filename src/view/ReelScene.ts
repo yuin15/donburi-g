@@ -89,9 +89,9 @@ export class ReelScene {
   private motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
   private cabinet: CabinetArt;
   private atlas: THREE.WebGLRenderTarget;
-  private cabinetLight = new THREE.DirectionalLight(0xffe9c4, 3.5);
-  private readonly ambientLight = new THREE.AmbientLight(0xe5ebff, .35);
-  private readonly fillLight = new THREE.DirectionalLight(0xb8d7ff, .8);
+  private cabinetLight = new THREE.DirectionalLight(0xffe9c4, 2.8);
+  private readonly ambientLight = new THREE.AmbientLight(0xe5ebff, .24);
+  private readonly fillLight = new THREE.DirectionalLight(0xb8d7ff, .65);
   private loaded = 0;
   private lastRound: Record<Side, number> = { player: 0, rival: 0 };
   private upgradeKey = '|';
@@ -245,8 +245,8 @@ export class ReelScene {
     this.lastRound[side] = spin.round;
     this.cabinet.hideReelWin(side);
     if (side === 'player') {
-      this.cabinet.press(performance.now());
       if (this.winUntil === Infinity) this.cabinet.stop('player');
+      this.cabinet.press(performance.now());
       this.clearPlayerWin();
     } else this.clearRivalWin();
     // Keep the last confirmed reward visible during its burst, including a queued spin.

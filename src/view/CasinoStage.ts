@@ -20,10 +20,10 @@ export class CasinoStage {
   private materials: THREE.Material[];
 
   constructor(environment: THREE.Texture) {
-    const gold = new THREE.MeshStandardMaterial({ color: 0xad7630, metalness: .88, roughness: .27, envMap: environment, envMapIntensity: .95 });
-    const edge = new THREE.MeshStandardMaterial({ color: 0xcfad72, metalness: .92, roughness: .22, envMap: environment, envMapIntensity: 1.1 });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xc99037, metalness: .96, roughness: .17, envMap: environment, envMapIntensity: 1.55 });
+    const edge = new THREE.MeshStandardMaterial({ color: 0xefc985, metalness: .98, roughness: .12, envMap: environment, envMapIntensity: 1.15 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x090b11, metalness: .25, roughness: .38, envMap: environment, envMapIntensity: .3 });
-    const silver = new THREE.MeshStandardMaterial({ color: 0x7792a8, metalness: .85, roughness: .27, envMap: environment, envMapIntensity: .8 });
+    const silver = new THREE.MeshStandardMaterial({ color: 0x92abc4, metalness: .96, roughness: .17, envMap: environment, envMapIntensity: 1.15 });
     const lamp = new THREE.MeshStandardMaterial({ color: 0xffd68c, emissive: 0xffb745, emissiveIntensity: 2, metalness: .1, roughness: .3 });
     this.materials = [gold, edge, dark, silver, lamp];
     const pieces = new Map<string, { material: THREE.Material; root: THREE.Group; geometries: THREE.BufferGeometry[] }>();
