@@ -16,13 +16,14 @@ type Burst = { started: number; until: number; jackpot: boolean; still: boolean;
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
 const sides: Side[] = ['player', 'rival'];
 const REST_YAW = .095;
-// Pull back, turn into the light, push forward and hold, then settle home.
+// Make room for a full turn, then pop forward and settle home.
 const JACKPOT_POSES = [
-  { at: 0, x: 0, y: 0, z: 0, yaw: REST_YAW, pitch: 0, scale: 1 },
-  { at: .16, x: -10, y: -10, z: -45, yaw: -.04, pitch: .018, scale: .94 },
-  { at: .36, x: -20, y: -6, z: 65, yaw: -.32, pitch: -.025, scale: 1.035 },
-  { at: .52, x: -20, y: -6, z: 65, yaw: -.32, pitch: -.025, scale: 1.035 },
-  { at: .88, x: 0, y: 0, z: 0, yaw: REST_YAW, pitch: 0, scale: 1 },
+  { at: 0, y: 0, z: 0, pitch: 0, scale: 1 },
+  { at: .12, y: -8, z: -45, pitch: .015, scale: .90 },
+  { at: .38, y: -8, z: -45, pitch: 0, scale: .84 },
+  { at: .64, y: -8, z: -45, pitch: 0, scale: .84 },
+  { at: .80, y: 0, z: 25, pitch: -.015, scale: 1.02 },
+  { at: .92, y: 0, z: 0, pitch: 0, scale: 1 },
 ] as const;
 
 /** Cabinet and rewards share the existing scene; coins use bounded GPU pools. */
@@ -60,7 +61,9 @@ export class CabinetArt {
   private finalGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private resultStarted = 0;
   private resultUntil = 0;
+  private readonly posedPivot = new THREE.Vector3();
   posing = false;
+  get frontFacing(): boolean { return Math.cos(this.machine.rotation.y) * Math.cos(this.machine.rotation.x) > 0; }
 
   constructor() {
     this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
@@ -144,10 +147,17 @@ export class CabinetArt {
     const from = JACKPOT_POSES[next - 1], to = JACKPOT_POSES[next];
     const t = THREE.MathUtils.smoothstep(progress, from.at, to.at);
     const mix = (a: number, b: number) => THREE.MathUtils.lerp(a, b, t);
-    this.machine.position.set(530 + mix(from.x, to.x), STAGE_HEIGHT - 500 + mix(from.y, to.y), mix(from.z, to.z));
-    this.machine.rotation.set(mix(from.pitch, to.pitch), mix(from.yaw, to.yaw), 0);
+    const turn = THREE.MathUtils.smootherstep(progress, .08, .78);
+    this.machine.rotation.set(mix(from.pitch, to.pitch), REST_YAW - Math.PI * 2 * turn, 0);
     // The game uses an orthographic camera, so scale supplies the visible dolly.
     this.machine.scale.setScalar(mix(from.scale, to.scale));
+    // Rotate around the depth of the body, rather than swinging its back around the front glass.
+    this.posedPivot.set(0, 0, -140).applyEuler(this.machine.rotation).multiplyScalar(this.machine.scale.x);
+    this.machine.position.set(
+      530 - Math.sin(REST_YAW) * 140 - this.posedPivot.x,
+      STAGE_HEIGHT - 500 + mix(from.y, to.y) - this.posedPivot.y,
+      mix(from.z, to.z) - Math.cos(REST_YAW) * 140 - this.posedPivot.z,
+    );
     this.posing = true;
   }
 
@@ -337,7 +347,7 @@ export class CabinetArt {
       if (side === 'player' && winning && !reducedMotion) {
         const recoil = Math.sin(progress * Math.PI * 3) * Math.exp(-progress * 5) * (burst.jackpot ? 1 : .45);
         // Finish before the next possible result, even during fast consecutive spins.
-        if (burst.jackpot) this.poseJackpot(burst.still ? .44 : (time - burst.started) / 1100);
+        if (burst.jackpot) this.poseJackpot(burst.still ? .70 : (time - burst.started) / 1100);
         else {
           this.machine.rotation.x = recoil * .012;
           this.machine.rotation.y += recoil * .018;
@@ -388,6 +398,10 @@ export class CabinetArt {
       glint.scale.setScalar(34 + arrivalPulse * 36);
       glint.rotation.z = progress * .7;
     }
+    // These rewards use a foreground canvas and cannot be occluded by the cabinet's back.
+    this.winSymbols.playerGroup.visible = this.frontFacing;
+    this.glows.player.visible = this.frontFacing;
+    this.bulbs.player.visible &&= this.frontFacing;
     return animating;
   }
 

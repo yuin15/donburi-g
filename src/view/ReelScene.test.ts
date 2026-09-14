@@ -435,13 +435,13 @@ describe('stage rendering and cleanup', () => {
   });
   it('clears reel highlights on the next play while the previous collection finishes on schedule', () => {
     const { view, host } = setup();
-    const overlay = { offsetLeft: 319, offsetTop: 568, style: { transform: '', transformOrigin: '' } };
+    const overlay = { offsetLeft: 319, offsetTop: 568, style: { transform: '', transformOrigin: '', visibility: '' } };
     view.bindCabinetOverlays([{ element: overlay as unknown as HTMLElement, depth: 164 }]);
     view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), side: 'rival' }, vi.fn());
     frame(1060);
     frame(50);
     const cabinet = scene().getObjectByName('physical-cabinet-rig')!;
-    expect(cabinet.rotation.y).toBeLessThan(.095);
+    expect(cabinet.scale.x).toBeLessThan(1);
     expect(overlay.style.transform).toMatch(/^matrix\(/);
     view.play(spin(2), { ...spin(2), side: 'rival' }, vi.fn());
     frame(16);
@@ -450,10 +450,15 @@ describe('stage rendering and cleanup', () => {
     const burstPools = coins().filter(coin => coin.visible);
     expect(burstPools.map(coin => coin.userData.side)).toEqual(['player', 'rival']);
     expect(burstPools.reduce((total, coin) => total + coin.count, 0)).toBe(324);
-    frame(1044); // The following miss stops while the previous burst is collecting.
+    frame(430); // The back is now facing us, while the next reel spin continues.
+    expect(cabinet.rotation.y).toBeLessThan(-Math.PI);
+    expect(cabinet.rotation.y).toBeGreaterThan(-Math.PI * 1.5);
+    expect(overlay.style.visibility).toBe('hidden');
+    frame(614); // The full turn finishes before the following miss stops.
     expect(cabinet.rotation.y).toBe(.095);
     expect(cabinet.scale.x).toBe(1);
     expect(overlay.style.transform).toBe('');
+    expect(overlay.style.visibility).toBe('');
     expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
     expect(coins().some(coin => coin.visible)).toBe(true);
     frame(589); // The jackpot reaches its 1.7 second endpoint one millisecond later.

@@ -339,6 +339,7 @@ export class ReelScene {
       if (!posing) {
         element.style.transform = '';
         element.style.transformOrigin = '';
+        element.style.visibility = '';
         continue;
       }
       const x = element.offsetLeft / scale, y = element.offsetTop / scale;
@@ -346,6 +347,7 @@ export class ReelScene {
       const right = this.cabinet.projectOverlay(x + 1, y, depth, this.overlayRight).sub(origin);
       const down = this.cabinet.projectOverlay(x, y + 1, depth, this.overlayDown).sub(origin);
       element.style.transformOrigin = '0 0';
+      element.style.visibility = this.cabinet.frontFacing ? '' : 'hidden';
       element.style.transform = `matrix(${right.x},${right.y},${down.x},${down.y},${(origin.x - x) * scale},${(origin.y - y) * scale})`;
     }
     this.wasPosing = posing;
