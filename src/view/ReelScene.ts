@@ -101,6 +101,12 @@ export class ReelScene {
   private stagedStrips: [readonly SymbolId[], readonly SymbolId[]] = [buildReelStrip([]), buildReelStrip([])];
   private activeStrips = this.stagedStrips;
   private rivalDistracted = false;
+  private cabinetOverlays: Array<{ element: HTMLElement; depth: number }> = [];
+  private wasPosing = false;
+  private pendingResult: { winner: Side | 'draw'; at: number; ready?: () => void } | null = null;
+  private overlayOrigin = new THREE.Vector3();
+  private overlayRight = new THREE.Vector3();
+  private overlayDown = new THREE.Vector3();
 
   constructor(private readonly host: HTMLElement, private readonly onReelStop: (side: Side, column: number) => void = () => undefined, private readonly effectsHost?: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -146,7 +152,7 @@ export class ReelScene {
     this.posePortrait(performance.now());
     this.addPlane(this.portraitTexture, PORTRAIT, 1);
     this.atlas = this.cabinet.createReelAtlas(this.renderer);
-    // The cabinet and lamps are static: render their contact shadows once.
+    // Cache contact shadows at rest; the jackpot pose refreshes them while moving.
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
@@ -319,6 +325,34 @@ export class ReelScene {
   }
   setCoinStyle(style: CoinStyle): void { this.cabinet.setCoinStyle(style); this.requestRender(); }
 
+  bindCabinetOverlays(overlays: Array<{ element: HTMLElement; depth: number }>): void {
+    this.cabinetOverlays = overlays;
+  }
+
+  private updateCabinetOverlays(): void {
+    const posing = this.cabinet.posing;
+    if (!posing && !this.wasPosing) return;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.cabinet.playerGroup.updateWorldMatrix(true, false);
+    const scale = (this.host.clientWidth || 1280) / STAGE_WIDTH;
+    for (const { element, depth } of this.cabinetOverlays) {
+      if (!posing) {
+        element.style.transform = '';
+        element.style.transformOrigin = '';
+        element.style.visibility = '';
+        continue;
+      }
+      const x = element.offsetLeft / scale, y = element.offsetTop / scale;
+      const origin = this.cabinet.projectOverlay(x, y, depth, this.overlayOrigin);
+      const right = this.cabinet.projectOverlay(x + 1, y, depth, this.overlayRight).sub(origin);
+      const down = this.cabinet.projectOverlay(x, y + 1, depth, this.overlayDown).sub(origin);
+      element.style.transformOrigin = '0 0';
+      element.style.visibility = this.cabinet.frontFacing ? '' : 'hidden';
+      element.style.transform = `matrix(${right.x},${right.y},${down.x},${down.y},${(origin.x - x) * scale},${(origin.y - y) * scale})`;
+    }
+    this.wasPosing = posing;
+  }
+
   setResult(winner: Side | 'draw' | null): void {
     if (this.cabinet.setResult(winner)) this.requestRender();
   }
@@ -407,11 +441,24 @@ export class ReelScene {
   }
 
   /** Decorate the confirmed result without changing the settled reels or payout. */
-  celebrateResult(winner: 'player' | 'rival' | 'draw'): void {
+  celebrateResult(winner: 'player' | 'rival' | 'draw', ready?: () => void): void {
     if (this.disposed) return;
-    this.cabinet.stop();
+    const now = performance.now();
+    const at = this.cabinet.jackpotPoseEnd;
+    // The last reel's callback can request the result at pose progress zero.
+    if (!this.motionPreference.matches && !document.hidden && now < at) {
+      this.pendingResult = { winner, at, ready };
+      this.requestRender();
+      return;
+    }
+    this.finishResult(winner, now, ready);
+  }
+
+  private finishResult(winner: Side | 'draw', started: number, ready?: () => void): void {
+    this.stop();
+    ready?.();
     if (winner === 'player' && !this.motionPreference.matches && !document.hidden) {
-      this.cabinet.celebrateResult(performance.now());
+      this.cabinet.celebrateResult(started);
     }
     this.requestRender();
   }
@@ -459,6 +506,7 @@ export class ReelScene {
   }
 
   private clearWin(stopCabinet = true): void {
+    this.pendingResult = null;
     this.clearPlayerWin();
     this.clearRivalWin();
     if (stopCabinet) this.cabinet.stop();
@@ -535,6 +583,11 @@ export class ReelScene {
     this.frame = 0;
     if (this.disposed || document.hidden) return;
     const now = performance.now();
+    if (this.pendingResult && (now >= this.pendingResult.at || this.motionPreference.matches)) {
+      const { winner, at, ready } = this.pendingResult;
+      // Keep the original timeline if a hidden tab resumes after the pose.
+      this.finishResult(winner, at, ready);
+    }
     const completions: Array<() => void> = [];
     for (const side of ['player', 'rival'] as const) {
       const pending = this.pending[side];
@@ -570,6 +623,7 @@ export class ReelScene {
     }
     const portraitMoving = this.posePortrait(now);
     const animating = this.cabinet.update(now, this.motionPreference.matches) || portraitMoving;
+    this.updateCabinetOverlays();
     if (this.effectsHost) this.effectsHost.dataset.victory = String(this.cabinet.celebratingResult);
     this.materials.forEach((material, i) => {
       const rows = this.cabinet.reelInkHidden(i < 3 ? 'player' : 'rival', i % 3);

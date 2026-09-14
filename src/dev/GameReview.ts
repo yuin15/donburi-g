@@ -145,18 +145,20 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
   const showResult = (snapshot: MatchSnapshot) => {
     spinning = false;
     clearTimers();
-    view.stopScene();
-    render({
-      snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
-      sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },
-      expression: selectResultRivalExpression(snapshot),
-      rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
-      line: resultLine(snapshot), heard: '',
-      startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
+    const current = revision;
+    view.celebrateResult(snapshot.winner ?? 'draw', () => {
+      if (current !== revision) return;
+      render({
+        snapshot, scores: { ...snapshot.scores }, result: snapshot, payout: null, cue: null,
+        sessionRecord: { best: Math.max(STARTING_BALANCE, snapshot.scores.player), streak: snapshot.winner === 'player' ? 3 : 0, newBest: snapshot.scores.player > STARTING_BALANCE },
+        expression: selectResultRivalExpression(snapshot),
+        rivalMood: snapshot.winner === 'player' ? 'Next round is mine.' : snapshot.winner === 'rival' ? 'Up for a rematch?' : 'One more to settle it.',
+        line: resultLine(snapshot), heard: '',
+        startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
+      });
+      view.stopSound();
+      view.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
     });
-    view.celebrateResult(snapshot.winner ?? 'draw');
-    view.stopSound();
-    view.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
   };
 
   const play = (player: SpinView, rival: SpinView, result: MatchSnapshot | null = null) => {
@@ -240,8 +242,8 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       view.scene.show(['seven', 'seven', 'seven']);
       showResult(snapshot);
     }
-    if (['small', 'diagonal', 'bell-cherry', 'cherry-bell', 'jackpot', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
-      const jackpot = example === 'jackpot' || example === 'both-jackpot';
+    if (['small', 'diagonal', 'bell-cherry', 'cherry-bell', 'jackpot', 'cabinet-pose', 'rival-jackpot', 'both-jackpot', 'quiet'].includes(example)) {
+      const jackpot = example === 'jackpot' || example === 'both-jackpot' || example === 'cabinet-pose';
       // These stops are deliberately central-line-only wins: [0] is cherry,
       // [1] is bell, and [8] is seven. Multi-line fixtures use separate labels.
       let player = fixtureSpin('player', 20, jackpot ? [8, 8, 8] : [0, 0, 0], 1, 25);
@@ -257,8 +259,9 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       if (jackpot) { snapshot.remaining = 21; snapshot.elapsed = 39; }
       if (example === 'rival-jackpot') { snapshot.remaining = 12; snapshot.elapsed = 48; }
       showSnapshot(snapshot);
-      view.scene.showSpins(player, rival, true);
-      settle(player, rival, true, true);
+      const still = example !== 'cabinet-pose';
+      view.scene.showSpins(player, rival, still);
+      settle(player, rival, true, still);
     }
     if (example === 'draw' || example === 'defeat') {
       snapshot.status = 'result'; snapshot.remaining = 0; snapshot.elapsed = 60; snapshot.round = 30; snapshot.rounds = { player: 30, rival: 30 };

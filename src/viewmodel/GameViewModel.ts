@@ -660,6 +660,14 @@ export class GameViewModel implements GameCommands {
 
   private finishPresentation(snapshot: MatchSnapshot): void {
     this.consumeSnapshot(snapshot);
+    const current = this.revision;
+    const fallbackFrom = this.voiceReady ? null : this.line;
+    this.deps.presentation.celebrateResult(snapshot.winner ?? 'draw', () => {
+      if (this.isCurrent(current)) this.publishResult(snapshot, fallbackFrom);
+    });
+  }
+
+  private publishResult(snapshot: MatchSnapshot, fallbackFrom: string | null): void {
     this.clearTextChoice();
     if (this.result?.matchId !== snapshot.matchId) {
       this.sessionRecord.newBest = snapshot.scores.player > this.sessionRecord.best;
@@ -673,10 +681,9 @@ export class GameViewModel implements GameCommands {
     this.payout = this.cue = null;
     this.expression = selectResultRivalExpression(snapshot);
     this.reactionUntil = Infinity;
-    if (!this.voiceReady) this.showResultLine(snapshot);
+    // Voice may close or deliver its final caption while the cabinet is turning.
+    if (fallbackFrom !== null && this.line === fallbackFrom) this.showResultLine(snapshot);
     this.emit();
-    this.deps.presentation.stopScene();
-    this.deps.presentation.celebrateResult(snapshot.winner ?? 'draw');
     this.deps.presentation.stopSound();
     this.deps.presentation.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
     this.deps.presentation.focus('start');
