@@ -471,7 +471,8 @@ describe('stage rendering and cleanup', () => {
     const cabinet = scene().getObjectByName('physical-cabinet-rig')!;
     const playerSparkles = scene().getObjectByName('player-win-sparkles')!;
     const rivalSparkles = scene().getObjectByName('rival-win-sparkles')!;
-    expect(playerSparkles.visible).toBe(true);
+    expect(Math.cos(cabinet.rotation.y)).toBeGreaterThan(0);
+    expect(playerSparkles.visible).toBe(false);
     expect(rivalSparkles.visible).toBe(true);
     expect(cabinet.scale.x).toBeLessThan(1);
     expect(overlay.style.transform).toMatch(/^matrix\(/);
@@ -488,7 +489,13 @@ describe('stage rendering and cleanup', () => {
     expect(overlay.style.visibility).toBe('hidden');
     expect(playerSparkles.visible).toBe(false);
     expect(rivalSparkles.visible).toBe(true);
-    frame(614); // The full turn finishes before the following miss stops.
+    frame(400); // Facing forward again, but still settling back to the resting size.
+    expect(Math.cos(cabinet.rotation.y)).toBeGreaterThan(0);
+    expect(cabinet.scale.x).toBeGreaterThan(1);
+    expect(overlay.style.visibility).toBe('');
+    expect(playerSparkles.visible).toBe(false);
+    expect(rivalSparkles.visible).toBe(true);
+    frame(214); // The full turn finishes before the following miss stops.
     expect(cabinet.rotation.y).toBe(.095);
     expect(cabinet.scale.x).toBe(1);
     expect(overlay.style.transform).toBe('');
@@ -531,6 +538,7 @@ describe('stage rendering and cleanup', () => {
     frame();
     expect(cabinet.rotation.y).toBeLessThan(-.2);
     expect(overlay.style.transform).not.toBe('');
+    expect(playerSparkles.visible).toBe(false);
     expect(backgroundRain().visible).toBe(true);
     expect(frames.size).toBe(0);
     view.play(spin(3), { ...spin(3), side: 'rival' }, vi.fn());

@@ -413,7 +413,8 @@ export class CabinetArt {
     this.winSymbols.playerGroup.visible = this.frontFacing;
     this.glows.player.visible = this.frontFacing;
     this.bulbs.player.visible &&= this.frontFacing;
-    this.sparkles.player.visible &&= this.frontFacing;
+    // Sparkles stay in screen space, so hide them throughout the moving pose.
+    this.sparkles.player.visible &&= !this.posing;
     return animating;
   }
 
