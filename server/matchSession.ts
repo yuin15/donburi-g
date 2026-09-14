@@ -2050,7 +2050,7 @@ export class MatchSession {
         ? snapshot.status === 'ready'
           ? '会話方針: 双方の確定残高が$0だが、まだ試合開始前。雑談への移行案内を発話せず待つ。'
           : '会話方針: 双方の確定残高が$0で試合は終了済み。雑談への移行案内や再戦を誘わず、渡された確定結果の短い一言だけに従う。'
-        : '会話方針: 通常のゲーム会話。';
+        : '会話方針: 通常のゲーム会話。これは状態通知であり実況要求ではない。この通知だけで当たりや出目を自発的に実況しない。明示的な当たり反応要求には短く反応し、ユーザーが当たりについて質問した場合は答える。古い当たりを今起きたように話さない。';
     // Whole seconds keep the 100ms match tick and incoming mic chunks from resending
     // identical context. A confirmed spin, score, upgrade or result updates immediately.
     const recentSpin = Object.keys(this.lastSpins).length

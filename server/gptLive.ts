@@ -20,6 +20,7 @@ const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のA
 
 const LOAN_SPEECH_GUARD = '自分から借入を提案しない。確定指示以外では、借りた・受け取った・ありがとう等を言わない。';
 const CONVERSATION_GUARD = 'プレイヤーの発言をそのまま繰り返したり要約だけで終えず、質問には答え、雑談にはライバル自身の短い反応を返す。聞き取れない時だけ短く聞き返す。';
+const GAME_CONTEXT_GUARD = 'ゲームの状態更新は実況要求ではない。チェリー・ベル・777を含む当たりや出目を自発的に実況したり、会話の返事に混ぜたりしない。ユーザーが当たりについて質問した場合は答える。明示的な当たり反応要求が届いた場合は、その要求の確定情報だけに短く反応する。古い当たりを今起きた出来事として話さない。';
 
 export class GptLiveBridge {
   private ws: WebSocket | null = null;
@@ -40,6 +41,7 @@ export class GptLiveBridge {
   private contextInFlight: string | null = null;
   private latestContext = '';
   private sentContext = '';
+  private contextRetries = 0;
   private closing: Promise<void> | null = null;
   private finishConnect: ((ready: boolean) => void) | null = null;
   private usageSeconds: number | null = null;
@@ -74,7 +76,7 @@ export class GptLiveBridge {
             model: env.gptLiveModel,
             store: false,
             delegation: { type: 'client' },
-            instructions: `${PERSONA}\n${LOAN_SPEECH_GUARD}\n${CONVERSATION_GUARD}${this.openingContext ? `\n${this.openingContext}` : ''}`,
+            instructions: `${PERSONA}\n${LOAN_SPEECH_GUARD}\n${CONVERSATION_GUARD}\n${GAME_CONTEXT_GUARD}${this.openingContext ? `\n${this.openingContext}` : ''}`,
             audio: {
               format: { type: 'audio/pcm', rate: 24000 },
               output: { voice: env.gptLiveVoice },
@@ -243,6 +245,7 @@ export class GptLiveBridge {
 
   updateGameContext(text: string): void {
     if (!this.ready) return;
+    if (text.slice(0, 1800) !== this.latestContext) this.contextRetries = 0;
     this.latestContext = text.slice(0, 1800);
     this.flushContext();
   }
@@ -449,7 +452,20 @@ export class GptLiveBridge {
   private append(kind: 'thinking' | 'commentary' | 'instructions', content: string, delegationId: string | null, speechId?: string): string | null {
     if (!this.ready || !content.trim()) return null;
     const eventId = `${kind}_${++this.appendSequence}`;
-    const timer = setTimeout(() => this.clearPendingCommand(eventId), 5000);
+    const timer = setTimeout(() => {
+      this.clearPendingCommand(eventId);
+      if (this.contextInFlight !== eventId) return;
+      this.contextInFlight = null;
+      // An ACK is not guaranteed while frame progress stalls. Release the
+      // in-flight slot and send only the latest state, never replay old hits.
+      // Retry an unchanged state at most once; a new state gets its own budget.
+      if (this.latestContext === this.sentContext) {
+        if (this.contextRetries >= 1) return;
+        this.contextRetries += 1;
+        this.sentContext = '';
+      }
+      this.flushContext();
+    }, 5000);
     this.pendingCommands.set(eventId, { kind, ...(speechId ? { speechId } : {}), timer });
     this.send({
       type: `session.${kind}.append`,

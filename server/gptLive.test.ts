@@ -50,6 +50,8 @@ describe('voice transport teardown', () => {
     expect(start.session.instructions).toContain('まず資金切れか台への軽い愚痴・感想');
     expect(start.session.instructions).toContain('質問や訂正には必要な説明');
     expect(start.session.instructions).toContain('自動の時間延長を誘わず');
+    expect(start.session.instructions).toContain('ゲームの状態更新は実況要求ではない');
+    expect(start.session.instructions).toContain('ユーザーが当たりについて質問した場合は答える');
     bridge.updateGameContext('not-ready context');
     expect(sockets[0].send).toHaveBeenCalledTimes(1);
     sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
@@ -251,6 +253,35 @@ describe('live conversation pacing', () => {
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
+  });
+
+  it('releases a missing context ACK, sends the latest miss and ignores a late old ACK', async () => {
+    const { bridge } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0];
+    socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' }));
+    await connecting;
+    bridge.updateGameContext('round 5: hit');
+    const first = JSON.parse(socket.send.mock.calls[0][0]);
+    bridge.updateGameContext('round 6: miss');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    const latest = JSON.parse(socket.send.mock.calls[1][0]);
+    expect(latest.content).toBe('round 6: miss');
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: first.event_id }));
+    bridge.updateGameContext('round 7: miss');
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    socket.emit('message', JSON.stringify({ type: 'session.thinking.appended', client_event_id: latest.event_id }));
+    expect(JSON.parse(socket.send.mock.calls[2][0]).content).toBe('round 7: miss');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(socket.send).toHaveBeenCalledTimes(4); // One retry of unchanged round 7.
+    bridge.updateGameContext('round 8: miss');
+    expect(JSON.parse(socket.send.mock.calls[4][0]).content).toBe('round 8: miss');
+    const closing = bridge.close();
+    socket.emit('close');
+    await closing;
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('accepts a $0 transition reaction as a short response and tells the model to wait afterward', async () => {

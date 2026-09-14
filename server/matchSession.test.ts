@@ -904,6 +904,9 @@ describe('live match cleanup', () => {
     // The boundary tick must include the just-confirmed spin, not wait for the next tick.
     expect(provider.context).toHaveBeenCalledTimes(16);
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー7回目、BET $1、配当$6'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('これは状態通知であり実況要求ではない'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('明示的な当たり反応要求には短く反応'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('ユーザーが当たりについて質問した場合は答える'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('あなた7回目、BET $1、配当$0'));
     session.handleRaw('{"type":"mic","audio":"AAAA"}');
     expect(provider.context.mock.invocationCallOrder.at(-1)).toBeLessThan(provider.mic.mock.invocationCallOrder[0]);
