@@ -638,6 +638,7 @@ export class GameViewModel implements GameCommands {
       else if (spin.payout) this.deps.presentation.playSound(side === 'player' ? rewardSymbol(spin) === 'bell' ? 'bellWin' : 'win' : 'rivalWin');
       else if (comeback) this.deps.presentation.playSound('lead');
     }
+    if (!stale && this.mode === 'live') this.liveSession?.send({ type: 'spin_revealed', side, round: spin.round });
     this.emit();
   }
 

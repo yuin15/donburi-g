@@ -107,6 +107,9 @@ function finishLoanOffer(session: MatchSession, speechId: string): void {
   provider.events?.onSpeechAudioEnded(speechId);
   session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
 }
+function revealSpin(session: MatchSession, side: 'player' | 'rival', round: number): void {
+  session.handleRaw(JSON.stringify({ type: 'spin_revealed', side, round }));
+}
 beforeEach(() => {
   vi.useFakeTimers();
   vi.resetAllMocks();
@@ -938,6 +941,8 @@ describe('live match cleanup', () => {
       type: 'side_spin', seq: 1, at: 4,
       spin: { side, round: 4, symbols: grid[1], grid, winningLines: [line], payout: symbol === 'seven' ? 30 : symbol === 'bell' ? 6 : 3, total: 33 },
     });
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
+    revealSpin(session, side, 4);
     await vi.advanceTimersByTimeAsync(1);
     const winner = side === 'player' ? 'プレイヤー' : '私';
     expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining(`確定当たり情報（発話内容ではない）: ${winner}:`));
@@ -972,6 +977,9 @@ describe('live match cleanup', () => {
       player: { side: 'player', round: 4, symbols: cherryGrid[1], grid: cherryGrid, winningLines: ['top', 'bottom'], payout: 6, total: 36 },
       rival: { side: 'rival', round: 4, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 36 },
     });
+    revealSpin(session, 'player', 4);
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
+    revealSpin(session, 'rival', 4);
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: チェリー 2ライン'));
     expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'));
@@ -981,6 +989,8 @@ describe('live match cleanup', () => {
       player: { side: 'player', round: 5, symbols: grid[1], grid, winningLines: ['top', 'middle'], payout: 36, total: 69 },
       rival: { side: 'rival', round: 5, symbols: grid[1], grid, winningLines: ['middle'], payout: 6, total: 42 },
     });
+    revealSpin(session, 'player', 5);
+    revealSpin(session, 'rival', 5);
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('プレイヤー: 7揃い、ベル'));
     expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('私: ベル'));
@@ -1009,6 +1019,7 @@ describe('live match cleanup', () => {
       const side = round % 2 ? 'player' as const : 'rival' as const;
       state.rounds = { player: round, rival: round };
       handleGameEvent({ type: 'side_spin', seq: round, at: round, spin: { side, round, symbols: grid[1], grid, winningLines: [round % 3 === 0 ? 'bottom' : round % 3 === 1 ? 'top' : 'middle'], payout: 6, total: 30 + round } });
+      revealSpin(session, side, round);
     }
     handleGameEvent({ type: 'side_spin', seq: 7, at: 7, spin: { side: 'player', round: 1, symbols: grid[1], grid, winningLines: ['top'], payout: 3, total: 31 } });
     expect(provider.requiredReaction).toHaveBeenCalledTimes(6);
@@ -1028,6 +1039,7 @@ describe('live match cleanup', () => {
     state.rounds.player = 1;
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    revealSpin(session, 'player', 1);
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.requiredReaction).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(250);
@@ -1048,14 +1060,16 @@ describe('live match cleanup', () => {
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     state.rounds.player = 1;
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    revealSpin(session, 'player', 1);
     state.rounds.player = 2;
     handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 39 } });
+    revealSpin(session, 'player', 2);
     expect(provider.requiredReaction).toHaveBeenCalledTimes(2);
     expect(provider.requiredReaction).toHaveBeenLastCalledWith(expect.stringContaining('チェリー'));
     await session.shutdown('test_finished');
   });
 
-  it('sends a required win immediately while the user is speaking', async () => {
+  it('waits for the visible reel stop before interrupting a user conversation for a required win', async () => {
     const { session, messages } = setup('required-fresh', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
@@ -1070,9 +1084,60 @@ describe('live match cleanup', () => {
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     state.elapsed = 1;
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    expect(provider.prepareRequiredReaction).not.toHaveBeenCalled();
+    expect(messages).not.toContainEqual(expect.objectContaining({ type: 'voice_interrupt' }));
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
+    revealSpin(session, 'player', 1);
     expect(provider.prepareRequiredReaction).toHaveBeenCalledOnce();
     expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_interrupt' }));
     expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    await session.shutdown('test_finished');
+  });
+
+  it('ignores misses and obsolete reveal notifications', async () => {
+    const { session } = setup('required-reveal-validation', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    state.rounds.player = 1;
+    handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'cherry', 'seven'], payout: 0, total: 30 } });
+    revealSpin(session, 'player', 1);
+    state.rounds.player = 2;
+    handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    revealSpin(session, 'player', 1);
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
+    revealSpin(session, 'player', 2);
+    expect(provider.requiredReaction).toHaveBeenCalledOnce();
+    await session.shutdown('test_finished');
+  });
+
+  it('drops a paired hit when its other reel was shown too long ago', async () => {
+    const { session } = setup('required-paired-reveal-expiry', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const sessionTimers = session as unknown as { timer: NodeJS.Timeout | null };
+    if (sessionTimers.timer) clearInterval(sessionTimers.timer);
+    sessionTimers.timer = null;
+    await vi.advanceTimersByTimeAsync(3_001);
+    provider.requiredReaction.mockClear();
+    const state = (session as unknown as { state: MatchState }).state;
+    state.rounds = { player: 1, rival: 1 };
+    const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
+    handleGameEvent({
+      type: 'spin', seq: 1, at: 1,
+      player: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 },
+      rival: { side: 'rival', round: 1, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 33 },
+    });
+    revealSpin(session, 'player', 1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    revealSpin(session, 'rival', 1);
+    expect(provider.requiredReaction).not.toHaveBeenCalled();
     await session.shutdown('test_finished');
   });
 
@@ -1093,10 +1158,12 @@ describe('live match cleanup', () => {
     state.rounds.player = state.elapsed = 1;
     const handleGameEvent = (session as unknown as { handleGameEvent: (event: unknown) => void }).handleGameEvent.bind(session);
     handleGameEvent({ type: 'side_spin', seq: 1, at: 1, spin: { side: 'player', round: 1, symbols: ['bell', 'bell', 'bell'], payout: 6, total: 36 } });
+    revealSpin(session, 'player', 1);
     expect(provider.interruptWait).toHaveBeenCalledOnce();
     expect(provider.requiredReaction).not.toHaveBeenCalled();
     state.rounds.player = state.elapsed = 2;
     handleGameEvent({ type: 'side_spin', seq: 2, at: 2, spin: { side: 'player', round: 2, symbols: ['cherry', 'cherry', 'cherry'], payout: 3, total: 39 } });
+    revealSpin(session, 'player', 2);
     cleared.resolve(true);
     await Promise.resolve();
     expect(provider.requiredReaction).toHaveBeenCalledOnce();

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type WebSocket from 'ws';
 import { z } from 'zod';
-import { MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type Side, type SpinView, type SymbolId } from '../shared/protocol.js';
+import { MAX_MATCH_ROUNDS, MAX_MATCH_SECONDS, type AiProvider, type AiProviderState, type ClientMessage, type LoanDirection, type MatchSnapshot, type ServerMessage, type Side, type SpinView, type SymbolId } from '../shared/protocol.js';
 import {
   abortMatch,
   applyTimeExtension,
@@ -48,6 +48,7 @@ const ClientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mic'), audio: z.string().min(4).max(256_000).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0) }),
   z.object({ type: z.literal('voice_speech_done'), speechId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('voice_route_ready'), transitionId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal('spin_revealed'), side: z.enum(['player', 'rival']), round: z.number().int().min(1).max(MAX_MATCH_ROUNDS) }),
   z.object({ type: z.literal('voice_close') }),
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('close') }),
@@ -90,6 +91,7 @@ const ZERO_BALANCE_CHAT_REACTION = '双方の確定残高が$0で未確定回転
 const RESULT_SILENCE = Buffer.alloc(2400 * 2).toString('base64');
 const REQUIRED_WIN_REACTION_TTL_MS = 2_000;
 type RequiredWins = Record<Side, Record<SymbolId, number>>;
+type PendingRequiredWinReaction = { wins: RequiredWins; awaiting: Set<string>; firstRevealedAt?: number };
 
 export class MatchSession {
   private readonly state: MatchState;
@@ -122,6 +124,7 @@ export class MatchSession {
     return reactionRequested;
   });
   private readonly requiredWinKeys = new Set<string>();
+  private readonly pendingRequiredWinReactions = new Map<string, PendingRequiredWinReaction>();
   private requiredWinReactionSequence = 0;
   private warnedTime = false;
   private timer: NodeJS.Timeout | null = null;
@@ -627,6 +630,10 @@ export class MatchSession {
       this.endVoice();
       return;
     }
+    if (message.type === 'spin_revealed') {
+      this.revealRequiredWinReaction(message.side, message.round);
+      return;
+    }
     if (message.type === 'start') {
       this.beginMatch();
       return;
@@ -786,12 +793,12 @@ export class MatchSession {
       if (event.spin.side === 'rival') {
         this.emit({ type: 'rival_line', text: `I'm on $${event.spin.bet ?? this.state.bets.rival}.`, reason: 'bet_strategy' });
       }
-      this.enqueueRequiredWinReaction(event.at, event.spin);
+      this.recordRequiredWinReaction(event.at, event.spin);
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      this.enqueueRequiredWinReaction(event.at, event.player, event.rival);
+      this.recordRequiredWinReaction(event.at, event.player, event.rival);
       return;
     }
     if (event.type === 'leader_change') {
@@ -817,6 +824,7 @@ export class MatchSession {
       return;
     }
     if (event.type === 'match_end') {
+      this.pendingRequiredWinReactions.clear();
       this.emitSnapshot();
       this.emit({ type: 'match_ended', snapshot: event.snapshot });
       const direction: LocalizedLine = event.snapshot.balances.player === 0 && event.snapshot.balances.rival === 0
@@ -1913,19 +1921,60 @@ export class MatchSession {
     });
   }
 
-  private enqueueRequiredWinReaction(eventAt: number, ...spins: SpinView[]): void {
+  private recordRequiredWinReaction(eventAt: number, ...spins: SpinView[]): void {
+    if (!this.requiredWinEventIsFresh(eventAt)) return;
     const wins: RequiredWins = {
       player: { cherry: 0, bell: 0, seven: 0 },
       rival: { cherry: 0, bell: 0, seven: 0 },
     };
+    const awaiting = new Set<string>();
     for (const spin of spins) {
       const key = `${spin.side}:${spin.round}`;
       if (this.requiredWinKeys.has(key)) continue;
+      this.discardPendingRequiredWinReactionsForSide(spin.side);
       this.requiredWinKeys.add(key);
-      for (const symbol of winningSymbols(spin)) wins[spin.side][symbol] += 1;
+      const symbols = winningSymbols(spin);
+      for (const symbol of symbols) wins[spin.side][symbol] += 1;
+      if (symbols.length) awaiting.add(key);
     }
-    if (!Object.values(wins.player).some(Boolean) && !Object.values(wins.rival).some(Boolean)) return;
-    if (!this.requiredWinReactionIsFresh(eventAt)) return;
+    if (awaiting.size === 0) return;
+    const reaction: PendingRequiredWinReaction = { wins, awaiting };
+    for (const key of awaiting) this.pendingRequiredWinReactions.set(key, reaction);
+  }
+
+  /** A client reel-stop confirms that this already-validated result was actually shown. */
+  private revealRequiredWinReaction(side: Side, round: number): void {
+    const key = `${side}:${round}`;
+    const reaction = this.pendingRequiredWinReactions.get(key);
+    if (!reaction) return;
+    const revealedAt = Date.now();
+    if (reaction.firstRevealedAt !== undefined && revealedAt - reaction.firstRevealedAt >= REQUIRED_WIN_REACTION_TTL_MS) {
+      this.discardRequiredWinReaction(reaction);
+      return;
+    }
+    reaction.firstRevealedAt ??= revealedAt;
+    this.pendingRequiredWinReactions.delete(key);
+    reaction.awaiting.delete(key);
+    if (reaction.awaiting.size !== 0) return;
+    this.sendRequiredWinReaction(reaction.wins, revealedAt);
+  }
+
+  private discardRequiredWinReaction(reaction: PendingRequiredWinReaction): void {
+    for (const key of reaction.awaiting) {
+      if (this.pendingRequiredWinReactions.get(key) === reaction) this.pendingRequiredWinReactions.delete(key);
+    }
+    reaction.awaiting.clear();
+  }
+
+  /** A newer confirmed reel supersedes an earlier result the client never showed. */
+  private discardPendingRequiredWinReactionsForSide(side: Side): void {
+    for (const [key, reaction] of this.pendingRequiredWinReactions) {
+      if (key.startsWith(`${side}:`)) this.discardRequiredWinReaction(reaction);
+    }
+  }
+
+  private sendRequiredWinReaction(wins: RequiredWins, visibleAt: number): void {
+    if (!this.requiredWinReactionIsFresh(visibleAt)) return;
     const sequence = ++this.requiredWinReactionSequence;
     if (!this.gpt?.prepareRequiredReaction?.()) return;
     const line = this.requiredWinLine(wins);
@@ -1937,14 +1986,18 @@ export class MatchSession {
     }
     const bridge = this.gpt;
     void this.media.interruptAndWait().then(cleared => {
-      if (!cleared || sequence !== this.requiredWinReactionSequence || bridge !== this.gpt || !this.requiredWinReactionIsFresh(eventAt)) return;
+      if (!cleared || sequence !== this.requiredWinReactionSequence || bridge !== this.gpt || !this.requiredWinReactionIsFresh(visibleAt)) return;
       bridge.requestRequiredReaction?.(line);
     });
   }
 
-  private requiredWinReactionIsFresh(eventAt: number): boolean {
+  private requiredWinEventIsFresh(eventAt: number): boolean {
     const ageMs = Math.max(0, this.state.elapsed - eventAt) * 1000;
     return ageMs < REQUIRED_WIN_REACTION_TTL_MS && this.voiceReady && !this.closed && !this.voiceDisabled && this.state.status === 'playing';
+  }
+
+  private requiredWinReactionIsFresh(visibleAt: number): boolean {
+    return Date.now() - visibleAt < REQUIRED_WIN_REACTION_TTL_MS && this.voiceReady && !this.closed && !this.voiceDisabled && this.state.status === 'playing';
   }
 
   private requiredWinLine(wins: RequiredWins): LocalizedLine {
