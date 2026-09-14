@@ -133,7 +133,25 @@ describe('ConversationAgreementCoordinator', () => {
   it('audits a normal acceptance as a commit instead of releasing it as safe', async () => {
     request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"state":"commit","agreements":[{"action":"rival_to_player","offerId":"offer-rival"}],"offers":[]}' }));
     const coordinator = new ConversationAgreementCoordinator();
-    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic acceptance', 'P:synthetic request', turn().activeOffers)).resolves.toEqual({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }] });
+    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic acceptance', 'P:synthetic request', turn().activeOffers, undefined, 'rival_to_player')).resolves.toEqual({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }] });
+  });
+
+  it.each(['player_to_rival', 'rival_to_player'] as const)('keeps an unsolicited %s commitment as an offer until the player agrees', async action => {
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: JSON.stringify({
+      state: 'commit', agreements: [{ action, offerId: null }], offers: [],
+    }) }));
+    const coordinator = new ConversationAgreementCoordinator();
+    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic declarative loan proposal', '', turn().activeOffers))
+      .resolves.toEqual({ state: 'offer', actions: [action] });
+  });
+
+  it('does not turn conflicting loan directions into an offer', async () => {
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: JSON.stringify({
+      state: 'commit', agreements: [{ action: 'player_to_rival', offerId: null }, { action: 'rival_to_player', offerId: null }], offers: [],
+    }) }));
+    const coordinator = new ConversationAgreementCoordinator();
+    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic conflicting promises', '', turn().activeOffers))
+      .resolves.toEqual({ state: 'unavailable' });
   });
 
   it('fails closed when an assistant audit cannot prove a safe or server-backed route', async () => {

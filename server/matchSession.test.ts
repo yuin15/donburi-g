@@ -180,6 +180,56 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it.each(['accept', 'reject', 'silence'] as const)('settles a declarative rival loan proposal only after player %s', async reply => {
+    const actual = await vi.importActual<typeof import('./conversationAgreement')>('./conversationAgreement');
+    const { session, messages } = setup('declarative-loan', 'manual', 'audio');
+    (session as unknown as { agreements: InstanceType<typeof actual.ConversationAgreementCoordinator> }).agreements = new actual.ConversationAgreementCoordinator();
+    const pendingAudit = deferred<Response>();
+    let auditCount = 0;
+    const request = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      if (body.text.format.name === 'assistant_agreement_audit') {
+        auditCount += 1;
+        return pendingAudit.promise;
+      }
+      const input = JSON.parse(body.input);
+      expect(input.activeOffers.player_to_rival).toContain(':offer:player_to_rival');
+      return Response.json({ status: 'completed', output_text: JSON.stringify({
+        result: reply === 'accept' ? 'accept' : 'reject',
+        agreements: reply === 'accept' ? [{ action: 'player_to_rival', offerId: input.activeOffers.player_to_rival }] : [],
+      }) });
+    });
+    vi.stubGlobal('fetch', request);
+    asr.transcribe.mockResolvedValue('synthetic declarative rival loan proposal');
+    try {
+      await session.initialize(); session.handleRaw('{"type":"start"}');
+      const state = (session as unknown as { state: MatchState }).state;
+      state.scores.player = 10; state.scores.rival = 0;
+      provider.events!.onNormalSpeechStarted!('declarative-proposal');
+      provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), 'declarative-proposal', 'normal');
+      provider.events!.onSpeechAudioEnded('declarative-proposal');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+      if (reply !== 'silence') completeAgreementTurn('reply', `synthetic ${reply}`, 0, 100);
+      await vi.advanceTimersByTimeAsync(350);
+      expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+      pendingAudit.resolve(Response.json({ status: 'completed', output_text: JSON.stringify({
+        state: 'commit', agreements: [{ action: 'player_to_rival', offerId: null }], offers: [],
+      }) }));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(auditCount).toBe(1);
+      expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
+      const transfers = () => messages.filter(message => message.type === 'loan_transfer');
+      expect(transfers()).toHaveLength(reply === 'accept' ? 1 : 0);
+      if (reply === 'accept') {
+        expect(transfers()[0]).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
+        completeAgreementTurn('repeat', 'synthetic repeated affirmative', 200, 300);
+        await vi.advanceTimersByTimeAsync(350);
+        expect(transfers()).toHaveLength(1);
+      } else expect(state.scores).toEqual({ player: 10, rival: 0 });
+    } finally { await session.shutdown('test_finished'); }
+  });
+
   it.each(['rival_to_player', 'player_to_rival'] as const)('requires the spoken loan direction %s to match the player request', async auditDirection => {
     const actual = await vi.importActual<typeof import('./conversationAgreement')>('./conversationAgreement');
     const { session, messages } = setup('loan-direction', 'manual', 'audio');
