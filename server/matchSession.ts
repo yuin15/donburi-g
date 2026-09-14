@@ -201,6 +201,7 @@ export class MatchSession {
           if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
           this.finishLoanOfferSpeech(speechId);
           this.finishPlayerLoanOfferSpeech(speechId);
+          this.gpt?.noteSpeechPlaybackDone(speechId);
         });
         if (!(await this.media.start())) throw new Error('media_not_ready');
         this.setProviderStatus('liveAvatar', 'connected');
@@ -244,9 +245,9 @@ export class MatchSession {
           this.emit({ type: 'voice_status', status: 'ready' });
         }
       },
-      onAudio: (audio, speechId) => {
+      onAudio: (audio, speechId, kind) => {
         const audible = pcmRms(Buffer.from(audio, 'base64')) > 32;
-        if (!outputAllowed() || ((this.extensionDecisionPending || this.loanDecisionPending || this.playerLoanIntentPending || this.awaitingExtensionTranscript()) && !speechId)) return;
+        if (!outputAllowed() || ((this.extensionDecisionPending || this.loanDecisionPending || this.playerLoanIntentPending || this.awaitingExtensionTranscript()) && kind === 'normal')) return;
         if (speechId && audible) {
           this.markLoanOfferAudible(speechId);
           this.markPlayerLoanOfferAudible(speechId);
@@ -561,6 +562,7 @@ export class MatchSession {
       if (this.extensionSpeech?.id === message.speechId && this.extensionSpeech.fenceSent) this.commitExtensionSpeech();
       this.finishLoanOfferSpeech(message.speechId);
       this.finishPlayerLoanOfferSpeech(message.speechId);
+      this.gpt?.noteSpeechPlaybackDone(message.speechId);
       return;
     }
     if (message.type === 'purchase') {
@@ -624,7 +626,7 @@ export class MatchSession {
     this.pushContext();
     this.emitSnapshot();
     this.conversationPacer.start(now);
-    this.reactions.offer('start', '対戦が今始まる。プレイヤーへ短く声をかけ、一緒に遊ぶ空気を作って。', 10, () => this.state.status === 'playing' && this.state.elapsed < 8);
+    this.reactions.offer('start', '対戦が今始まる。独り言にせず、プレイヤーへ「最初は何を狙う？」のような答えやすい質問で一緒に遊ぶ空気を作って。', 10, () => this.state.status === 'playing' && this.state.elapsed < 8);
     this.timer = setInterval(() => this.tick(), 100);
   }
 
@@ -650,7 +652,7 @@ export class MatchSession {
     for (const event of events) this.handleGameEvent(event);
     if (!this.warnedTime && this.state.elapsed >= 50 && this.state.status === 'playing') {
       this.warnedTime = true;
-      this.reactions.offer('last-ten', '残り10秒を切った。プレイヤーへラストスパートを短く呼びかけて。', 30, () => this.state.status === 'playing');
+      this.reactions.offer('last-ten', '残り10秒を切った。独り言にせず、プレイヤーへ「最後はどうする？」のような答えやすい質問で短く呼びかけて。', 30, () => this.state.status === 'playing');
     }
     if (Date.now() - this.lastSnapshotAt >= 250) this.emitSnapshot();
   }
@@ -664,23 +666,23 @@ export class MatchSession {
       if (event.spin.payout >= PAYOUT.seven) {
         const player = event.spin.side === 'player';
         this.react(player ? 'player_jackpot' : 'rival_jackpot', player
-          ? 'プレイヤーが7揃いの大当たりを出した。共有して喜ぶか、次も見せてと短く声をかけて。'
-          : 'あなた自身が7揃いの大当たりを出した。プレイヤーにも次を狙おうと短く呼びかけて。', event.spin.round, event.spin.side);
+          ? 'プレイヤーが7揃いの大当たりを出した。共有して喜び、「今の当たり、どうだった？」のようにプレイヤーへ短く尋ねて。'
+          : 'あなた自身が7揃いの大当たりを出した。独り言にせず、「そっちは次に何を狙う？」のようにプレイヤーへ短く尋ねて。', event.spin.round, event.spin.side);
       }
       return;
     }
     if (event.type === 'spin') {
       this.emit({ type: 'spin', player: event.player, rival: event.rival });
-      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を共有し、プレイヤーへ短く声をかけて。', event.player.round);
-      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。共有して喜ぶか、次も見せてと短く声をかけて。', event.player.round);
-      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。プレイヤーにも次を狙おうと短く呼びかけて。', event.rival.round);
+      if (event.player.payout >= PAYOUT.seven && event.rival.payout >= PAYOUT.seven) this.react('both_jackpot', '双方が同じ回転で7揃い。確定した残高差を共有し、「今の同時当たり、どうだった？」のようにプレイヤーへ短く尋ねて。', event.player.round);
+      else if (event.player.payout >= PAYOUT.seven) this.react('player_jackpot', 'プレイヤーが7揃いの大当たりを出した。共有して喜び、「今の当たり、どうだった？」のようにプレイヤーへ短く尋ねて。', event.player.round);
+      else if (event.rival.payout >= PAYOUT.seven) this.react('rival_jackpot', 'あなた自身が7揃いの大当たりを出した。独り言にせず、「そっちは次に何を狙う？」のようにプレイヤーへ短く尋ねて。', event.rival.round);
       return;
     }
     if (event.type === 'leader_change') {
       const side = event.leader === 'rival' ? 'rival' : 'player';
       const round = this.state.spinMode === 'manual' ? this.state.rounds[side] : Math.floor(event.at / 2);
-      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。共有して次の回転を短く楽しみにさせて。', round, side);
-      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言はせず、プレイヤーへ次を促す軽い一言にして。', round, side);
+      if (event.leader === 'player') this.react('player_leads', 'プレイヤーが首位に立った。独り言にせず、「このまま逃げ切れそう？」のようにプレイヤーへ短く尋ねて。', round, side);
+      if (event.leader === 'rival') this.react('rival_leads', 'あなたが首位に立った。断定的な勝利宣言や独り言にはせず、プレイヤーへ次の一手を尋ねる軽い一言にして。', round, side);
       return;
     }
     if (event.type === 'upgrade_open') {
@@ -695,7 +697,7 @@ export class MatchSession {
         player: event.player,
         rival: event.rival,
       });
-      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦の独り言でなく、プレイヤーへ短く声をかけて。`, 40, () => this.state.status === 'playing');
+      this.reactions.offer(`upgrade:${event.offerIndex}`, `改造が確定。プレイヤー=${event.player}、あなた=${event.rival}。自分の作戦の独り言でなく、プレイヤーへ感想か次の狙いを短く尋ねて。`, 40, () => this.state.status === 'playing');
       return;
     }
     if (event.type === 'match_end') {

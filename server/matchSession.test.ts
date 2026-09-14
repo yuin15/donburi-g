@@ -9,7 +9,7 @@ const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[],
-  context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(),
+  context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), playbackDone: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
@@ -39,6 +39,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
   suppressOutput = provider.suppress;
   suppressOutputAfterTaggedSpeech = provider.suppress;
   sendMic = provider.mic;
+  noteSpeechPlaybackDone = provider.playbackDone;
 } }));
 vi.mock('./rivalBrain', async importOriginal => ({
   ...(await importOriginal<typeof import('./rivalBrain')>()),
@@ -109,6 +110,19 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it('returns a normal speech playback ACK to the live bridge', async () => {
+    const { session, messages } = setup('normal-playback-ack', 'manual', 'audio');
+    await session.initialize();
+    const speechId = 'normal-1';
+    provider.events?.onAudio(Buffer.alloc(4800, 4).toString('base64'), speechId, 'normal');
+    provider.events?.onSpeechAudioEnded(speechId);
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_audio', speechId }));
+    expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_speech_end', speechId }));
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    expect(provider.playbackDone).toHaveBeenCalledExactlyOnceWith(speechId);
+    await session.shutdown('test_finished');
+  });
+
   it('deduplicates purchases, preserves spin totals, and sends valid recovery snapshots', async () => {
     const { session, messages } = setup('shop', 'manual', 'audio');
     await session.initialize();
