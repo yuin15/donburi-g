@@ -8,15 +8,24 @@ A desktop game by **team donburi** where conversation and competition happen tog
 
 Desktop only: **1280×720 or larger**, mouse and keyboard. English game UI. All dollar amounts are fictional game currency; there are no deposits or cash-outs.
 
-![Slot-chan: 3D cabinet, selectable bets, upgrade shop, and expressive rival](docs/evidence/submission-2026-09-14/gameplay-1280.webp)
+[![Seven win: red-and-gold 3D sevens lift out of the reels, with sculpted payout text, flying coins, and a surprised rival](docs/evidence/readme-3d-2026-09-14/seven-win-1920.webp)](docs/evidence/readme-3d-2026-09-14/seven-win-1920.webp)
 
-*Actual local gameplay from the submission source snapshot, captured on September 14, 2026. [Capture and verification notes](docs/submission-verification.md).*
+*A seven win, rendered by the game at 1920×1080. All three screenshots use reproducible local review scenes, captured on September 14, 2026. [Capture notes](docs/submission-verification.md#readme-3d-gallery).*
 
 ## Talk while you play
 
 Use your mouse or keyboard to play while speaking to the rival through your microphone. React to a win, ask about the opponent's chances, or request ten more seconds: the conversation takes place during the duel. The rival receives current match context, so replies can relate to the changing situation. The voice implementation supports interruptions and English/Japanese conversation.
 
 For the full conversational demo, enter the organizer-provided invite under **ADD AI VOICE · OPTIONAL**, select **CONNECT AI VOICE**, allow the microphone, then start the round. Voice access depends on the host's API configuration and allowance. **PLAY NOW** also provides a CPU round without an invite or microphone.
+
+## Winning moments
+
+| Bell win | Match victory |
+| --- | --- |
+| [![Three polished 3D bells lift from the reels while the rival hits cherries](docs/evidence/readme-3d-2026-09-14/bell-win-1920.webp)](docs/evidence/readme-3d-2026-09-14/bell-win-1920.webp) | [![A large gold 3D YOU WIN title fills the screen with light rays and flying coins](docs/evidence/readme-3d-2026-09-14/victory-1920.webp)](docs/evidence/readme-3d-2026-09-14/victory-1920.webp) |
+| Polished bells, raised symbols, and wins on both machines. | Sculpted gold lettering and a screen-filling coin celebration. |
+
+Click any image to inspect the full-size capture.
 
 ## Play a round
 
@@ -128,6 +137,8 @@ Never commit keys, invites, environment files, personal email addresses, microph
 **[公開デモ](https://slot-chan.vercel.app/) · [提出用の英語回答6項目](docs/game-jam-submission.md) · [3Dモデルと制作元](art-source/houdini/)**
 
 対象は**PC、1280×720以上、マウス・キーボード**。ゲーム画面は英語です。ドル表示はすべてゲーム内の架空通貨で、入金・換金はありません。
+
+冒頭と[当たり演出のギャラリー](#winning-moments)に、7揃い・ベル揃い・勝利演出の3枚を掲載しています。いずれもローカルの確認用シーンをゲーム内で描画した1920×1080の実画面です。画像をクリックすると原寸で見られます。
 
 ### 会話しながら遊ぶ
 
