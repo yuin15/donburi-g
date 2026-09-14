@@ -1775,18 +1775,20 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it('waits for user speech before the $0 chat invitation, then yields to the user conversation window', async () => {
+  it('keeps the $0 chat invitation through an ordinary reaction cooldown and a long user turn', async () => {
     const { session } = setup('zero-balance-user-priority', 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.reaction).toHaveBeenCalledWith('対戦が今始まる。短く挑発して。');
     const state = (session as unknown as { state: MatchState }).state;
     state.scores.player = state.scores.rival = 0;
-    provider.events?.onUserSpeech();
     await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(6000);
     expect(provider.reaction.mock.calls.some(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toBe(false);
     provider.events?.onUserSpeechEnd();
-    await vi.advanceTimersByTimeAsync(100);
-    await vi.advanceTimersByTimeAsync(3799);
+    await vi.advanceTimersByTimeAsync(3999);
     expect(provider.reaction.mock.calls.some(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(provider.reaction.mock.calls.filter(([text]) => String(text).includes('双方の確定残高が$0で未確定回転はない'))).toHaveLength(1);

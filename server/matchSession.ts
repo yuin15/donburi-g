@@ -298,6 +298,10 @@ export class MatchSession {
         if (!current() || resultOnly) return;
         this.tick();
         this.userSpeaking = false;
+        // GPT-Live keeps its own response guard for four seconds after the
+        // latest microphone chunk. Mirror that guard before releasing an
+        // essential queued reaction, so it is not discarded by the bridge.
+        this.reactions.conversationActivity();
         this.queueSettledRivalLoanReply(generation);
         this.queueDirectTimeExtensionRequest(generation);
         this.queueDirectLoanRequest(generation);
@@ -849,6 +853,7 @@ export class MatchSession {
       false,
       true,
       5000,
+      () => this.isBothBalancesExhausted(),
     );
   }
 

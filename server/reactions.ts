@@ -4,6 +4,7 @@ interface Reaction {
   priority: number;
   expiresAt: number;
   current: () => boolean;
+  keepPending: () => boolean;
   final: boolean;
   essential: boolean;
 }
@@ -21,7 +22,7 @@ export class ReactionQueue {
 
   constructor(private readonly speak: (text: string) => void) {}
 
-  offer(id: string, text: string, priority: number, current: () => boolean, final = false, essential = false, expiresInMs = final ? 3000 : 1800): void {
+  offer(id: string, text: string, priority: number, current: () => boolean, final = false, essential = false, expiresInMs = final ? 3000 : 1800, keepPending = current): void {
     if (this.closed || this.seen.has(id) || this.finalQueued) return;
     this.seen.add(id);
     if (final) {
@@ -31,14 +32,16 @@ export class ReactionQueue {
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
     }
-    this.pending.set(id, { id, text, priority, current, final, essential, expiresAt: Date.now() + expiresInMs });
+    this.pending.set(id, { id, text, priority, current, keepPending, final, essential, expiresAt: Date.now() + expiresInMs });
     this.schedule();
   }
 
   conversationActivity(): void {
     if (this.closed) return;
     this.conversationUntil = Date.now() + 4000;
-    this.pending.clear();
+    // Ordinary commentary is discarded as soon as the user speaks. An essential
+    // state transition remains queued until its own predicate is no longer true.
+    this.pending = new Map([...this.pending].filter(([, reaction]) => reaction.essential && reaction.keepPending()));
   }
 
   close(): void {
@@ -54,19 +57,19 @@ export class ReactionQueue {
     this.timer = setTimeout(() => {
       this.timer = null;
       const now = Date.now();
-      const candidates = [...this.pending.values()].filter(r => r.expiresAt > now && r.current());
-      const ready = candidates.filter(r => r.final || ((r.essential || this.sent < 5) && now >= this.conversationUntil));
+      const candidates = [...this.pending.values()].filter(r => (r.expiresAt > now && r.current()) || (r.essential && r.keepPending()));
+      const ready = candidates.filter(r => r.current() && (r.final || ((r.essential || this.sent < 5) && now >= this.conversationUntil)));
       this.pending.clear();
       // Ordinary commentary is discarded during a user turn. The one essential
       // state transition instead waits for the same conversation grace, so it
       // still cannot speak over the user and is not lost to the reaction cap.
       for (const reaction of candidates) {
-        if (reaction.essential && !reaction.final && now < this.conversationUntil) this.pending.set(reaction.id, reaction);
+        if (reaction.essential && !reaction.final && reaction.keepPending() && !ready.includes(reaction)) this.pending.set(reaction.id, reaction);
       }
       const choice = ready.sort((a, b) => b.priority - a.priority)[0];
       if (!choice) {
         if (this.pending.size) {
-          this.nextAt = Math.max(this.nextAt, this.conversationUntil);
+          this.nextAt = Math.max(this.nextAt, now < this.conversationUntil ? this.conversationUntil : now + 250);
           this.schedule();
         }
         return;
