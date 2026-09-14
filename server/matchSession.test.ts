@@ -1083,6 +1083,32 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('commits an accepted direct extension when its speech becomes audible before a new microphone turn', async () => {
+    const { session, messages } = setup('audible-direct-extension', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(5_000);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '延長して', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(400);
+    const [, speechId] = provider.confirmedLine.mock.calls.at(-1) ?? [];
+    expect(speechId).toEqual(expect.any(String));
+
+    provider.events?.onAudio(Buffer.alloc(4800, 4).toString('base64'), speechId as string);
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
+    expect(messages.find(message => message.type === 'time_extension')).toMatchObject({ decision: 'accepted', after: { duration: 70 } });
+
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'ありがとう', { startMs: 500, endMs: 700 });
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onSpeechAudioEnded(speechId as string);
+    session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
   it('does not send a resolved direct player request to Responses when its delegation arrives later', async () => {
     const { session } = setup('direct-extension-clarification', 'manual', 'audio');
     await session.initialize();

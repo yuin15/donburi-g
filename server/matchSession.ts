@@ -304,6 +304,11 @@ export class MatchSession {
         }
         if (speechId && this.discardedSpeechIds.has(speechId)) { this.voiceDiagnostic.droppedMs += durationMs; return; }
         if (speechId && audible) {
+          // Once the player can hear the authoritative acceptance, the clock
+          // must already reflect it. A new microphone turn (for example,
+          // "thanks" or ambient noise) may otherwise cancel the pending direct
+          // decision before the playback-complete ACK arrives.
+          if (this.extensionSpeech?.id === speechId) this.commitExtensionSpeech();
           this.markLoanOfferAudible(speechId);
           this.markPlayerLoanOfferAudible(speechId);
         }
