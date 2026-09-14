@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain';
+import { acceptsImmediateLoanOffer, acceptsLoanOffer, acceptsTimeExtensionOffer, chooseLoanDecision, chooseRivalUpgrade, chooseTimeExtension, offersLoanToRival, rejectsLoanOffer, rejectsTimeExtensionOffer, requestsDirectLoan, requestsLoan, requestsTimeExtension } from './rivalBrain';
 import { createMatch, getSnapshot } from '../src/domain/game';
 
 const request = vi.fn();
@@ -148,6 +148,14 @@ describe('loan choice', () => {
 
   it.each(['no', 'いいえ'])('recognizes a short direct refusal: %s', transcript => {
     expect(rejectsLoanOffer(transcript)).toBe(true);
+  });
+
+  it.each(['貸す', '貸すよ', '貸しますよ', 'お金を貸すよ', 'お金を貸します', '5ドル貸してあげる', '金を貸してやる', "I'll lend you $5", 'I will loan you some cash'])('recognizes a clear voluntary player loan: %s', transcript => {
+    expect(offersLoanToRival(transcript)).toBe(true);
+  });
+
+  it.each(['貸さない', 'お金を貸すつもりはない', 'お金を貸すつもりはありません', '貸してあげるつもりはない', '貸してあげるつもりはありません', 'お金を貸すのは無理', 'お金を貸そうか？', '貸して', 'お金を貸して', 'お金の話をしよう', "I won't lend you money", 'yes'])('does not mistake a refusal, reverse request, vague speech, or question for a player loan: %s', transcript => {
+    expect(offersLoanToRival(transcript)).toBe(false);
   });
 
   it('sends only bounded current context and accepts an exact legal result', async () => {

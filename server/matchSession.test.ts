@@ -1226,6 +1226,102 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('accepts a direct player loan without a rival request or AI decision, even when the rival has money', async () => {
+    const { session, messages } = setup('direct-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 20;
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', 'お金を貸すよ', { startMs: 0, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    expect(messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer')).toMatchObject([
+      { direction: 'player_to_rival', amount: 5, before: { scores: { player: 10, rival: 20 } }, after: { scores: { player: 5, rival: 25 }, balances: { player: 5, rival: 25 } } },
+    ]);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('助かった、$5借りるよ。ここから巻き返す。');
+    await session.shutdown('test_finished');
+  });
+
+  it('settles a direct player loan once when it overlaps the rival offer, a delegation, and an assistant subtitle', async () => {
+    const { session, messages } = setup('overlapping-direct-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 0;
+    state.elapsed = state.processedSecond = 50;
+    state.remaining = 10;
+    session.handleRaw('{"type":"snapshot"}');
+    startLoanOffer();
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '貸すよ', { startMs: 0, endMs: 100 });
+    provider.events?.onDelegation({ id: 'overlapping-direct-player-loan', offsetMs: 200 });
+    provider.events?.onTranscript('assistant', '了解。');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ direction: 'player_to_rival', amount: 5, after: { scores: { player: 5, rival: 5 } } });
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('accepts each new player loan offer once and keeps duplicate delegation from moving money twice', async () => {
+    const { session, messages } = setup('repeated-direct-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 15;
+    state.scores.rival = 20;
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '貸してあげる', { startMs: 0, endMs: 300 });
+    provider.events?.onDelegation({ id: 'direct-player-loan', offsetMs: 400 });
+    provider.events?.onDelegation({ id: 'direct-player-loan', offsetMs: 400 });
+    await vi.advanceTimersByTimeAsync(250);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', '貸すよ', { startMs: 500, endMs: 800 });
+    await vi.advanceTimersByTimeAsync(250);
+    const transfers = messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
+    expect(transfers).toHaveLength(2);
+    expect(transfers.map(transfer => transfer.after.scores)).toEqual([{ player: 10, rival: 25 }, { player: 5, rival: 30 }]);
+    expect(chooseLoanDecision).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('does not move money for a withdrawn, negative, reverse, or underfunded player loan offer', async () => {
+    const { session, messages } = setup('guarded-direct-rival-loan', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const state = (session as unknown as { state: MatchState }).state;
+    state.scores.player = 10;
+    state.scores.rival = 20;
+    provider.events?.onUserSpeech();
+    provider.events?.onTranscript('user', 'お金を貸す', { startMs: 0, endMs: 100 });
+    provider.events?.onUserSpeechEnd();
+    await vi.advanceTimersByTimeAsync(100);
+    provider.events?.onTranscript('user', '、やっぱり貸さない', { startMs: 101, endMs: 300 });
+    await vi.advanceTimersByTimeAsync(250);
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', 'お金を貸して', { startMs: 400, endMs: 600 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    state.scores.player = 0;
+    provider.events?.onUserSpeech();
+    provider.events?.onUserSpeechEnd();
+    provider.events?.onTranscript('user', 'お金を貸すよ', { startMs: 700, endMs: 900 });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(provider.confirmedLine).toHaveBeenCalledWith('$5を貸せる残高がない。自分の資金で続けよう。');
+    await session.shutdown('test_finished');
+  });
+
   it('waits past one second for speech end before rejecting a later negation in a direct borrower transcript', async () => {
     const { session, messages } = setup('settled-player-loan', 'manual', 'audio');
     await session.initialize();
