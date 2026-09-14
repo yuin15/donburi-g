@@ -401,7 +401,9 @@ export class MatchSession {
         this.markLoanOfferReplyStarted();
         this.markPlayerLoanOfferReplyStarted();
         this.agreementTurns.set(this.userSpeechTurn, this.createAgreementTurn(generation, now, input?.startMs ?? null));
-        this.gpt?.beginUserSpeech();
+        const bridge = this.gpt;
+        const interrupt = bridge?.beginUserSpeech();
+        if (bridge && interrupt !== null && interrupt !== undefined) void this.interruptUserPlayback(bridge, interrupt, generation);
         this.userSpeaking = true;
         this.conversationPacer.noteUserSpeech();
         this.reactions.conversationActivity();
@@ -916,6 +918,31 @@ export class MatchSession {
   private clearBrowserAudio(): Promise<boolean> {
     this.emit({ type: 'voice_interrupt' });
     return Promise.resolve(true);
+  }
+
+  private async interruptUserPlayback(bridge: GptLiveBridge, interrupt: number, generation: number): Promise<void> {
+    const current = () => !this.closed && !this.voiceDisabled && this.gpt === bridge && this.voiceGeneration === generation;
+    const speechId = this.activeOutputSpeechId;
+    // A fallback may already own unplayed PCM. It belongs to the interrupted
+    // response too; a later route ACK must not resurrect that queue.
+    if (this.routeTransition) {
+      this.routeTransition.queued.length = 0;
+      this.routeTransition.queuedBytes = 0;
+    }
+    try {
+      // Browser WebSocket messages are ordered: stop queued sources before any
+      // replacement PCM. Avatar instead needs its matching buffer-cleared ACK;
+      // speak() drops bytes during that wait, so the bridge retains them.
+      const cleared = this.media ? await this.media.interruptAndWait(2000) : await this.clearBrowserAudio();
+      if (!current()) return;
+      if ((!cleared || this.routeTransition) && !(await this.switchAvatarToAudio('avatar_interrupt_timeout'))) return;
+      if (!current()) return;
+      if (this.activeOutputSpeechId === speechId) this.activeOutputSpeechId = null;
+      bridge.finishPlaybackInterrupt(interrupt);
+    } catch {
+      // A failed interrupt must never strand a playback fence indefinitely.
+      if (current()) this.failVoice('liveAvatar', 'Voice playback could not be interrupted · Your duel continues.');
+    }
   }
 
   /** The browser ACK is a barrier: no PCM is sent before LiveKit audio is muted and PCM is ready. */

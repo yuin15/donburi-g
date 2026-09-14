@@ -11,6 +11,7 @@ const provider = vi.hoisted(() => ({
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[], bridgeLanguages: [] as Array<'ja' | 'en'>,
   context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(), endUserSpeech: vi.fn(), finishUserTurnGate: vi.fn(), playbackDone: vi.fn(), interruptPlayback: vi.fn(), discardNormalPlayback: vi.fn(), mediaComplete: vi.fn(),
   speak: vi.fn(), interrupt: vi.fn(), interruptWait: vi.fn(), openingContexts: [] as string[],
+  finishPlaybackInterrupt: vi.fn(),
   seed: [1, 0, 0, 0] as [number, number, number, number],
 }));
 const asr = vi.hoisted(() => ({ transcribe: vi.fn() }));
@@ -67,6 +68,7 @@ vi.mock('./gptLive', () => ({ GptLiveBridge: class {
     provider.language(language);
   };
   beginUserSpeech = provider.beginUserSpeech;
+  finishPlaybackInterrupt = provider.finishPlaybackInterrupt;
   endUserSpeech = provider.endUserSpeech;
   finishUserTurnGate = provider.finishUserTurnGate;
   sendMic = provider.mic;
@@ -152,6 +154,7 @@ beforeEach(() => {
   provider.stop.mockResolvedValue(undefined);
   provider.mediaStart.mockResolvedValue(true);
   provider.interruptWait.mockResolvedValue(true);
+  provider.beginUserSpeech.mockReturnValue(null);
   provider.gptConnect.mockImplementation(async () => { provider.events?.onReady(); return true; });
   provider.gptClose.mockResolvedValue(undefined);
   agreement.resolve.mockImplementation(async (turn: { id: string }) => ({ state: 'none', id: turn.id }));
@@ -177,6 +180,140 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it('sends the browser interrupt before releasing replacement PCM, without waiting for classification', async () => {
+    const { session, messages } = setup('browser-interruption', 'manual', 'audio');
+    await session.initialize();
+    const events = provider.events!;
+    const pcm = Buffer.alloc(4800, 4).toString('base64');
+    events.onAudio(pcm, 'old', 'normal');
+    provider.beginUserSpeech.mockImplementationOnce(() => { events.onSpeechAudioEnded('old'); return 1; });
+    provider.finishPlaybackInterrupt.mockImplementationOnce(() => {
+      events.onAudio(pcm, 'next', 'normal');
+      events.onSpeechAudioEnded('next');
+    });
+    events.onUserSpeech();
+    expect(messages.at(-1)).toEqual(expect.objectContaining({ type: 'voice_interrupt' }));
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.finishPlaybackInterrupt).toHaveBeenCalledExactlyOnceWith(1);
+    expect(messages.filter(message => ['voice_audio', 'voice_speech_end', 'voice_interrupt'].includes(message.type))).toEqual([
+      expect.objectContaining({ type: 'voice_audio', speechId: 'old' }),
+      expect.objectContaining({ type: 'voice_speech_end', speechId: 'old' }),
+      expect.objectContaining({ type: 'voice_interrupt' }),
+      expect.objectContaining({ type: 'voice_audio', speechId: 'next' }),
+      expect.objectContaining({ type: 'voice_speech_end', speechId: 'next' }),
+    ]);
+    expect(agreement.resolve).not.toHaveBeenCalled();
+    expect(provider.interruptWait).not.toHaveBeenCalled();
+    expect(provider.suppress).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('waits for the Avatar clear result before releasing replacement PCM', async () => {
+    const { session } = setup('avatar-interruption', 'manual', 'avatar');
+    await session.initialize();
+    const events = provider.events!;
+    const clearing = deferred<boolean>();
+    provider.interruptWait.mockReturnValueOnce(clearing.promise);
+    const pcm = Buffer.alloc(4800, 4).toString('base64');
+    events.onAudio(pcm, 'old', 'normal');
+    provider.beginUserSpeech.mockImplementationOnce(() => { events.onSpeechAudioEnded('old'); return 1; });
+    provider.finishPlaybackInterrupt.mockImplementationOnce(() => {
+      events.onAudio(pcm, 'next', 'normal');
+      events.onSpeechAudioEnded('next');
+    });
+    events.onUserSpeech();
+    expect(provider.interruptWait).toHaveBeenCalledExactlyOnceWith(2000);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    expect(provider.speak).toHaveBeenCalledExactlyOnceWith(pcm, 'old');
+    clearing.resolve(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.finishPlaybackInterrupt).toHaveBeenCalledExactlyOnceWith(1);
+    expect(provider.speak).toHaveBeenLastCalledWith(pcm, 'next');
+    expect(provider.mediaComplete).toHaveBeenLastCalledWith('next');
+    await session.shutdown('test_finished');
+  });
+
+  it.each([true, false])('bounds a missing Avatar interrupt ACK and requires the matching fallback route ACK (ready=%s)', async ready => {
+    const { session, messages } = setup('interrupt-fallback', 'manual', 'avatar');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    const events = provider.events!;
+    const pcm = Buffer.alloc(4800, 4).toString('base64');
+    events.onAudio(pcm, 'old', 'normal');
+    provider.beginUserSpeech.mockReturnValueOnce(1);
+    provider.interruptWait.mockImplementationOnce(timeout => new Promise(resolve => setTimeout(() => resolve(false), timeout)));
+    provider.finishPlaybackInterrupt.mockImplementationOnce(() => {
+      events.onAudio(pcm, 'next', 'normal');
+      events.onSpeechAudioEnded('next');
+    });
+    events.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(messages.some(message => message.type === 'voice_route')).toBe(false);
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    const route = messages.find((message): message is Extract<ServerMessage, { type: 'voice_route' }> => message.type === 'voice_route');
+    expect(route).toBeDefined();
+    expect(provider.mediaClose).toHaveBeenCalledOnce();
+    session.handleRaw(JSON.stringify({ type: 'voice_route_ready', transitionId: 'stale-route' }));
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    expect(messages.some(message => message.type === 'voice_audio')).toBe(false);
+    if (ready) {
+      session.handleRaw(JSON.stringify({ type: 'voice_route_ready', transitionId: route!.transitionId }));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(provider.finishPlaybackInterrupt).toHaveBeenCalledExactlyOnceWith(1);
+      expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_audio', audio: pcm, speechId: 'next' }));
+      expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_speech_end', speechId: 'next' }));
+    } else {
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+      expect(provider.gptClose).toHaveBeenCalledOnce();
+      expect(messages).toContainEqual(expect.objectContaining({ type: 'voice_status', status: 'error' }));
+      expect((session as unknown as { state: MatchState }).state.status).toBe('playing');
+    }
+    await session.shutdown('test_finished');
+  });
+
+  it('does not release a closed bridge when an interrupted Avatar finally acknowledges', async () => {
+    const { session, messages } = setup('closed-interruption', 'manual', 'avatar');
+    await session.initialize();
+    const clearing = deferred<boolean>();
+    provider.interruptWait.mockReturnValueOnce(clearing.promise);
+    provider.beginUserSpeech.mockReturnValueOnce(1);
+    provider.events!.onUserSpeech();
+    await session.shutdown('test_finished');
+    const count = messages.length;
+    clearing.resolve(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    expect(messages).toHaveLength(count);
+  });
+
+  it('discards an interrupted reply already queued behind an Avatar fallback barrier', async () => {
+    const { session, messages } = setup('queued-route-interruption', 'manual', 'avatar');
+    await session.initialize();
+    provider.mediaFailures[0]!();
+    const route = messages.find((message): message is Extract<ServerMessage, { type: 'voice_route' }> => message.type === 'voice_route')!;
+    const events = provider.events!;
+    const pcm = Buffer.alloc(4800, 4).toString('base64');
+    events.onAudio(pcm, 'queued-old', 'normal');
+    events.onSpeechAudioEnded('queued-old');
+    provider.beginUserSpeech.mockReturnValueOnce(1);
+    provider.finishPlaybackInterrupt.mockImplementationOnce(() => events.onAudio(pcm, 'replacement', 'normal'));
+    events.onUserSpeech();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    session.handleRaw(JSON.stringify({ type: 'voice_route_ready', transitionId: route.transitionId }));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.finishPlaybackInterrupt).toHaveBeenCalledExactlyOnceWith(1);
+    expect(messages.filter(message => message.type === 'voice_audio')).toEqual([
+      expect.objectContaining({ type: 'voice_audio', audio: pcm, speechId: 'replacement' }),
+    ]);
+    expect(messages).not.toContainEqual(expect.objectContaining({ type: 'voice_speech_end', speechId: 'queued-old' }));
+    await session.shutdown('test_finished');
+  });
+
   it('returns a normal speech playback ACK to the live bridge', async () => {
     const { session, messages } = setup('normal-playback-ack', 'manual', 'audio');
     await session.initialize();
@@ -1104,6 +1241,44 @@ describe('live match cleanup', () => {
     provider.events!.onAudio(pcm.toString('base64'), 'replay', 'normal');
     provider.events!.onSpeechAudioEnded('replay');
     await vi.advanceTimersByTimeAsync(1);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
+    await session.shutdown('test_finished');
+  });
+
+  it('preserves forwarded compound settlement while repeated Avatar interruptions await a shared ACK', async () => {
+    const transcription = deferred<string>();
+    const clearing = deferred<boolean>();
+    asr.transcribe.mockReturnValueOnce(transcription.promise);
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({
+      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'time_extension', offerId: null }],
+    });
+    const { session, messages } = setup('interrupt-settlement', 'manual', 'avatar');
+    await session.initialize(); session.handleRaw('{"type":"start"}');
+    completeAgreementTurn('request', 'synthetic compound request', 0, 100);
+    await settleAgreement();
+    const events = provider.events!;
+    const pcm = Buffer.alloc(4800, 4);
+    events.onNormalSpeechStarted!('spoken');
+    events.onAudio(pcm.toString('base64'), 'spoken', 'normal');
+    provider.beginUserSpeech.mockImplementationOnce(() => { events.onSpeechAudioEnded('spoken'); return 1; }).mockReturnValueOnce(2);
+    provider.interruptWait.mockReturnValue(clearing.promise);
+    completeAgreementTurn('newer', 'synthetic different topic', 200, 300);
+    completeAgreementTurn('newest', 'synthetic another topic', 400, 500);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(asr.transcribe.mock.calls[0][0]).toEqual(pcm);
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    transcription.resolve('synthetic spoken compound acceptance');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
+    expect(agreement.applyOnce.mock.calls[0][0]).toBe('interrupt-settlement:turn:1');
+    expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
+    clearing.resolve(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(provider.finishPlaybackInterrupt.mock.calls).toEqual([[1], [2]]);
+    // Interruption completion never replays a settlement or reruns its audit.
+    expect(agreement.auditAssistantSpeech).toHaveBeenCalledOnce();
     expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await session.shutdown('test_finished');

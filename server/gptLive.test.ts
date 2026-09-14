@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventEmitter } from 'node:events';
 import { GptLiveBridge } from './gptLive';
+import { MediaServerLeg } from './mediaServer';
 type FakeSocket = EventEmitter & { readyState: number; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; terminate: ReturnType<typeof vi.fn> };
 const sockets = vi.hoisted(() => [] as FakeSocket[]);
 vi.mock('./env', () => ({ env: { openaiKey: 'test-only-key', gptLiveModel: 'test-model', gptLiveVoice: 'test-voice' } }));
@@ -151,6 +152,113 @@ describe('voice transport teardown', () => {
   });
 });
 describe('live conversation pacing', () => {
+  it.each(['normal', 'confirmed'] as const)('interrupts actual Avatar %s playback before releasing subsequent normal and confirmed replies', async kind => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0]; socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' })); await connecting;
+    const playbackDone = vi.fn((id: string) => bridge.noteSpeechPlaybackDone(id));
+    const media = new MediaServerLeg('wss://test.invalid', vi.fn(), playbackDone);
+    const starting = media.start();
+    const avatar = sockets[1]; avatar.readyState = 1; avatar.emit('open');
+    avatar.emit('message', JSON.stringify({ type: 'session.state_updated', state: 'connected' })); await starting;
+    events.onAudio.mockImplementation((audio: string, id: string) => media.speak(audio, id));
+    events.onSpeechAudioEnded.mockImplementation((id: string) => media.completeSpeechInput(id));
+    const pcm = Buffer.alloc(19_200, 4).toString('base64');
+    const audio = () => socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: pcm }));
+    const commands = () => avatar.send.mock.calls.map(([raw]) => JSON.parse(raw));
+    const ack = (type: string, id: string) => avatar.emit('message', JSON.stringify({ type, source_event_id: id }));
+    if (kind === 'confirmed') bridge.requestConfirmedLine('synthetic confirmed line', 'confirmed-old');
+    audio();
+    const oldSpeech = events.onAudio.mock.calls[0][1];
+    const oldUtterance = commands().at(-1).event_id;
+    const interrupt = bridge.beginUserSpeech();
+    expect(interrupt).not.toBeNull();
+    const clearing = media.interruptAndWait(2000).then(cleared => { if (cleared) bridge.finishPlaybackInterrupt(interrupt!); });
+    const interruptId = commands().at(-1).event_id;
+    expect(commands().at(-1).type).toBe('agent.interrupt');
+    // Already-forwarded audio still gets its settlement fence exactly once.
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith(oldSpeech);
+    audio();
+    ack('agent.speak_ended', oldUtterance);
+    ack('agent.audio_buffer_cleared', 'stale-interrupt');
+    bridge.noteSpeechPlaybackDone(oldSpeech);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(events.onAudio).toHaveBeenCalledTimes(1);
+    expect(commands().filter(event => event.type === 'agent.speak')).toHaveLength(1);
+    ack('agent.audio_buffer_cleared', interruptId);
+    await clearing;
+    expect(events.onAudio).toHaveBeenCalledTimes(2);
+    const nextSpeech = events.onAudio.mock.calls[1][1];
+    expect(events.onAudio.mock.calls[1]).toEqual([pcm, nextSpeech, 'normal']);
+    const nextUtterance = commands().at(-1).event_id;
+    expect(nextUtterance).not.toBe(oldUtterance);
+    await vi.advanceTimersByTimeAsync(500);
+    ack('agent.speak_ended', oldUtterance);
+    expect(playbackDone).not.toHaveBeenCalled();
+    ack('agent.speak_ended', nextUtterance);
+    expect(playbackDone).toHaveBeenCalledExactlyOnceWith(nextSpeech);
+    bridge.setConversationLanguage('ja');
+    bridge.requestConfirmedLine('synthetic next confirmation', 'confirmed-next');
+    const commentaryCount = () => socket.send.mock.calls.filter(([raw]) => JSON.parse(raw).type === 'session.commentary.append').length;
+    const before = commentaryCount();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(commentaryCount()).toBe(before);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(commentaryCount()).toBe(before + 1);
+    audio();
+    expect(events.onAudio).toHaveBeenLastCalledWith(pcm, 'confirmed-next', 'confirmed');
+    const confirmedUtterance = commands().at(-1).event_id;
+    await vi.advanceTimersByTimeAsync(900);
+    ack('agent.speak_ended', confirmedUtterance);
+    expect(playbackDone).toHaveBeenLastCalledWith('confirmed-next');
+    audio();
+    expect(events.onAudio).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(events.onAudio).toHaveBeenCalledTimes(4);
+    expect(events.onAudio.mock.calls.at(-1)![2]).toBe('normal');
+    media.close();
+    const closing = bridge.close(); socket.emit('close'); await closing;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('ignores an older interrupt completion, retains new PCM through fallback, and invalidates completion on close', async () => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0]; socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' })); await connecting;
+    const pcm = Buffer.alloc(4800, 4).toString('base64');
+    const audio = () => socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: pcm }));
+    audio();
+    const first = bridge.beginUserSpeech()!;
+    audio(); // Still unplayed when a second interruption supersedes it.
+    const second = bridge.beginUserSpeech()!;
+    expect(second).not.toBe(first);
+    audio();
+    bridge.finishPlaybackInterrupt(first);
+    bridge.interruptPlayback(); // Avatar fallback must not discard the new queued reply.
+    bridge.noteSpeechPlaybackDone('normal-1');
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).toHaveBeenCalledTimes(1);
+    bridge.finishPlaybackInterrupt(second);
+    expect(events.onAudio).toHaveBeenLastCalledWith(pcm, 'normal-3', 'normal');
+    expect(events.onAudio).toHaveBeenCalledTimes(2);
+    bridge.finishPlaybackInterrupt(first);
+    audio();
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onAudio).toHaveBeenCalledTimes(2); // Stale completion cannot clear normal-3.
+    bridge.noteSpeechPlaybackDone('normal-3');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(events.onAudio).toHaveBeenLastCalledWith(pcm, 'normal-4', 'normal');
+    const third = bridge.beginUserSpeech()!;
+    audio();
+    const closing = bridge.close();
+    bridge.finishPlaybackInterrupt(third);
+    socket.emit('close'); await closing;
+    expect(events.onAudio).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('streams the first PCM before any transcript and never waits for agreement classification', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();

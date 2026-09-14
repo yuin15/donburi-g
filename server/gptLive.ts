@@ -56,6 +56,8 @@ export class GptLiveBridge {
   private readonly normalSpeechQueue: NormalSpeech[] = [];
   private normalPlaybackSpeechId: string | null = null;
   private readonly playbackSpeechIds = new Set<string>();
+  private playbackInterrupt: number | null = null;
+  private playbackInterruptSequence = 0;
   private normalReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechTimer: ReturnType<typeof setTimeout> | null = null;
   private playbackQuietUntil = 0;
@@ -305,13 +307,27 @@ export class GptLiveBridge {
     }
   }
 
-  /** User interruption cancels only unplayed PCM, never background settlement. */
-  beginUserSpeech(): void {
+  /** Hold new output until the owner clears actual downstream playback (or closes us). */
+  beginUserSpeech(): number | null {
     this.conversationLanguagePending = true;
+    if (this.hasActivePlayback()) this.playbackInterrupt = ++this.playbackInterruptSequence;
     this.discardBufferedNormalSpeech();
+    // An interrupted tagged line must not retain ownership of the next reply.
+    this.suppressAfterTaggedSpeech = false;
+    if (this.activeDelegationSpeech) this.finishDelegationSpeech();
+    this.playbackQuietUntil = 0;
+    return this.playbackInterrupt;
+  }
+
+  /** Only the matching downstream interrupt ACK releases the old playback fences. */
+  finishPlaybackInterrupt(interrupt: number): void {
+    if (this.playbackInterrupt !== interrupt || this.closing) return;
+    this.playbackInterrupt = null;
     this.normalPlaybackSpeechId = null;
     this.playbackSpeechIds.clear();
     this.playbackQuietUntil = 0;
+    if (!this.conversationLanguagePending) this.schedulePendingSpeech();
+    this.scheduleNormalSpeechRelease();
   }
 
   endUserSpeech(): void {
@@ -333,6 +349,7 @@ export class GptLiveBridge {
 
   /** The browser/Avatar has finished one tagged utterance. Hold the next one for five seconds. */
   noteSpeechPlaybackDone(speechId: string, now = Date.now()): void {
+    if (this.playbackInterrupt !== null) return;
     if (!this.playbackSpeechIds.delete(speechId)) return;
     if (this.normalPlaybackSpeechId === speechId) this.normalPlaybackSpeechId = null;
     this.playbackQuietUntil = Math.max(this.playbackQuietUntil, now + 5_000);
@@ -342,7 +359,12 @@ export class GptLiveBridge {
 
   /** A deliberate browser/Avatar interrupt clears the old playback fence. */
   interruptPlayback(): void {
+    // Avatar fallback has its own browser route barrier. An ongoing user
+    // interrupt retains new queued PCM until that barrier is acknowledged.
+    if (this.playbackInterrupt !== null) return;
     this.discardBufferedNormalSpeech();
+    this.suppressAfterTaggedSpeech = false;
+    if (this.activeDelegationSpeech) this.finishDelegationSpeech();
     this.normalPlaybackSpeechId = null;
     this.playbackSpeechIds.clear();
   }
@@ -406,6 +428,7 @@ export class GptLiveBridge {
     if (this.activeDelegationSpeech?.timer) clearTimeout(this.activeDelegationSpeech.timer);
     this.activeDelegationSpeech = null;
     this.discardBufferedNormalSpeech();
+    this.playbackInterrupt = null;
     this.normalPlaybackSpeechId = null;
     this.playbackSpeechIds.clear();
     if (this.normalReleaseTimer) clearTimeout(this.normalReleaseTimer);
@@ -564,7 +587,8 @@ export class GptLiveBridge {
   }
 
   private hasActivePlayback(): boolean {
-    return this.normalPlaybackSpeechId !== null
+    return this.playbackInterrupt !== null
+      || this.normalPlaybackSpeechId !== null
       || this.activeDelegationSpeech !== null
       || this.playbackSpeechIds.size > 0;
   }
