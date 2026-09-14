@@ -31,8 +31,8 @@ export class LiveAudioPlayer {
       const word = binary.charCodeAt(i * 2) | (binary.charCodeAt(i * 2 + 1) << 8);
       samples[i] = (word >= 0x8000 ? word - 0x10000 : word) / 0x8000;
     }
-    // A delayed network burst must not turn into several seconds of old speech.
-    if (this.nextAt - context.currentTime > 0.75) this.interrupt();
+    // Network delivery can run ahead of playback. Preserve queued PCM, including
+    // the current word's tail; only an explicit interruption may discard it.
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(gain);

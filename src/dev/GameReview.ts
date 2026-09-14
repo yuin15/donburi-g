@@ -79,7 +79,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       gate: { visible: false, connecting: false, message: '' },
       connection: { text: 'DEV · 表示検収（API接続なし）', voiceReady: false, showVideo: false, showVoiceControls: false },
       modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
-      startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: 'CLICK / SPACE TO SPIN' },
+      startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: '' },
       machineNotice: 'CHOOSE BET · ACTIVE LINES PAY',
       result: null, payout: null, cue: null, timeExtension: null, loanTransfer: null, rivalDistraction: null, expression: 'neutral',
       rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',

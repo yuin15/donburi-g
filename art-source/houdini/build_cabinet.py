@@ -518,9 +518,10 @@ def build_cabinet(geo):
     for y in (867,890):moulding(m,rectangle(153,y,754,4,2),.94,.012,.022,'cabinet_gold')
     for x in (186,819):rounded_solid(m,rectangle(x,895,54,11,5),-2.7,.62,.025,'cabinet_gold')
     m.sphere((3.54,3.15,-.20),(.26,.26,.26),'cabinet_gold',segments=24,rows=16)
-    m.stem([(3.55,3.15,-.20),(4.06,3.20,-.08),(4.01,4.6,.08),(4.03,4.8,.08)],.065,'cabinet_chrome',steps=24)
-    m.sphere((4.03,4.83,.08),(.24,.26,.24),'cabinet_ruby',segments=40,rows=24)
-    m.torus((4.03,4.6,.08),.105,.025,'cabinet_gold',segments=24)
+    # Separate moving parts; the mounting ball above remains on the fixed shell.
+    m.stem([(3.55,3.15,-.20),(4.06,3.20,-.08),(4.01,4.6,.08),(4.03,4.8,.08)],.065,'cabinet_lever_chrome',steps=24)
+    m.sphere((4.03,4.83,.08),(.24,.26,.24),'cabinet_lever_ruby',segments=40,rows=24)
+    m.torus((4.03,4.6,.08),.105,.025,'cabinet_lever_gold',segments=24)
     # Complete ivory drums remain in the native model; game strips occupy this cavity.
     for index,left in enumerate((248,437,626)):
         for i in range(64):
