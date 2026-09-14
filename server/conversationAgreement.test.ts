@@ -27,6 +27,57 @@ describe('ConversationAgreementCoordinator', () => {
     expect(apply).toHaveBeenCalledTimes(2);
   });
 
+  it('normalizes direct and offered duplicates to one action, preferring the verified offer', async () => {
+    request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"rival_to_player","offerId":null},{"action":"rival_to_player","offerId":"offer-rival"}]}' }));
+    request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"state":"commit","agreements":[{"action":"time_extension","offerId":null},{"action":"time_extension","offerId":"offer-time"}],"offers":[]}' }));
+    const coordinator = new ConversationAgreementCoordinator();
+
+    await expect(coordinator.resolve(turn())).resolves.toEqual({
+      state: 'accepted', id: 'match:turn:1', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }],
+    });
+    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic promise', 'P:synthetic', turn().activeOffers)).resolves.toEqual({
+      state: 'commit', agreements: [{ action: 'time_extension', offerId: 'offer-time' }],
+    });
+  });
+
+  it('uses both turn/action and offer/action ledger keys for money and time', () => {
+    const apply = vi.fn(() => true);
+    const moneyDirectThenOffer = new ConversationAgreementCoordinator();
+    expect(moneyDirectThenOffer.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: null }, apply)).toBe(true);
+    expect(moneyDirectThenOffer.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: 'offer-rival' }, apply)).toBe(false);
+    expect(moneyDirectThenOffer.applyOnce('match:turn:2', { action: 'rival_to_player', offerId: 'offer-rival' }, apply)).toBe(false);
+
+    const moneyOfferThenDirect = new ConversationAgreementCoordinator();
+    expect(moneyOfferThenDirect.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: 'offer-rival' }, apply)).toBe(true);
+    expect(moneyOfferThenDirect.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: null }, apply)).toBe(false);
+
+    const timeDirectThenOffer = new ConversationAgreementCoordinator();
+    expect(timeDirectThenOffer.applyOnce('match:turn:1', { action: 'time_extension', offerId: null }, apply)).toBe(true);
+    expect(timeDirectThenOffer.applyOnce('match:turn:1', { action: 'time_extension', offerId: 'offer-time' }, apply)).toBe(false);
+
+    const timeOfferThenDirect = new ConversationAgreementCoordinator();
+    expect(timeOfferThenDirect.applyOnce('match:turn:1', { action: 'time_extension', offerId: 'offer-time' }, apply)).toBe(true);
+    expect(timeOfferThenDirect.applyOnce('match:turn:1', { action: 'time_extension', offerId: null }, apply)).toBe(false);
+
+    const distinctDirectMoney = new ConversationAgreementCoordinator();
+    expect(distinctDirectMoney.applyOnce('match:turn:1', { action: 'player_to_rival', offerId: null }, apply)).toBe(true);
+    expect(distinctDirectMoney.applyOnce('match:turn:2', { action: 'player_to_rival', offerId: null }, apply)).toBe(true);
+
+    const repeatedMoneyOffer = new ConversationAgreementCoordinator();
+    expect(repeatedMoneyOffer.applyOnce('match:turn:1', { action: 'player_to_rival', offerId: 'offer-player' }, apply)).toBe(true);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:2', { action: 'player_to_rival', offerId: 'offer-player' }, apply)).toBe(false);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:2', { action: 'player_to_rival', offerId: null }, apply)).toBe(false);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:3', { action: 'player_to_rival', offerId: null }, apply)).toBe(true);
+
+    const repeatedOffer = new ConversationAgreementCoordinator();
+    expect(repeatedOffer.applyOnce('match:turn:1', { action: 'time_extension', offerId: 'offer-time' }, apply)).toBe(true);
+    expect(repeatedOffer.applyOnce('match:turn:2', { action: 'time_extension', offerId: 'offer-time' }, apply)).toBe(false);
+    expect(repeatedOffer.applyOnce('match:turn:2', { action: 'time_extension', offerId: null }, apply)).toBe(false);
+    expect(repeatedOffer.applyOnce('match:turn:3', { action: 'time_extension', offerId: null }, apply)).toBe(true);
+    expect(repeatedOffer.applyOnce('match:turn:4', { action: 'time_extension', offerId: null }, apply)).toBe(true);
+    expect(apply).toHaveBeenCalledTimes(11);
+  });
+
   it('keeps provider failure distinct from a successful no-agreement result', async () => {
     request.mockResolvedValueOnce(Response.json({ status: 'failed' }));
     request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"none","agreements":[]}' }));

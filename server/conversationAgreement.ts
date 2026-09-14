@@ -37,6 +37,21 @@ function outputText(payload: Record<string, unknown>): string {
 }
 
 /**
+ * A model may repeat an action while changing only the optional offer ID.
+ * One player turn can establish an action at most once. Prefer the verified
+ * server offer when both a direct and offered representation are returned:
+ * that preserves the cross-turn offer ledger as well.
+ */
+function oneAgreementPerAction(agreements: AcceptedAgreement[]): AcceptedAgreement[] {
+  const actions = new Map<AgreementAction, AcceptedAgreement>();
+  for (const agreement of agreements) {
+    const previous = actions.get(agreement.action);
+    if (!previous || (previous.offerId === null && agreement.offerId !== null)) actions.set(agreement.action, agreement);
+  }
+  return [...actions.values()];
+}
+
+/**
  * One transcript revision has one classifier request; a late subtitle may
  * create a newer revision of the same server turn. Only a committed action is
  * durable. `unavailable` intentionally differs from a successful `none`:
@@ -82,11 +97,12 @@ export class ConversationAgreementCoordinator {
           && (typeof agreement.offerId === 'string' || agreement.offerId === null)
           && (agreement.offerId === null || turn.activeOffers[agreement.action] === agreement.offerId);
       }) ? parsed.agreements as AcceptedAgreement[] : null;
-      const distinct = agreements && [...new Map(agreements.map(agreement => [`${agreement.action}:${agreement.offerId ?? 'direct'}`, agreement])).values()];
-      // Duplicate model entries are not a second agreement. An invalid
-      // duplicate shape is normalized before it reaches applyOnce.
-      if (parsed.result === 'accept' && distinct && distinct.length > 0) {
-        return { state: 'accepted', agreements: distinct, id: turn.id };
+      const normalized = agreements && oneAgreementPerAction(agreements);
+      // Duplicate model entries are not a second agreement. The turn/action
+      // ledger below independently defends against a later route presenting
+      // the same agreement in another valid shape.
+      if (parsed.result === 'accept' && normalized && normalized.length > 0) {
+        return { state: 'accepted', agreements: normalized, id: turn.id };
       }
       if (parsed.result === 'reject') return { state: 'rejected', id: turn.id };
       if (parsed.result === 'none' && agreements?.length === 0) return { state: 'none', id: turn.id };
@@ -130,17 +146,35 @@ export class ConversationAgreementCoordinator {
       }) ? parsed.agreements as AcceptedAgreement[] : null;
       const offers = Array.isArray(parsed.offers) && parsed.offers.every(action => action === 'rival_to_player' || action === 'player_to_rival' || action === 'time_extension') ? [...new Set(parsed.offers)] as AgreementAction[] : null;
       if (parsed.state === 'safe' && agreements?.length === 0 && offers?.length === 0) return { state: 'safe' };
-      if (parsed.state === 'commit' && agreements && agreements.length > 0 && offers?.length === 0) return { state: 'commit', agreements };
+      const normalized = agreements && oneAgreementPerAction(agreements);
+      if (parsed.state === 'commit' && normalized && normalized.length > 0 && offers?.length === 0) return { state: 'commit', agreements: normalized };
       if (parsed.state === 'offer' && offers && offers.length > 0 && agreements?.length === 0) return { state: 'offer', actions: offers };
       return { state: 'unavailable' };
     } catch { return { state: 'unavailable' }; } finally { clearTimeout(timer); }
   }
 
   applyOnce(id: string, agreement: AcceptedAgreement, apply: (direction?: LoanDirection) => boolean): boolean {
-    const appliedId = `${agreement.offerId ?? id}:applied:${agreement.action}`;
-    if (this.applied.has(appliedId)) return false;
+    // A direct representation and an offered representation of the same
+    // action in one turn are one agreement. Conversely, a server offer can
+    // be acknowledged across VAD turns only once.
+    const turnAppliedId = `${id}:applied:${agreement.action}`;
+    const offerAppliedId = agreement.offerId === null ? null : `${agreement.offerId}:applied:${agreement.action}`;
+    const turnAlreadyApplied = this.applied.has(turnAppliedId);
+    const offerAlreadyApplied = offerAppliedId !== null && this.applied.has(offerAppliedId);
+    if (turnAlreadyApplied || offerAlreadyApplied) {
+      // Preserve the alias relation even on the suppressed representation.
+      // Otherwise direct(turn 1) -> offer(turn 1) could leave the offer
+      // unmarked for turn 2, or a consumed offer could leave a later direct
+      // alias in that same newer turn unmarked.
+      if (turnAlreadyApplied && offerAppliedId !== null) this.applied.add(offerAppliedId);
+      if (offerAlreadyApplied) this.applied.add(turnAppliedId);
+      return false;
+    }
     const applied = agreement.action === 'time_extension' ? apply() : apply(agreement.action);
-    if (applied) this.applied.add(appliedId);
+    if (applied) {
+      this.applied.add(turnAppliedId);
+      if (offerAppliedId !== null) this.applied.add(offerAppliedId);
+    }
     return applied;
   }
 }

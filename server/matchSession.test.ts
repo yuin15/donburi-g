@@ -145,10 +145,20 @@ beforeEach(() => {
   agreement.resolve.mockImplementation(async (turn: { id: string }) => ({ state: 'none', id: turn.id }));
   agreement.auditAssistantSpeech.mockResolvedValue({ state: 'safe' });
   agreement.applyOnce.mockImplementation((id: string, item: { action: 'rival_to_player' | 'player_to_rival' | 'time_extension'; offerId: string | null }, apply: (direction?: 'rival_to_player' | 'player_to_rival') => boolean) => {
-    const key = `${item.offerId ?? id}:applied:${item.action}`;
-    if (agreement.applied.has(key)) return false;
+    const turnKey = `${id}:applied:${item.action}`;
+    const offerKey = item.offerId === null ? null : `${item.offerId}:applied:${item.action}`;
+    const turnApplied = agreement.applied.has(turnKey);
+    const offerApplied = offerKey !== null && agreement.applied.has(offerKey);
+    if (turnApplied || offerApplied) {
+      if (turnApplied && offerKey !== null) agreement.applied.add(offerKey);
+      if (offerApplied) agreement.applied.add(turnKey);
+      return false;
+    }
     const applied = apply(item.action === 'time_extension' ? undefined : item.action);
-    if (applied) agreement.applied.add(key);
+    if (applied) {
+      agreement.applied.add(turnKey);
+      if (offerKey !== null) agreement.applied.add(offerKey);
+    }
     return applied;
   });
 });
@@ -1066,6 +1076,26 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
+  it('applies one $5 transfer when an untrusted classifier repeats one action as direct and offered', async () => {
+    agreement.resolve.mockResolvedValueOnce({
+      state: 'accepted', id: 'duplicate-action:turn:1', agreements: [
+        { action: 'rival_to_player', offerId: null },
+        { action: 'rival_to_player', offerId: 'same-rival-offer' },
+      ],
+    });
+    const { session, messages } = setup('duplicate-action', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+
+    completeAgreementTurn('duplicate-action', 'synthetic agreement', 0, 100);
+    await settleAgreement();
+
+    const transfers = messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer');
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]).toMatchObject({ direction: 'rival_to_player', amount: 5 });
+    await session.shutdown('test_finished');
+  });
+
   it('commits a compound transfer and extension before their confirmed audio and reflects both in snapshots', async () => {
     agreement.resolve.mockResolvedValueOnce({
       state: 'accepted',
@@ -1171,6 +1201,59 @@ describe('live match cleanup', () => {
     await first.promise;
     await vi.advanceTimersByTimeAsync(1_250);
     expect(provider.finishUserTurnGate).toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
+  it('audits a newer normal reply against its own turn when an older response finishes last', async () => {
+    const older = deferred<{ state: 'accepted'; id: string; agreements: Array<{ action: 'rival_to_player'; offerId: null }> }>();
+    agreement.resolve
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValueOnce({ state: 'none', id: 'reverse-cause:turn:2' });
+    agreement.auditAssistantSpeech.mockResolvedValueOnce({
+      state: 'commit', agreements: [{ action: 'player_to_rival', offerId: 'turn-two-offer' }],
+    });
+    const { session, messages } = setup('reverse-cause', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+
+    completeAgreementTurn('older', 'synthetic older request', 0, 100);
+    await vi.advanceTimersByTimeAsync(350);
+    await vi.waitFor(() => expect(agreement.resolve).toHaveBeenCalledTimes(1));
+    completeAgreementTurn('newer', 'synthetic newer request', 200, 300);
+    await vi.advanceTimersByTimeAsync(700);
+    await vi.waitFor(() => expect((session as unknown as { finishedAgreementTurns: Map<number, unknown> }).finishedAgreementTurns.has(2)).toBe(true));
+    const contexts = session as unknown as { finishedAgreementTurns: Map<number, { activeOffers: Record<string, string | null> }> };
+    contexts.finishedAgreementTurns.get(2)!.activeOffers = { rival_to_player: null, player_to_rival: 'turn-two-offer', time_extension: null };
+
+    older.resolve({ state: 'accepted', id: 'reverse-cause:turn:1', agreements: [{ action: 'rival_to_player', offerId: null }] });
+    await vi.waitFor(() => expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1));
+    await expect(agreementBridge().onNormalSpeechCandidate!({
+      speechId: 'newer-normal', transcript: 'synthetic newer AI reply', signal: new AbortController().signal,
+    })).resolves.toBe(false);
+
+    expect(agreement.auditAssistantSpeech.mock.calls.at(-1)?.[3]).toEqual({ rival_to_player: null, player_to_rival: 'turn-two-offer', time_extension: null });
+    expect(messages.filter((message): message is Extract<ServerMessage, { type: 'loan_transfer' }> => message.type === 'loan_transfer').map(message => message.direction))
+      .toEqual(['rival_to_player', 'player_to_rival']);
+    await session.shutdown('test_finished');
+  });
+
+  it('keeps a fail-closed discard intent while another pending turn later settles none', async () => {
+    agreement.resolve
+      .mockResolvedValueOnce({ state: 'unavailable', id: 'gate-drop:turn:1' })
+      .mockResolvedValueOnce({ state: 'none', id: 'gate-drop:turn:2' });
+    const { session } = setup('gate-drop', 'manual', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+
+    completeAgreementTurn('unavailable', 'synthetic uncertain first turn', 0, 100);
+    await vi.advanceTimersByTimeAsync(350);
+    completeAgreementTurn('none', 'synthetic ordinary second turn', 200, 300);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(provider.finishUserTurnGate).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(350);
+    expect(provider.finishUserTurnGate).toHaveBeenCalledTimes(1);
+    expect(provider.finishUserTurnGate).toHaveBeenLastCalledWith(true);
     await session.shutdown('test_finished');
   });
 

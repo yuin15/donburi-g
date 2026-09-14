@@ -181,6 +181,8 @@ export class MatchSession {
   private readonly finishedAgreementTurns = new Map<number, {
     generation: number; version: number; activeOffers: Record<AgreementAction, string | null>; conversation: string; finishedAt: number;
   }>();
+  /** A fail-closed decision survives unrelated pending turns before gate release. */
+  private dropNormalAtNextGateRelease = false;
   private lastGameContext = '';
   private releaseQuota: (() => Promise<void>) | null;
   private readonly providerStates: Record<AiProvider, AiProviderState | 'idle'> = { gptLive: 'idle', liveAvatar: 'idle' };
@@ -1373,6 +1375,7 @@ export class MatchSession {
     }
     this.agreementTurns.clear();
     this.finishedAgreementTurns.clear();
+    this.dropNormalAtNextGateRelease = false;
     for (const audit of this.assistantAudits.values()) clearTimeout(audit.timer);
     this.assistantAudits.clear();
   }
@@ -1382,8 +1385,11 @@ export class MatchSession {
   }
 
   private releaseAgreementGate(dropNormal: boolean): void {
+    this.dropNormalAtNextGateRelease ||= dropNormal;
     if (this.hasPendingAgreementGate()) return;
-    (this.gpt as unknown as { finishUserTurnGate?: (dropNormal?: boolean) => void } | null)?.finishUserTurnGate?.(dropNormal);
+    const discard = this.dropNormalAtNextGateRelease;
+    this.dropNormalAtNextGateRelease = false;
+    (this.gpt as unknown as { finishUserTurnGate?: (dropNormal?: boolean) => void } | null)?.finishUserTurnGate?.(discard);
   }
 
   /** Match delayed user deltas to their VAD input range, never merely "now". */
@@ -1486,11 +1492,12 @@ export class MatchSession {
     if (this.closed || generation !== this.voiceGeneration) return false;
     const cutoff = Date.now() - 12_000;
     for (const [id, prior] of this.finishedAgreementTurns) if (prior.finishedAt < cutoff) this.finishedAgreementTurns.delete(id);
-    const cause = [...this.finishedAgreementTurns.entries()]
-      .filter(([, context]) => context.generation === generation)
-      .at(-1);
-    const turn = cause?.[0] ?? null;
-    const context = cause?.[1];
+    // The bridge delivers a normal candidate after the current VAD turn's
+    // gate. Map insertion order is unrelated: an older Responses request can
+    // finish after this turn. Its context must never audit the newer reply.
+    const turn = this.userSpeechTurn || null;
+    const candidateContext = turn === null ? undefined : this.finishedAgreementTurns.get(turn);
+    const context = candidateContext?.generation === generation ? candidateContext : undefined;
     const offers = context?.activeOffers ?? { rival_to_player: null, player_to_rival: null, time_extension: null };
     const version = context?.version ?? 0;
     const controller = new AbortController();
