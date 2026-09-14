@@ -189,7 +189,7 @@ describe('avatar media lifecycle', () => {
     media.close();
   });
 
-  it('waits for both the GPT terminal fence and the final tagged Avatar utterance', async () => {
+  it('waits for both the GPT terminal fence and the final normal Avatar utterance', async () => {
     const spoken = vi.fn();
     const media = new MediaServerLeg('wss://test.invalid', vi.fn(), spoken);
     const connecting = media.start();
@@ -199,19 +199,19 @@ describe('avatar media lifecycle', () => {
     socket.emit('message', JSON.stringify({ type: 'session.state_updated', state: 'connected' }));
     await connecting;
 
-    media.speak('first', 'extension');
+    media.speak('first', 'normal-1');
     const first = lastCommand(socket).event_id!;
     buffers[0]!.end();
     socket.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: first }));
     expect(spoken).not.toHaveBeenCalled();
 
-    media.speak('last', 'extension');
+    media.speak('last', 'normal-1');
     const last = lastCommand(socket).event_id!;
     buffers[0]!.end();
-    media.completeSpeechInput('extension');
+    media.completeSpeechInput('normal-1');
     expect(spoken).not.toHaveBeenCalled();
     socket.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: last }));
-    expect(spoken).toHaveBeenCalledExactlyOnceWith('extension');
+    expect(spoken).toHaveBeenCalledExactlyOnceWith('normal-1');
     media.close();
   });
 

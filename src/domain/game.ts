@@ -27,7 +27,7 @@ export interface MatchState {
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
-  duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
+  duration: number;
   extensionUsed: boolean;
   loanUsed: Record<LoanDirection, boolean>;
   rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
@@ -298,13 +298,22 @@ export function distractRival(state: MatchState, seconds: 2 | 4): MatchSnapshot 
   return getSnapshot(state);
 }
 
-/** The domain is the only place that can turn a model decision into extra time. */
+/** The domain is the only place that can turn an authorized extension into extra time. */
 export function applyTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  return applyTimeExtensionWithin(state, EXTENSION_REQUEST_REMAINING_SECONDS);
+}
+
+/** An explicit player request may use the same one-shot +10 second rule at any point in a live match. */
+export function applyPlayerRequestedTimeExtension(state: MatchState): Extract<GameEvent, { type: 'time_extended' }> | null {
+  return applyTimeExtensionWithin(state, MATCH_SECONDS);
+}
+
+function applyTimeExtensionWithin(state: MatchState, maximumRemaining: number): Extract<GameEvent, { type: 'time_extended' }> | null {
   if (
     state.status !== 'playing'
     || state.extensionUsed
     || state.duration !== MATCH_SECONDS
-    || state.remaining > EXTENSION_REQUEST_REMAINING_SECONDS
+    || state.remaining > maximumRemaining
   ) return null;
   const before = getSnapshot(state);
   state.duration = MAX_MATCH_SECONDS;
@@ -325,8 +334,7 @@ export function transferLoan(state: MatchState, direction: LoanDirection): Extra
     : ['player', 'rival'] as const;
   if (
     state.status !== 'playing'
-    || (direction === 'rival_to_player' && (state.loanUsed[direction] || state.scores[borrower] >= BETS[0]))
-    || state.scores[lender] < LOAN_AMOUNT
+    || (direction === 'player_to_rival' && state.scores[lender] < LOAN_AMOUNT)
   ) return null;
   const before = getSnapshot(state);
   state.scores[lender] -= LOAN_AMOUNT;

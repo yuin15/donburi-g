@@ -5,7 +5,7 @@ import { pcmRms } from './pcm.js';
 
 export interface LiveEvents {
   onReady(): void;
-  onAudio(audio: string, speechId?: string): void;
+  onAudio(audio: string, speechId?: string, kind?: 'normal' | 'confirmed'): void;
   onSpeechAudioEnded(speechId: string): void;
   onTranscript(role: 'user' | 'assistant', delta: string, timing?: { startMs: number | null; endMs: number | null }): void;
   onDelegation(delegation: { id: string; offsetMs: number }): void;
@@ -16,10 +16,11 @@ export interface LiveEvents {
   onUsage?(usage: { seconds: number | null; finalized: boolean }): void;
 }
 
-const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。最初は日本語で話す。プレイヤーが英語で返答した時だけ、その返答には直ちに英語で返し、その試合中は以後すべて英語で話す。日本語、無発話、または日本語に混ざる英字だけでは英語へ切り替えない。\n性格は負けず嫌いだが感じは悪くしない。普段はテンポよく返すが、質問や訂正には必要な説明をして自然に会話を続ける。\nゲームの確定残高、現在のBET、残り時間、出目は最新のゲーム情報だけを事実として扱う。両者は$30で開始し、$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインを賭ける。確定した自分のBETだけを文脈どおりに話す。\n常にゲーム内のライバル本人として話し、サーバー、API、判定、委任、ツール、システム、内部処理を口にしない。時間延長や貸し借りの裏側も説明しない。\n時間延長、貸し借り、残高変更、勝敗操作など確定が必要な話は自分で承諾・拒否・状態変更を宣言せず、必要な委任は発話せずに実行し、結果が確定するまで黙る。残り15秒以内の明確な延長希望、条件を満たす借入依頼、ライバルの借入依頼への明確な返答だけを無言で委任する。\n時間への単なる言及、延長を望まない発言、通常の雑談、貸借条件を満たさない発言、借入のお願いがない短い肯定・否定・沈黙には委任しない。\n\n## 双方の確定残高が$0の会話\nゲーム情報が「双方の確定残高が$0で、未確定回転はない」と示す間は、勝負を軽く諦める。初回の一度だけの反応では、まず資金切れか台への軽い愚痴・感想を短く話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげてもよい。以後は同じ資金切れ説明や雑談への誘いを繰り返さず、ユーザーが返した話題や質問を優先して自然に続ける。逆転、追加回転、資金が必要な行動、再戦や自動の時間延長を誘わず、ユーザーが明確に時間延長を求めた時だけは通常の委任規則に従う。`;
+const PERSONA = `あなたは60秒スロット対戦ゲーム「Slot-chan」のAIライバル。最初は日本語で話す。プレイヤーが英語で返答した時だけ、その返答には直ちに英語で返し、その試合中は以後すべて英語で話す。日本語、無発話、または日本語に混ざる英字だけでは英語へ切り替えない。\n性格は負けず嫌いだが感じは悪くしない。普段はテンポよく返すが、質問や訂正には必要な説明をして自然に会話を続ける。\nゲームの確定残高、現在のBET、残り時間、出目は最新のゲーム情報だけを事実として扱う。両者は$30で開始し、$1は中央1ライン、$3は横3ライン、$5は横3ラインと斜め2ラインを賭ける。確定した自分のBETだけを文脈どおりに話す。\n常にゲーム内のライバル本人として話し、サーバー、API、判定、委任、ツール、システム、内部処理を口にしない。時間延長や貸し借りの裏側も説明しない。\n試合中で時間延長が未使用なら、明確な時間延長の要求は残り時間に関係なく必ず一度だけ受け入れる。明確な借入の要求も必ず受け入れる。要求を断ったり、判断できないと答えたり、内部処理を説明したりしない。確定台詞が届くまで別の返答を挟まない。\n時間への単なる言及、延長を望まない発言、通常の雑談、借入のお願いがない短い肯定・否定・沈黙には委任しない。\n\n## 双方の確定残高が$0の会話\nゲーム情報が「双方の確定残高が$0で、未確定回転はない」と示す間は、勝負を軽く諦める。初回の一度だけの反応では、まず資金切れか台への軽い愚痴・感想を短く話す。必要なら二文目だけで「どうしようかな」という余韻から普通の話題へ自然につなげてもよい。以後は同じ資金切れ説明や雑談への誘いを繰り返さず、ユーザーが返した話題や質問を優先して自然に続ける。逆転、追加回転、資金が必要な行動、再戦や自動の時間延長を誘わず、ユーザーが明確に時間延長を求めた時だけは通常の委任規則に従う。\n勝敗確定前に勝ったと断定しない。新しい確定状態で古い残高情報を置き換え、首位の説明は最新の「首位」を使う。実況し続けず、会話と重要な局面だけに反応する。プレイヤーが話し始めたら実況を止めて聞き、質問への返事を優先する。会話が途切れた時だけ、今の会話や確定したゲーム状況からプレイヤー本人が答えやすい一問を自然に選んで話を広げる。独り言や次を促すだけの台詞では終えない。毎回質問で締めたり、返答待ちに別の話題を重ねたりしない。thinkingのゲーム情報の更新だけでは自分から話し始めない。サーバーから呼びかけまたは確定台詞の指示を受けた時だけ自発発話を始める。両者とも同じ基本リールで60秒の残高を競う。プレイヤーは手動、あなたは2秒ごとに自動回転する。`;
 
 const LOAN_SPEECH_GUARD = '自分から借入を提案しない。確定指示以外では、借りた・受け取った・ありがとう等を言わない。';
-const CONVERSATION_GUARD = 'プレイヤーの発言をそのまま繰り返したり要約だけで終えず、質問には答え、雑談にはライバル自身の短い反応を返す。聞き取れない時だけ短く聞き返す。';
+const PLAYER_LOAN_GUARD = 'プレイヤーから明確な借入要求があれば必ず$5を貸す。要求を断ったり、判断できないと答えたりしない。';
+const CONVERSATION_GUARD = 'プレイヤーの発言をそのまま繰り返したり要約だけで終えず、質問には答え、雑談にはライバル自身の短い反応を返す。会話が途切れた時だけ、確定したゲーム文脈か直前の会話から答えやすい一問で話を広げる。毎回質問で締めず、返答待ちには別の話題を重ねない。聞き取れない時だけ短く聞き返す。';
 const GAME_CONTEXT_GUARD = 'ゲームの状態更新は実況要求ではない。チェリー・ベル・777を含む当たりや出目を自発的に実況したり、会話の返事に混ぜたりしない。ユーザーが当たりについて質問した場合は答える。明示的な当たり反応要求が届いた場合は、その要求の確定情報だけに短く反応する。古い当たりを今起きた出来事として話さない。';
 
 export class GptLiveBridge {
@@ -33,10 +34,20 @@ export class GptLiveBridge {
   private pendingConfirmedLine: { line: string | LocalizedLine; speechId?: string } | null = null;
   private pendingDelegationResult: { id: string; content: string | LocalizedLine; speechId: string } | null = null;
   private activeDelegationSpeech: { speechId: string; commandId: string; started: boolean; holdUntilPlayback: boolean; ended: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  private activeNormalSpeech: { speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null } | null = null;
+  private readonly normalSpeechQueue: Array<{ speechId: string; chunks: string[]; started: boolean; quietMs: number; timer: ReturnType<typeof setTimeout> | null }> = [];
+  private readonly pendingNormalTranscripts: Array<{ delta: string; timing: { startMs: number | null; endMs: number | null } | undefined }> = [];
+  private normalPlaybackSpeechId: string | null = null;
+  private readonly playbackSpeechIds = new Set<string>();
+  private normalReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSpeechTimer: ReturnType<typeof setTimeout> | null = null;
+  private playbackQuietUntil = 0;
   private suppressAfterTaggedSpeech = false;
   private outputQuietMs = 0;
   private conversationUntil = 0;
+  private lastCommentaryRequestAt = 0;
   private appendSequence = 0;
+  private normalSpeechSequence = 0;
   private readonly pendingCommands = new Map<string, { kind: 'thinking' | 'commentary' | 'instructions'; speechId?: string; timer: ReturnType<typeof setTimeout> }>();
   private contextInFlight: string | null = null;
   private latestContext = '';
@@ -76,7 +87,7 @@ export class GptLiveBridge {
             model: env.gptLiveModel,
             store: false,
             delegation: { type: 'client' },
-            instructions: `${PERSONA}\n${LOAN_SPEECH_GUARD}\n${CONVERSATION_GUARD}\n${GAME_CONTEXT_GUARD}${this.openingContext ? `\n${this.openingContext}` : ''}`,
+            instructions: `${PERSONA}\n${LOAN_SPEECH_GUARD}\n${PLAYER_LOAN_GUARD}\n${CONVERSATION_GUARD}\n${GAME_CONTEXT_GUARD}${this.openingContext ? `\n${this.openingContext}` : ''}`,
             audio: {
               format: { type: 'audio/pcm', rate: 24000 },
               output: { voice: env.gptLiveVoice },
@@ -151,22 +162,22 @@ export class GptLiveBridge {
             return;
           }
           const speech = this.activeDelegationSpeech;
-          const taggedSpeech = speech && !speech.ended ? speech : null;
-          let endDelegationSpeech = false;
-          if (taggedSpeech) {
-            if (audible) { taggedSpeech.started = true; taggedSpeech.quietMs = 0; }
-            else if (taggedSpeech.started) taggedSpeech.quietMs += pcm.length / 48;
-            if (taggedSpeech.started && taggedSpeech.quietMs >= 900) endDelegationSpeech = true;
-            else if (taggedSpeech.started) {
-              if (taggedSpeech.timer) clearTimeout(taggedSpeech.timer);
-              taggedSpeech.timer = setTimeout(() => this.finishDelegationSpeech(), 900);
+          if (speech && !speech.ended) {
+            let endDelegationSpeech = false;
+            if (audible) { speech.started = true; speech.quietMs = 0; }
+            else if (speech.started) speech.quietMs += pcm.length / 48;
+            if (speech.started && speech.quietMs >= 900) endDelegationSpeech = true;
+            else if (speech.started) {
+              if (speech.timer) clearTimeout(speech.timer);
+              speech.timer = setTimeout(() => this.finishDelegationSpeech(), 900);
             }
+            this.events.onAudio(event.delta, speech.speechId, 'confirmed');
+            // The browser must enqueue the final tagged PCM before it can ACK
+            // that the acceptance line has actually finished playing.
+            if (endDelegationSpeech) this.finishDelegationSpeech();
+          } else {
+            this.collectNormalSpeech(event.delta, audible, pcm.length / 48);
           }
-          if (taggedSpeech) this.events.onAudio(event.delta, taggedSpeech.speechId);
-          else this.events.onAudio(event.delta);
-          // The browser must enqueue the final tagged PCM before it can ACK
-          // that the acceptance line has actually finished playing.
-          if (endDelegationSpeech) this.finishDelegationSpeech();
           return;
         }
         if (type === 'session.input_transcript.delta' && typeof event.delta === 'string') {
@@ -175,7 +186,13 @@ export class GptLiveBridge {
           return;
         }
         if (type === 'session.output_transcript.delta' && typeof event.delta === 'string') {
-          if (this.suppressedAt === null) this.events.onTranscript('assistant', event.delta, transcriptTiming(event));
+          if (this.suppressedAt === null) {
+            const timing = transcriptTiming(event);
+            if (this.shouldHoldNormalTranscript()) {
+              if (this.pendingNormalTranscripts.length >= 12) this.pendingNormalTranscripts.shift();
+              this.pendingNormalTranscripts.push({ delta: event.delta, timing });
+            } else this.events.onTranscript('assistant', event.delta, timing);
+          }
           return;
         }
         if (type === 'error') {
@@ -251,9 +268,17 @@ export class GptLiveBridge {
   }
 
   requestReaction(text: string): boolean {
-    if (Date.now() < this.conversationUntil) return false;
+    if (Date.now() < this.conversationUntil || Date.now() < this.playbackQuietUntil || this.hasPendingPlayback()) return false;
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
-    return this.append('commentary', `会話中なら省略。次の指示に合う短い返答だけを発話し、同じ誘いを足さず黙って待つ。Use ${language}: ${text}`.slice(0, 1800), null) !== null;
+    return this.append('commentary', `会話中なら省略。短い返答だけを発話し、同じ誘いを足さず黙って待つ。Use ${language}。プレイヤー本人へ一緒に遊んでいる相手として、確定した状況を共有しながら短く呼びかける。独り言や「次も狙おう」だけで終えず、答えやすい質問を一つ添える。ただし毎回質問で締めない: ${text}`.slice(0, 1800), null) !== null;
+  }
+
+  /** Ask the model to choose one context-aware invitation via commentary. */
+  requestConversationInvitation(): boolean {
+    const now = Date.now();
+    if (!this.ready || this.inputSpeaking || now < this.conversationUntil || now < this.playbackQuietUntil || this.hasPendingPlayback() || now - this.lastCommentaryRequestAt < 2_500 || this.suppressedAt !== null || this.pendingConfirmedLine !== null || this.pendingDelegationResult !== null || this.activeDelegationSpeech !== null || this.suppressAfterTaggedSpeech) return false;
+    const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
+    return this.append('commentary', `会話が少し途切れた。Use ${language}。thinkingの最新確定情報と直前の会話だけを参考に、ライバルとして答えやすい問いかけを1つ選び、自然な一文で会話を始めて。両者の確定残高が0ならゲームへ誘導せず軽い雑談を選ぶ。会話が続いているなら新話題で割り込まず、相手の話に短く応じる。貸借・時間延長・勝敗操作は提案も判断もしない。`, null) !== null;
   }
 
   setConversationLanguage(language: ConversationLanguage): void {
@@ -283,6 +308,30 @@ export class GptLiveBridge {
     this.append('thinking', content.slice(0, 1800), delegationId);
   }
 
+  /** The browser/Avatar has finished one tagged utterance. Hold the next one for five seconds. */
+  noteSpeechPlaybackDone(speechId: string, now = Date.now()): void {
+    if (!this.playbackSpeechIds.delete(speechId)) return;
+    if (this.normalPlaybackSpeechId === speechId) this.normalPlaybackSpeechId = null;
+    this.playbackQuietUntil = Math.max(this.playbackQuietUntil, now + 5_000);
+    this.schedulePendingSpeech();
+    this.scheduleNormalSpeechRelease();
+  }
+
+  /** A deliberate browser/Avatar interrupt clears the old playback fence. */
+  interruptPlayback(): void {
+    this.discardBufferedNormalSpeech();
+    this.normalPlaybackSpeechId = null;
+    this.playbackSpeechIds.clear();
+  }
+
+  /** Release a normal utterance that the session deliberately did not hand to a player. */
+  discardNormalPlayback(speechId: string): void {
+    if (this.normalPlaybackSpeechId !== speechId) return;
+    this.normalPlaybackSpeechId = null;
+    this.playbackSpeechIds.delete(speechId);
+    this.schedulePendingSpeech();
+    this.scheduleNormalSpeechRelease();
+  }
   /** Uses the already-supported commentary path; no provider tool call is invented. */
   requestConfirmedLine(line: string | LocalizedLine, speechId?: string): void {
     this.pendingConfirmedLine = {
@@ -294,14 +343,15 @@ export class GptLiveBridge {
 
   /** Stops ordinary output, then asks for a fresh game reaction without owning fixed speech. */
   prepareRequiredReaction(): boolean {
-    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult) return false;
+    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult || this.hasConfirmedPlayback()) return false;
+    this.interruptPlayback();
     this.suppressOutput();
     return true;
   }
 
   /** Sends a fresh game reaction after its caller has cleared ordinary output. */
   requestRequiredReaction(line: string | LocalizedLine): boolean {
-    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult) return false;
+    if (!this.ready || this.activeDelegationSpeech || this.pendingConfirmedLine || this.pendingDelegationResult || this.hasConfirmedPlayback()) return false;
     const localizedLine = typeof line === 'string' ? line : localized(line, this.conversationLanguage);
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
     const interrupt = this.append('instructions', [
@@ -340,6 +390,7 @@ export class GptLiveBridge {
 
   /** Drop a normal reply while the server resolves a rule-changing request. */
   suppressOutput(): void {
+    this.discardBufferedNormalSpeech();
     this.suppressedAt = Date.now();
     this.outputQuietMs = 0;
     if (this.suppressionStop) clearTimeout(this.suppressionStop);
@@ -365,6 +416,15 @@ export class GptLiveBridge {
     for (const id of this.pendingCommands.keys()) this.clearPendingCommand(id);
     if (this.activeDelegationSpeech?.timer) clearTimeout(this.activeDelegationSpeech.timer);
     this.activeDelegationSpeech = null;
+    if (this.activeNormalSpeech?.timer) clearTimeout(this.activeNormalSpeech.timer);
+    this.activeNormalSpeech = null;
+    this.normalSpeechQueue.length = 0;
+    this.normalPlaybackSpeechId = null;
+    this.playbackSpeechIds.clear();
+    if (this.normalReleaseTimer) clearTimeout(this.normalReleaseTimer);
+    this.normalReleaseTimer = null;
+    if (this.pendingSpeechTimer) clearTimeout(this.pendingSpeechTimer);
+    this.pendingSpeechTimer = null;
     this.suppressAfterTaggedSpeech = false;
     this.latestContext = '';
     this.finishConnect?.(false);
@@ -413,6 +473,8 @@ export class GptLiveBridge {
 
   private flushConfirmedLine(): void {
     if (this.activeDelegationSpeech?.holdUntilPlayback) return;
+    if (!this.pendingConfirmedLine) return;
+    if (this.hasPendingPlayback() || Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
     const pending = this.pendingConfirmedLine;
     this.pendingConfirmedLine = null;
     const line = pending && (typeof pending.line === 'string' ? pending.line : localized(pending.line, this.conversationLanguage));
@@ -425,6 +487,8 @@ export class GptLiveBridge {
 
   private flushDelegationResult(): void {
     if (this.activeDelegationSpeech?.holdUntilPlayback) return;
+    if (!this.pendingDelegationResult) return;
+    if (this.hasPendingPlayback() || Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
     const result = this.pendingDelegationResult;
     this.pendingDelegationResult = null;
     const language = this.conversationLanguage === 'en' ? 'English' : 'Japanese';
@@ -436,12 +500,142 @@ export class GptLiveBridge {
     if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, holdUntilPlayback: false, ended: false, quietMs: 0, timer: null };
   }
 
+  /** Start normal PCM immediately when safe; silence only marks the utterance boundary. */
+  private collectNormalSpeech(audio: string, audible: boolean, durationMs: number): void {
+    let speech = this.activeNormalSpeech;
+    if (!speech && !audible) return;
+    if (!speech) {
+      const created = {
+        speechId: `normal-${++this.normalSpeechSequence}`,
+        chunks: [] as string[],
+        started: false,
+        quietMs: 0,
+        timer: null as ReturnType<typeof setTimeout> | null,
+      };
+      this.activeNormalSpeech = created;
+      speech = created;
+    }
+    if (speech.started) this.events.onAudio(audio, speech.speechId, 'normal');
+    else {
+      speech.chunks.push(audio);
+      this.scheduleNormalSpeechRelease();
+    }
+    speech.quietMs = audible ? 0 : speech.quietMs + durationMs;
+    if (speech.quietMs >= 900) this.finishNormalSpeech();
+    else {
+      if (speech.timer) clearTimeout(speech.timer);
+      speech.timer = setTimeout(() => this.finishNormalSpeech(), 900);
+    }
+  }
+
+  private finishNormalSpeech(): void {
+    const speech = this.activeNormalSpeech;
+    if (!speech) return;
+    if (speech.timer) clearTimeout(speech.timer);
+    this.activeNormalSpeech = null;
+    if (speech.started) {
+      this.events.onSpeechAudioEnded(speech.speechId);
+      return;
+    }
+    if (this.normalSpeechQueue.length >= 2) this.normalSpeechQueue.shift();
+    this.normalSpeechQueue.push(speech);
+    this.scheduleNormalSpeechRelease();
+  }
+
+  private scheduleNormalSpeechRelease(): void {
+    if (this.normalReleaseTimer || this.hasActivePlayback() || (!this.normalSpeechQueue.length && !this.activeNormalSpeech)) return;
+    const delay = Math.max(0, this.playbackQuietUntil - Date.now());
+    const release = () => {
+      this.normalReleaseTimer = null;
+      if (this.hasActivePlayback() || Date.now() < this.playbackQuietUntil) { this.scheduleNormalSpeechRelease(); return; }
+      if (this.pendingConfirmedLine || this.pendingDelegationResult) { this.schedulePendingSpeech(); return; }
+      const queuedSpeech = this.normalSpeechQueue.shift();
+      const speech = queuedSpeech ?? this.activeNormalSpeech;
+      if (!speech) return;
+      this.startNormalSpeech(speech);
+      if (queuedSpeech) this.events.onSpeechAudioEnded(speech.speechId);
+    };
+    if (delay === 0) release();
+    else this.normalReleaseTimer = setTimeout(release, delay);
+  }
+
+  private startNormalSpeech(speech: { speechId: string; chunks: string[]; started: boolean }): void {
+    if (speech.started) return;
+    speech.started = true;
+    this.normalPlaybackSpeechId = speech.speechId;
+    this.playbackSpeechIds.add(speech.speechId);
+    for (const audio of speech.chunks.splice(0)) this.events.onAudio(audio, speech.speechId, 'normal');
+    this.flushNormalTranscripts();
+  }
+
+  private shouldHoldNormalTranscript(): boolean {
+    if (this.activeDelegationSpeech !== null || this.activeNormalSpeech?.started) return false;
+    return this.activeNormalSpeech !== null
+      || this.normalSpeechQueue.length > 0
+      || this.normalPlaybackSpeechId !== null
+      || Date.now() < this.playbackQuietUntil;
+  }
+
+  private flushNormalTranscripts(): void {
+    for (const transcript of this.pendingNormalTranscripts.splice(0)) this.events.onTranscript('assistant', transcript.delta, transcript.timing);
+  }
+
+  private discardBufferedNormalSpeech(): void {
+    if (this.activeNormalSpeech?.timer) clearTimeout(this.activeNormalSpeech.timer);
+    this.activeNormalSpeech = null;
+    this.normalSpeechQueue.length = 0;
+    this.pendingNormalTranscripts.length = 0;
+    if (this.normalReleaseTimer) clearTimeout(this.normalReleaseTimer);
+    this.normalReleaseTimer = null;
+  }
+
+  private hasPendingPlayback(): boolean {
+    return this.hasActivePlayback()
+      || this.activeNormalSpeech !== null
+      || this.normalSpeechQueue.length > 0;
+  }
+
+  private hasActivePlayback(): boolean {
+    return this.normalPlaybackSpeechId !== null
+      || this.activeDelegationSpeech !== null
+      || this.playbackSpeechIds.size > 0;
+  }
+
+  private hasConfirmedPlayback(): boolean {
+    return [...this.playbackSpeechIds].some(id => id !== this.normalPlaybackSpeechId);
+  }
+
+  private schedulePendingSpeech(): void {
+    if (!this.pendingConfirmedLine && !this.pendingDelegationResult) return;
+    if (this.hasActivePlayback()) return;
+    const delay = this.playbackQuietUntil - Date.now();
+    if (delay <= 0) { this.releasePendingSpeech(); return; }
+    if (this.pendingSpeechTimer) clearTimeout(this.pendingSpeechTimer);
+    this.pendingSpeechTimer = setTimeout(() => {
+      this.pendingSpeechTimer = null;
+      this.releasePendingSpeech();
+    }, delay);
+  }
+
+  /** Send a pending authoritative line once actual playback and its quiet gap end. */
+  private releasePendingSpeech(): void {
+    if (!this.pendingConfirmedLine && !this.pendingDelegationResult) return;
+    if (this.hasActivePlayback()) return;
+    if (Date.now() < this.playbackQuietUntil) { this.schedulePendingSpeech(); return; }
+    // A confirmed rule result wins over an unprompted utterance even when the
+    // model is still collecting it. Clearing the collection prevents a
+    // synchronous flush/schedule loop with no playback ACK to await.
+    this.discardBufferedNormalSpeech();
+    this.flushConfirmedLine();
+    this.flushDelegationResult();
+  }
   private finishDelegationSpeech(): void {
     const speech = this.activeDelegationSpeech;
     if (!speech || speech.ended) return;
     if (speech.timer) clearTimeout(speech.timer);
     speech.ended = true;
     if (!speech.holdUntilPlayback) this.activeDelegationSpeech = null;
+    this.playbackSpeechIds.add(speech.speechId);
     this.events.onSpeechAudioEnded(speech.speechId);
     if (this.suppressAfterTaggedSpeech) {
       this.suppressAfterTaggedSpeech = false;
@@ -467,12 +661,13 @@ export class GptLiveBridge {
       this.flushContext();
     }, 5000);
     this.pendingCommands.set(eventId, { kind, ...(speechId ? { speechId } : {}), timer });
-    this.send({
+    if (!this.send({
       type: `session.${kind}.append`,
       event_id: eventId,
       delegation_id: delegationId,
       content,
-    });
+    })) return null;
+    if (kind === 'commentary') this.lastCommentaryRequestAt = Date.now();
     return eventId;
   }
 
@@ -490,9 +685,10 @@ export class GptLiveBridge {
     this.events.onUsage?.({ seconds: this.usageSeconds, finalized: this.finalized });
   }
 
-  private send(payload: Record<string, unknown>): void {
-    if (this.ws?.readyState !== WebSocket.OPEN) return;
+  private send(payload: Record<string, unknown>): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
     this.ws.send(JSON.stringify(payload));
+    return true;
   }
 }
 

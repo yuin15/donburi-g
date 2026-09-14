@@ -14,7 +14,7 @@ describe('CPU rival reactions', () => {
   it('keeps a rival jackpot ahead of a player small hit and lead change', () => {
     const reaction = new RivalReactions().next(spin('player', PAYOUT.cherry, 96), spin('rival', PAYOUT.seven, 126), 10, 'rival');
     expect(reaction.kind).toBe('rival-jackpot');
-    expect(reaction.expression).toBe('confident');
+    expect(reaction.expression).toBe('ecstatic');
     expect(reaction.text).toContain('Sevens');
   });
 
@@ -53,7 +53,7 @@ describe('CPU rival reactions', () => {
     const quiet = reactions.next(spin('player', 0, 130), spin('rival', 0, 100), 22, null);
     expect(quiet.kind).toBe('quiet');
     expect(quiet.text).not.toBe(jackpot.text);
-    expect(quiet.expression).toBe('neutral');
+    expect(quiet.expression).toBe('wry-smile');
   });
 
   const scenes: { kind: RivalReactionKind; player: number; rival: number; remaining?: number; comeback?: Side }[] = [

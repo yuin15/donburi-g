@@ -3,8 +3,9 @@ import type { ReelScene } from './ReelScene';
 import { cloneMatchStats, createMatchStats, recordSpin } from '../domain/matchStats';
 import { evaluateGrid, gridFromStops } from '../domain/game';
 import { VICTORY_DURATION } from '../viewmodel/RewardPresentation';
+import { RIVAL_EXPRESSIONS, RIVAL_EXPRESSION_LABELS, type RivalExpression } from '../viewmodel/RivalExpressions';
 
-export type ReviewExample = 'final-seconds' | 'extension-offered' | 'extension-accepted' | 'extension-rejected' | 'loan-rival-to-player' | 'loan-player-to-rival' | 'text-borrow' | 'text-lend' | 'text-extend' | 'distraction-started' | 'distraction-recovered' | 'session-best' | 'mic-live' | 'mic-reply' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'diagonal' | 'bell-cherry' | 'cherry-bell' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
+export type ReviewExample = 'cabinet-pose' | 'final-seconds' | 'extension-offered' | 'extension-accepted' | 'extension-rejected' | 'loan-rival-to-player' | 'loan-player-to-rival' | 'text-borrow' | 'text-lend' | 'text-extend' | 'distraction-started' | 'distraction-recovered' | 'session-best' | 'mic-live' | 'mic-reply' | 'mic-muted' | 'mic-quiet' | 'normal' | 'small' | 'diagonal' | 'bell-cherry' | 'cherry-bell' | 'jackpot' | 'rival-jackpot' | 'both-jackpot' | 'quiet' | 'draw' | 'defeat' | 'final' | 'live-caption' | 'live-result-error' | 'live-result-closed' | 'rematch-ready';
 interface ReviewPort {
   scene: ReelScene;
   unlockSound: () => Promise<void>;
@@ -23,7 +24,7 @@ export function mountVisualReview(port: ReviewPort): void {
     <label>コイン比較 <select id="coinStyle"><option value="fountain">A 噴水 → 回収／金の雨（採用）</option><option value="rain">B 金の雨 → 回収</option></select></label><button data-example="normal">通常</button><button data-example="final-seconds">残り8秒</button><button data-example="extension-offered">延長を提案</button><button data-example="extension-accepted">延長受諾</button><button data-example="extension-rejected">延長拒否</button><button data-example="loan-rival-to-player">貸借 RIVAL → YOU</button><button data-example="loan-player-to-rival">貸借 YOU → RIVAL</button><button data-example="text-borrow">TEXT: BORROW（fixture）</button><button data-example="text-lend">TEXT: LEND（fixture）</button><button data-example="text-extend">TEXT: EXTEND（fixture）</button><button data-example="distraction-started">注意逸らし・停止</button><button data-example="distraction-recovered">注意逸らし・復帰</button><button data-example="session-best">自己ベスト・3連勝</button><button data-example="small">小当たり</button><button data-example="diagonal">斜め7</button><button data-example="bell-cherry">ベル／チェリー</button><button data-example="cherry-bell">チェリー／ベル</button><button data-example="jackpot">7揃い・逆転</button><button data-example="rival-jackpot">相手が7揃い</button><button data-example="both-jackpot">両者7揃い</button><button data-example="quiet">両者はずれ</button><button data-example="draw">引き分け</button><button data-example="final">最終スピン</button>
     <button data-example="defeat">敗北</button><button data-example="live-caption">Live字幕の保持</button><button data-example="live-result-error">結果音声の接続失敗</button><button data-example="live-result-closed">結果音声の正常終了</button><button data-example="rematch-ready">Live再戦の準備</button>
     <button data-example="mic-live">聞き取り中</button><button data-example="mic-reply">ライバルの返事</button><button data-example="mic-quiet">マイク待機</button><button data-example="mic-muted">マイクミュート</button>
-    <button id="recordMotion">回転と当たりを録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
+    <button data-example="cabinet-pose">台の決めポーズを再生</button><button id="recordMotion">回転と当たりを録画</button><button id="measureMotion">録画なしでFPS計測</button><button id="idleStats">待機5秒を計測</button><button id="cleanFrame">ツールを隠す</button>
     </div><output id="reviewStats" style="display:block;margin:8px 0"></output><details><summary>録画データ</summary><textarea id="recordingData" readonly aria-label="生成した回転動画のデータ"></textarea><video id="reviewVideo" src="/docs/evidence/visual-redesign/downward-reels-1920.webm" preload="metadata" controls muted style="display:block;max-width:400px"></video><button id="slowMotion">1/4速度で再生</button><label>動画時刻（秒）<input id="videoSeek" type="number" min="0" step="0.033" value="0"></label><button id="exportFrame">現在の動画フレームを書き出す</button><textarea id="frameData" readonly aria-label="動画フレームの画像データ"></textarea></details></details>`;
   document.body.append(controls);
   if (import.meta.env.MODE === 'review') {
@@ -32,6 +33,16 @@ export function mountVisualReview(port: ReviewPort): void {
   }
   const find = <T extends HTMLElement>(id: string) => controls.querySelector<T>('#' + id)!;
   const stats = find<HTMLOutputElement>('reviewStats');
+  const expressionControl = document.createElement('label');
+  expressionControl.textContent = '表情確認 ';
+  const expressionSelect = document.createElement('select');
+  expressionSelect.setAttribute('aria-label', '表情確認');
+  RIVAL_EXPRESSIONS.forEach(expression => {
+    expressionSelect.add(new Option(RIVAL_EXPRESSION_LABELS[expression], expression));
+  });
+  expressionSelect.onchange = () => port.scene.setExpression(expressionSelect.value as RivalExpression);
+  expressionControl.append(expressionSelect);
+  find('coinStyle').parentElement!.after(expressionControl);
   find<HTMLSelectElement>('coinStyle').onchange = () => {
     port.scene.setCoinStyle(find<HTMLSelectElement>('coinStyle').value === 'rain' ? 'rain' : 'fountain');
     port.preview('jackpot');

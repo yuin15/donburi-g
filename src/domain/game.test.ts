@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceMatch,
   applyTimeExtension,
+  applyPlayerRequestedTimeExtension,
   createMatch,
   distractRival,
   getPoolCounts,
@@ -169,7 +170,7 @@ describe('authoritative match domain', () => {
     expect('pools' in snapshot).toBe(false);
   });
 
-  it('authoritatively grants one late +10 second extension and then finishes at 70 seconds', () => {
+  it('authoritatively grants one requested +10 second extension', () => {
     const state = createMatch(123, 'extended', 'manual');
     startMatch(state);
     advanceMatch(state, 54.25);
@@ -181,13 +182,22 @@ describe('authoritative match domain', () => {
     expect(end).toMatchObject({ snapshot: { elapsed: 70, duration: 70, remaining: 0, status: 'result' } });
   });
 
-  it('does not extend early, after the result, or beyond the one permitted change', () => {
+  it('extends an early explicit player request but not after the result', () => {
     const state = createMatch(123, 'guarded');
     startMatch(state);
     advanceMatch(state, 44.9);
-    expect(applyTimeExtension(state)).toBeNull();
-    advanceMatch(state, 60);
-    expect(applyTimeExtension(state)).toBeNull();
+    expect(applyPlayerRequestedTimeExtension(state)).toMatchObject({ after: { duration: 70 } });
+    advanceMatch(state, 70);
+    expect(applyPlayerRequestedTimeExtension(state)).toBeNull();
+  });
+
+  it('lets one explicit player request extend from any point while keeping the normal CPU guard late-only', () => {
+    const playerRequested = createMatch(123, 'player-requested');
+    startMatch(playerRequested);
+    advanceMatch(playerRequested, 5);
+    expect(applyTimeExtension(playerRequested)).toBeNull();
+    expect(applyPlayerRequestedTimeExtension(playerRequested)).toMatchObject({ after: { duration: 70, remaining: 65 } });
+    expect(applyPlayerRequestedTimeExtension(playerRequested)).toBeNull();
   });
 
   it('moves exactly $5 for a bankrupt player and for every voluntary player loan without minting bankroll', () => {
@@ -198,7 +208,7 @@ describe('authoritative match domain', () => {
     const first = transferLoan(state, 'rival_to_player');
     expect(first).toMatchObject({ type: 'loan_transfer', direction: 'rival_to_player', before: { scores: { player: 0, rival: 8 } }, after: { scores: { player: 5, rival: 3 }, balances: { player: 5, rival: 3 } } });
     expect((first?.after.scores.player ?? 0) + (first?.after.scores.rival ?? 0)).toBe((first?.before.scores.player ?? 0) + (first?.before.scores.rival ?? 0));
-    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    expect(transferLoan(state, 'rival_to_player')).toMatchObject({ after: { scores: { player: 10, rival: -2 } } });
 
     state.scores.player = 9;
     state.scores.rival = 0;
@@ -212,16 +222,16 @@ describe('authoritative match domain', () => {
     expect((repeat?.after.scores.player ?? 0) + (repeat?.after.scores.rival ?? 0)).toBe((repeat?.before.scores.player ?? 0) + (repeat?.before.scores.rival ?? 0));
   });
 
-  it('rejects loans before play, with a funded borrower, an underfunded lender, or after result', () => {
+  it('grants rival-to-player loans regardless of balances while play is active', () => {
     const state = createMatch(123, 'loan-guard');
     expect(transferLoan(state, 'rival_to_player')).toBeNull();
     startMatch(state);
     state.scores.player = 1;
     state.scores.rival = 20;
-    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    expect(transferLoan(state, 'rival_to_player')).toMatchObject({ after: { scores: { player: 6, rival: 15 } } });
     state.scores.player = 0;
     state.scores.rival = 4;
-    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+    expect(transferLoan(state, 'rival_to_player')).toMatchObject({ after: { scores: { player: 5, rival: -1 } } });
     advanceMatch(state, 60);
     expect(transferLoan(state, 'rival_to_player')).toBeNull();
     expect(transferLoan(state, 'player_to_rival')).toBeNull();

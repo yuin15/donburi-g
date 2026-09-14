@@ -51,7 +51,7 @@ export interface MatchSnapshot {
   elapsed: number;
   remaining: number;
   /** Present on authoritative snapshots. Absent only for older saved wire fixtures. */
-  duration?: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
+  duration?: number;
   round: number;
   rounds: Record<Side, number>;
   balances: Record<Side, number>;

@@ -88,7 +88,7 @@ function setup(factory?: LiveSessionFactory) {
   const rivalRounds: typeof rounds = [];
   const presentation: GamePresentation = {
     playSpin: vi.fn((spin: SpinView, stopped: (celebrate?: boolean) => void) => { (spin.side === 'player' ? rounds : rivalRounds).push({ spin, stopped }); }),
-    resetScene: vi.fn(), stopScene: vi.fn(), celebrateResult: vi.fn(), playSound: vi.fn(), stopSound: vi.fn(), setEffectsMuted: vi.fn(), focus: vi.fn(),
+    resetScene: vi.fn(), stopScene: vi.fn(), celebrateResult: vi.fn((_winner, ready) => ready?.()), playSound: vi.fn(), stopSound: vi.fn(), setEffectsMuted: vi.fn(), focus: vi.fn(),
   };
   let visible = true;
   const vm = new GameViewModel({
@@ -271,9 +271,11 @@ describe('game view model', () => {
     expect(h.rivalRounds).toHaveLength(17);
     expect(h.vm.state.startControl.label).toBe('LAST SPIN');
     expect(h.vm.state.result).toBeNull();
+    const stopsBeforeResult = vi.mocked(h.presentation.stopScene).mock.calls.length;
     h.rivalRounds.at(-1)!.stopped();
     expect(h.vm.state.result).toMatchObject({ rounds: { player: 0, rival: 17 }, scores: { player: 30, rival: h.rivalRounds.at(-1)!.spin.total } });
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
+    expect(h.presentation.stopScene).toHaveBeenCalledTimes(stopsBeforeResult);
     unsubscribe();
     h.vm.dispose();
     expect(h.clock.timers.size).toBe(0);
@@ -347,18 +349,34 @@ describe('game view model', () => {
     session.emit({ type: 'match_ended', snapshot: final });
     session.emit({ type: 'snapshot', snapshot: final, lastSpin: last });
     session.emit({ type: 'transcript', role: 'assistant', delta: '勝負だったね。' });
+    const stopsBeforeResult = vi.mocked(h.presentation.stopScene).mock.calls.length;
+    vi.mocked(h.presentation.celebrateResult).mockImplementationOnce(() => undefined);
     h.rounds[0].stopped();
     expect(h.vm.state.result).toBeNull();
     h.rivalRounds[0].stopped();
+    expect(h.vm.state.result).toBeNull();
+    expect(h.vm.state.startControl.label).toBe('LAST SPIN');
+    expect(h.presentation.playSound).not.toHaveBeenCalledWith('victory');
+    // A live message may publish fresh state while the cabinet is still turning.
+    session.emit({ type: 'snapshot', snapshot: final, lastSpin: last });
+    expect(h.vm.state.result).toBeNull();
+    session.emit({ type: 'voice_status', status: 'closed' });
+    expect(h.vm.state.line).toBe('いい勝負だったね。');
+    const ready = vi.mocked(h.presentation.celebrateResult).mock.calls.at(-1)![1]!;
+    ready();
     expect(h.vm.state.scores).toEqual(final.scores);
     expect(h.vm.state.result).toEqual(final);
     expect(h.vm.state.line).toBe('いい勝負だったね。');
     expect(h.presentation.celebrateResult).toHaveBeenCalledOnce();
+    expect(h.presentation.stopScene).toHaveBeenCalledTimes(stopsBeforeResult);
     await h.clock.advance(3000);
     expect(h.vm.state.line).toBe('いい勝負だったね。');
     session.emit({ type: 'voice_status', status: 'closed' });
     expect(h.vm.state.line).toBe('いい勝負だったね。');
+    const soundsBeforeDisposal = vi.mocked(h.presentation.playSound).mock.calls.length;
     h.vm.dispose();
+    ready();
+    expect(h.presentation.playSound).toHaveBeenCalledTimes(soundsBeforeDisposal);
     expect(session.disconnect).toHaveBeenCalledOnce();
   });
 
