@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AmbientLight, DirectionalLight, Mesh, Object3D, Scene, ShaderMaterial, Texture, type BufferGeometry, type Material } from 'three';
+import { AmbientLight, DirectionalLight, InstancedMesh, Matrix4, Mesh, Object3D, Scene, ShaderMaterial, Texture, Vector3, type BufferGeometry, type Material } from 'three';
 import type { SpinView, SymbolId } from '../../shared/protocol';
 import { SYMBOLS } from './ReelMotion';
 import { PAYOUT } from '../domain/game';
@@ -73,10 +73,25 @@ function reelWins() {
   return reels()
     .map(mesh => mesh.material.uniforms.winning.value as number);
 }
-function coins() {
-  const result: Mesh[] = [];
-  scene().traverse(node => { if (node instanceof Mesh && node.name === 'win-coin') result.push(node); });
+function coins(): InstancedMesh[] {
+  const result: InstancedMesh[] = [];
+  scene().traverse(node => { if (node instanceof InstancedMesh && node.name === 'win-coin') result.push(node); });
   return result;
+}
+function backgroundRain(): InstancedMesh { return scene().getObjectByName('background-coin-rain') as InstancedMesh; }
+function coinPosition(mesh: InstancedMesh, index: number): Vector3 {
+  const matrix = new Matrix4();
+  mesh.getMatrixAt(index, matrix);
+  return new Vector3().setFromMatrixPosition(matrix);
+}
+function coinScale(mesh: InstancedMesh, index: number): Vector3 {
+  const matrix = new Matrix4();
+  mesh.getMatrixAt(index, matrix);
+  return new Vector3().setFromMatrixScale(matrix);
+}
+function activeCoinPositions(mesh: InstancedMesh): Array<{ index: number; position: Vector3 }> {
+  return Array.from({ length: mesh.count }, (_, index) => ({ index, position: coinPosition(mesh, index) }))
+    .filter(({ index }) => coinScale(mesh, index).x > .01);
 }
 function reelCenters() {
   return reels()
@@ -270,6 +285,7 @@ describe('stage rendering and cleanup', () => {
     expect(host.dataset).toMatchObject({ rivalWin: 'true' });
     expect(reelCenters().slice(3)).toEqual(rival.symbols);
     frame(900);
+    frame(500);
     expect(host.dataset).toMatchObject({ rivalWin: 'false' });
   });
   it('replaces obsolete rounds and ignores duplicate/older updates', () => {
@@ -332,22 +348,64 @@ describe('stage rendering and cleanup', () => {
     expect(host.dataset).toMatchObject({ win: 'false', jackpot: 'false' });
     expect(frames.size).toBe(0);
   });
-  it('uses at most 24 coins in the same scene, bounded to 1.2 seconds', () => {
-    const { view } = setup();
+  it('collects the jackpot in 1.7 seconds and rains behind the scene for three seconds', () => {
+    const { view } = setupWithEffects();
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
     frame();
-    const coins: Mesh[] = [];
-    scene().traverse(n => { if (n instanceof Mesh && n.name === 'win-coin') coins.push(n); });
-    expect(coins).toHaveLength(24);
-    expect(coins.filter(c => c.visible)).toHaveLength(12);
-    frame(1200);
-    expect(coins.every(c => !c.visible)).toBe(true);
+    const pools = coins();
+    expect(pools).toHaveLength(5);
+    expect(pools.map(pool => pool.instanceMatrix.count)).toEqual([270, 270, 54, 54, 480]);
+    expect(new Set(pools.map(pool => pool.geometry))).toHaveLength(1);
+    expect(pools.filter(pool => pool.visible)).toHaveLength(1);
+    expect(pools.find(pool => pool.visible)!.count).toBe(270);
+    const rain = backgroundRain();
+    expect(rain.count).toBe(600);
+    expect(rain.geometry).toBe(pools[0].geometry);
+    expect(rain.layers.isEnabled(0)).toBe(true);
+    expect(rain.layers.isEnabled(1)).toBe(false);
+    expect(pools[0].layers.isEnabled(1)).toBe(true);
+    const positions = activeCoinPositions(rain).map(coin => coin.position);
+    expect(Math.min(...positions.map(p => p.x))).toBeLessThan(100);
+    expect(Math.max(...positions.map(p => p.x))).toBeGreaterThan(1570);
+    expect(positions.every(p => p.z < -150 && p.z > -600)).toBe(true);
+    frame(1700);
+    expect(pools.every(pool => !pool.visible && pool.count === 0)).toBe(true);
+    expect(rain.visible).toBe(true);
+    frame(1283);
+    expect(rain.visible).toBe(true);
+    frame(1);
+    expect(rain.visible).toBe(false);
+    expect(rain.count).toBe(0);
     expect(frames.size).toBe(0);
     motion.matches = true;
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
     frame();
-    expect(coins.every(c => !c.visible)).toBe(true);
+    expect(pools.every(pool => !pool.visible && pool.count === 0)).toBe(true);
+    expect(rain.visible).toBe(false);
     frame(180);
+    expect(frames.size).toBe(0);
+  });
+
+  it('shows the player victory shower for three seconds and skips it for rival or draw results', () => {
+    const { view } = setup();
+    view.celebrateResult('rival');
+    frame();
+    expect(coins().every(pool => !pool.visible)).toBe(true);
+    expect(backgroundRain().visible).toBe(false);
+    view.celebrateResult('draw');
+    frame();
+    expect(coins().every(pool => !pool.visible)).toBe(true);
+    view.celebrateResult('player');
+    frame();
+    const victory = coins().find(pool => pool.userData.victory === true)!;
+    expect(victory.visible).toBe(true);
+    expect(victory.count).toBe(480);
+    expect(backgroundRain().count).toBe(600);
+    frame(2983);
+    expect(victory.visible).toBe(true);
+    frame(1);
+    expect(victory.visible).toBe(false);
+    expect(backgroundRain().visible).toBe(false);
     expect(frames.size).toBe(0);
   });
   it.each([[PAYOUT.seven, 0], [0, PAYOUT.seven], [PAYOUT.cherry, PAYOUT.seven]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
@@ -356,16 +414,23 @@ describe('stage rendering and cleanup', () => {
     const rival = { ...spin(1, rivalPayout ? ['seven', 'seven', 'seven'] : ['bell', 'cherry', 'seven'], rivalPayout), side: 'rival' as const };
     view.play(player, rival, vi.fn());
     frame(1060);
+    frame();
     expect(reelCenters()).toEqual([...player.symbols, ...rival.symbols]);
     expect(reelWins()).toEqual([playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, playerPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0, rivalPayout > 0 ? 1 : 0]);
     expect(host.dataset).toMatchObject({ win: String(playerPayout > 0), rivalWin: String(rivalPayout > 0), rivalJackpot: String(rivalPayout >= PAYOUT.seven) });
-    expect(coins().filter(coin => coin.visible)).toHaveLength((playerPayout >= PAYOUT.seven ? 12 : 0) + (rivalPayout >= PAYOUT.seven ? 12 : 0));
+    const playerCoinCount = playerPayout >= PAYOUT.seven ? 270 : playerPayout === PAYOUT.bell ? 72 : playerPayout > 0 ? 24 : 0;
+    const rivalCoinCount = rivalPayout >= PAYOUT.seven ? 54 : rivalPayout === PAYOUT.bell ? 27 : rivalPayout > 0 ? 12 : 0;
+    expect(coins().filter(coin => coin.visible).reduce((total, coin) => total + coin.count, 0)).toBe(playerCoinCount + rivalCoinCount);
     frame(650);
     if (playerPayout === PAYOUT.cherry) expect(reelWins().slice(0, 3)).toEqual([0, 0, 0]);
     if (rivalPayout > 0) expect(reelWins().slice(3)).toEqual([1, 1, 1]);
-    frame(550);
+    frame(1034);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    if (playerPayout === PAYOUT.seven) {
+      expect(backgroundRain().visible).toBe(true);
+      frame(1300);
+    }
     expect(frames.size).toBe(0);
   });
   it('clears reel highlights on the next play while the previous collection finishes on schedule', () => {
@@ -377,30 +442,71 @@ describe('stage rendering and cleanup', () => {
     frame(16);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(host.dataset).toMatchObject({ win: 'false', rivalWin: 'false', rivalJackpot: 'false' });
-    expect(coins().some(coin => coin.visible)).toBe(true);
-    frame(1044); // The following miss stops 90ms before the previous burst ends.
+    const burstPools = coins().filter(coin => coin.visible);
+    expect(burstPools.map(coin => coin.userData.side)).toEqual(['player', 'rival']);
+    expect(burstPools.reduce((total, coin) => total + coin.count, 0)).toBe(324);
+    frame(1044); // The following miss stops while the previous burst is collecting.
     expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
     expect(coins().some(coin => coin.visible)).toBe(true);
-    frame(89);
-    // Coins now disappear INTO each balance before the original burst expires;
-    // the small arrival glint completes that same burst, not a new celebration.
-    expect(coins().every(coin => !coin.visible)).toBe(true);
-    for (const [side, offset] of [['player', 0], ['rival', 12]] as const) {
+    frame(589); // The jackpot reaches its 1.7 second endpoint one millisecond later.
+    // Near expiry the pooled meshes have already reached their balance targets.
+    expect(coins().some(coin => coin.visible)).toBe(true);
+    for (const [side, pool] of [['player', burstPools[0]], ['rival', burstPools[1]]] as const) {
       const rect = OVERLAYS[side === 'player' ? 'playerScore' : 'rivalScore'];
-      coins().slice(offset, offset + 12).forEach(coin => {
-        expect(coin.position.x).toBeCloseTo(rect.x + rect.w - 38);
-        expect(coin.position.y).toBeCloseTo(STAGE_HEIGHT - rect.y - rect.h * .58);
-      });
-      expect(scene().getObjectByName(side + '-score-collect-glint')!.visible).toBe(true);
+      for (let index = 0; index < pool.instanceMatrix.count; index++) {
+        const position = coinPosition(pool, index);
+        expect(position.x).toBeCloseTo(rect.x + rect.w - 38, 1);
+        expect(position.y).toBeCloseTo(STAGE_HEIGHT - rect.y - rect.h * .58, 1);
+        expect(coinScale(pool, index).x).toBeLessThan(.001);
+      }
     }
     frame(1);
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    for (const [side, pool] of [['player', burstPools[0]], ['rival', burstPools[1]]] as const) {
+      const rect = OVERLAYS[side === 'player' ? 'playerScore' : 'rivalScore'];
+      for (let index = 0; index < pool.instanceMatrix.count; index++) {
+        const position = coinPosition(pool, index);
+        expect(position.x).toBeCloseTo(rect.x + rect.w - 38, 2);
+        expect(position.y).toBeCloseTo(STAGE_HEIGHT - rect.y - rect.h * .58, 2);
+        expect(coinScale(pool, index).x).toBeLessThan(.001);
+      }
+      expect(scene().getObjectByName(side + '-score-collect-glint')!.visible).toBe(false);
+    }
+    expect(backgroundRain().visible).toBe(true);
+    frame(1300);
+    expect(backgroundRain().visible).toBe(false);
     expect(frames.size).toBe(0);
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven, ['bell', 'cherry', 'seven'], true);
     frame();
+    expect(backgroundRain().visible).toBe(true);
+    expect(frames.size).toBe(0);
     view.play(spin(3), { ...spin(3), side: 'rival' }, vi.fn());
     frame();
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(backgroundRain().visible).toBe(false);
+  });
+  it('finishes consecutive jackpot collections independently without delaying the next spin', () => {
+    const { view } = setup();
+    const stopped = vi.fn();
+    view.playSide(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), stopped);
+    frame(1060);
+    view.playSide(spin(2, ['seven', 'seven', 'seven'], PAYOUT.seven), stopped);
+    frame(1060);
+    expect(stopped).toHaveBeenCalledTimes(2);
+    const overlapping = coins().filter(coin => coin.visible);
+    expect(overlapping).toHaveLength(2);
+    expect(overlapping.every(coin => coin.userData.side === 'player' && coin.count === 270)).toBe(true);
+    frame(640);
+    expect(overlapping[0].visible).toBe(false);
+    expect(overlapping[1].visible).toBe(true);
+    frame(1060);
+    expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(backgroundRain().count).toBe(600);
+    frame(1299);
+    expect(backgroundRain().visible).toBe(true);
+    frame(1);
+    expect(backgroundRain().visible).toBe(false);
+    expect(frames.size).toBe(0);
   });
   it('bounds rival-only flashes, supports a still preview, and clears them on reset, stop and disposal', () => {
     const { view, host } = setup();
@@ -408,8 +514,11 @@ describe('stage rendering and cleanup', () => {
     view.show(symbols, 0, symbols, false, PAYOUT.bell);
     frame();
     expect(reelWins()).toEqual([0, 0, 0, 1, 1, 1]);
-    expect(coins().filter(coin => coin.visible)).toHaveLength(6);
-    frame(650);
+    const active = coins().filter(coin => coin.visible);
+    expect(active).toHaveLength(1);
+    expect(active[0].userData.side).toBe('rival');
+    expect(active[0].count).toBe(27);
+    frame(900);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(frames.size).toBe(0);
     motion.matches = true;
@@ -438,14 +547,20 @@ describe('stage rendering and cleanup', () => {
     view.show(['cherry', 'bell', 'seven'], 0, ['seven', 'seven', 'seven'], false, PAYOUT.seven);
     frame(300);
     const active = coins().filter(coin => coin.visible);
-    expect(active).toHaveLength(12);
-    const before = active.map(coin => coin.position.clone());
+    expect(active).toHaveLength(1);
+    expect(active[0].userData.side).toBe('rival');
+    expect(active[0].count).toBe(54);
+    const before = activeCoinPositions(active[0]);
     frame(400);
-    active.forEach((coin, i) => {
-      expect(coin.position.y).toBeGreaterThan(before[i].y);
-      expect(coin.position.x < 1045 || coin.position.x > 1500).toBe(true);
-    });
-    frame(500);
+    const after = activeCoinPositions(active[0]);
+    for (const { index, position } of after) {
+      const previous = before.find(candidate => candidate.index === index);
+      if (previous) expect(position.y).toBeGreaterThan(previous.position.y);
+      const screenY = STAGE_HEIGHT - position.y;
+      const inRivalFace = position.x >= 997 && position.x <= 1580 && screenY >= 177 && screenY <= 612;
+      expect(inRivalFace).toBe(false);
+    }
+    frame(1000);
     expect(coins().every(coin => !coin.visible)).toBe(true);
     expect(frames.size).toBe(0);
   });

@@ -465,7 +465,7 @@ describe('game view model', () => {
     h.rivalRounds[1].stopped();
     await h.clock.advance(100);
     expect(h.vm.state.payout).toEqual({ player: 1200, rival: 120 });
-    await h.clock.advance(1100);
+    await h.clock.advance(1600);
     expect(h.vm.state.payout).toBeNull();
     expect(session.spins).toBe(2);
     expect(session.disconnect).not.toHaveBeenCalled();

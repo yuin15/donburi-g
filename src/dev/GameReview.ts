@@ -1,3 +1,4 @@
+import { rewardDuration, rewardSymbol } from '../viewmodel/RewardPresentation';
 import type { MatchSnapshot, Side, SpinView } from '../../shared/protocol';
 import { createMatch, evaluateGrid, getSnapshot, gridFromStops, PAYOUT, STARTING_BALANCE } from '../domain/game';
 import type { GameView } from '../view/GameView';
@@ -118,14 +119,14 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     });
     if (celebrate) {
       if (cue) view.playSound(cue.kind);
-      else if (player.payout) view.playSound('win');
+      else if (player.payout) view.playSound(rewardSymbol(player) === 'bell' ? 'bellWin' : 'win');
       else if (rival.payout) view.playSound('rivalWin');
     }
     if (still) return;
     const current = revision;
     if (state.payout) payoutTimer = window.setTimeout(() => {
       if (current === revision) render({ payout: null });
-    }, Math.max(player.payout, rival.payout) >= PAYOUT.seven ? 1200 : 650);
+    }, Math.max(rewardDuration(player.payout, rewardSymbol(player)), rewardDuration(rival.payout, rewardSymbol(rival))));
     if (cue) cueTimer = window.setTimeout(() => {
       if (current === revision) render({ cue: null });
     }, 1800);
@@ -143,7 +144,8 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       startControl: { disabled: false, label: 'REMATCH', spinState: null, hint: `YOU ${snapshot.rounds.player} SPINS · RIVAL ${snapshot.rounds.rival} SPINS` },
     });
     view.celebrateResult(snapshot.winner ?? 'draw');
-    view.playSound('result');
+    view.stopSound();
+    view.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
   };
 
   const play = (player: SpinView, rival: SpinView, result: MatchSnapshot | null = null) => {
@@ -295,5 +297,5 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
     }
   };
 
-  mountVisualReview({ scene: view.scene, reset, spin: play, snapshot: showSnapshot, preview });
+  mountVisualReview({ scene: view.scene, reset, spin: play, snapshot: showSnapshot, preview, unlockSound: () => view.unlockSound() });
 }

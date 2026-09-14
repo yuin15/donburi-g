@@ -26,7 +26,7 @@ const model = new GameViewModel({
 let unsubscribe = () => {};
 let disposeAiDebug = () => {};
 let disposed = false;
-if (import.meta.env.DEV && new URLSearchParams(location.search).has('visual-review')) {
+if ((import.meta.env.DEV || import.meta.env.MODE === 'review') && new URLSearchParams(location.search).has('visual-review')) {
   void import('./dev/GameReview').then(({ mountGameReview }) => mountGameReview(view, model.state));
 } else {
   view.bind(model);

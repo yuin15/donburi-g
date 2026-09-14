@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:review": "tsc -b && vite build --mode review --outDir review-dist",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "check:server-runtime": "tsc -p tsconfig.server.json && node scripts/check-server-runtime.mjs",

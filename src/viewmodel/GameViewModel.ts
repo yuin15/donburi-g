@@ -1,3 +1,4 @@
+import { rewardDuration, rewardSymbol } from './RewardPresentation';
 import type { Bet, MatchSnapshot, ServerMessage, Side, SpinView, UpgradeId } from '../../shared/protocol';
 import { upgradePrice } from '../../shared/shop';
 import type { LiveSession } from '../client/LiveSession';
@@ -625,7 +626,7 @@ export class GameViewModel implements GameCommands {
     if (!stale) {
       if (spin.payout) {
         this.payout = { player: 0, rival: 0, ...this.payout, [side]: spin.payout };
-        this.payoutTimers[side] = this.schedule(() => { this.clearPayout(side); this.emit(); }, spin.payout >= PAYOUT.seven ? 1200 : 650);
+        this.payoutTimers[side] = this.schedule(() => { this.clearPayout(side); this.emit(); }, rewardDuration(spin.payout, rewardSymbol(spin)));
       }
       if (side === 'player' && this.cue?.kind !== 'warning') { this.cancelTimer(this.cueTimer); this.cue = null; }
       this.reactionUntil = this.deps.clock.now() + 1600;
@@ -633,8 +634,8 @@ export class GameViewModel implements GameCommands {
       this.expression = reaction.expression;
       if (!this.voiceReady) this.line = reaction.text;
       if (side === 'player' && spin.payout >= PAYOUT.seven) this.announce('BIG WIN', 'jackpot');
+      else if (spin.payout) this.deps.presentation.playSound(side === 'player' ? rewardSymbol(spin) === 'bell' ? 'bellWin' : 'win' : 'rivalWin');
       else if (comeback) this.deps.presentation.playSound('lead');
-      else if (spin.payout) this.deps.presentation.playSound(side === 'player' ? 'win' : 'rivalWin');
     }
     this.emit();
   }
@@ -674,7 +675,8 @@ export class GameViewModel implements GameCommands {
     this.emit();
     this.deps.presentation.stopScene();
     this.deps.presentation.celebrateResult(snapshot.winner ?? 'draw');
-    this.deps.presentation.playSound('result');
+    this.deps.presentation.stopSound();
+    this.deps.presentation.playSound(snapshot.winner === 'player' ? 'victory' : snapshot.winner === 'rival' ? 'defeat' : 'draw');
     this.deps.presentation.focus('start');
   }
 
