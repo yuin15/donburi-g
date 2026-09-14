@@ -45,7 +45,14 @@ app.innerHTML = `
         ['middle', 'middle', 1, 'middle row', 'M82 20H103 M95 12 103 20 95 28'],
         ['bottom', 'bottom', 3, 'bottom row', 'M82 20H103 M95 12 103 20 95 28'],
         ['diagonalUp', 'diagonal-up', 5, 'diagonal up', 'M85 28 101 12 M89 12H101V24'],
-      ] as const).map(([line, position, bet, label, arrow]) => `<svg class="line-indicator ${position}" data-line="${line}" viewBox="0 0 120 40" role="img" aria-label="$${bet} ${label}"><rect class="line-plate" x="2" y="3" width="116" height="34" rx="7"/><circle class="line-lamp" cx="14" cy="20" r="4"/><text x="49" y="21">$${bet}</text><path class="line-direction" d="${arrow}"/></svg>`).join('')}
+      ] as const).map(([line, position, bet, label, arrow]) => `<svg class="line-indicator ${position}" data-line="${line}" viewBox="0 0 120 40" role="img" aria-label="$${bet} ${label}" style="--line-idle-fill:url(#line-idle-${line});--line-gold-fill:url(#line-gold-${line});--line-edge-fill:url(#line-edge-${line})">
+        <defs>
+          <linearGradient id="line-idle-${line}" x2="0" y2="1"><stop stop-color="#537456"/><stop offset=".48" stop-color="#11271c"/><stop offset=".54" stop-color="#294a32"/><stop offset="1" stop-color="#173324"/></linearGradient>
+          <linearGradient id="line-gold-${line}" x2="0" y2="1"><stop stop-color="#fff3b9"/><stop offset=".4" stop-color="#e9b43b"/><stop offset=".49" stop-color="#a9710f"/><stop offset=".56" stop-color="#ffdf78"/><stop offset="1" stop-color="#d19828"/></linearGradient>
+          <linearGradient id="line-edge-${line}" x2=".35" y2="1"><stop stop-color="#fffad7"/><stop offset=".25" stop-color="#c28c30"/><stop offset=".48" stop-color="#fff5c0"/><stop offset=".73" stop-color="#a26513"/><stop offset="1" stop-color="#f5d78a"/></linearGradient>
+        </defs>
+        <rect class="line-plate" x="2" y="3" width="116" height="34" rx="7"/><path class="line-reflection" d="M10 6H110Q115 6 115 12V18Q61 10 5 18V12Q5 6 10 6"/><circle class="line-lamp" cx="14" cy="20" r="4"/><text x="49" y="21">$${bet}</text><path class="line-direction" d="${arrow}"/>
+      </svg>`).join('')}
     </div>
     <div id="betLinePreview" aria-hidden="true" hidden><svg viewBox="0 0 650 371">
       <path data-preview-line="middle" d="M94 185.5H650" pathLength="1"/>
