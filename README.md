@@ -33,7 +33,7 @@ CPU rounds can offer on-screen choices to borrow or lend $5, or extend a close f
 ## What OpenAI adds
 
 - **A conversational rival:** OpenAI GPT-Live streams speech and transcripts using current match context. The implementation supports spoken replies, interruptions, and English/Japanese conversation. The server validates changes to money and time; the voice model does not choose reel outcomes.
-- **Development support for real 3D objects:** Codex helped write and refine Houdini Python scripts for the cherries, bell, seven, coin, and cabinet. This included contours, bevels, normals, named mesh parts, and OBJ export, followed by Three.js materials, lighting, and animation. The editable generation scripts and exported models are in the repository.
+- **Development support for real 3D objects:** Codex assisted model development for the cherries, bell, seven, coin, and cabinet, from production scripts and mesh corrections to export and Three.js integration. The work covered shapes, materials, lighting, and animation, with improvements guided by the actual game screen. Included scripts and exported models support further iteration.
 - **Creative assets:** OpenAI image generation supplied project artwork and the rival's expression variants. The current rival has **18 expressions**. [Artwork provenance](docs/visual-assets.md) and [expression details](docs/rival-expressions.md) record their sources.
 
 The game remains playable with the CPU rival when voice is unavailable. Codex also assisted with implementation, refactoring, browser checks, and fixes throughout development. See the [six submission answers](docs/game-jam-submission.md) for the judging criteria.
@@ -49,7 +49,7 @@ npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite. This starts the game and its local `/api/access` and `/api/ws` routes together. CPU play works immediately; simply starting the server or opening the page does not call an external AI service. Houdini is not needed to run the game because the exported models are included.
+Open the URL printed by Vite. This starts the game and its local `/api/access` and `/api/ws` routes together. CPU play works immediately; simply starting the server or opening the page does not call an external AI service. No 3D authoring software is needed to run the game because the exported models are included.
 
 ### Optional AI voice
 
@@ -73,7 +73,7 @@ The Responses API is used for a bounded loan-reply classification path; direct b
 
 ## 3D production and architecture
 
-The art workflow is reproducible: **Houdini Python scripts → exported OBJ parts → Three.js materials and animation → in-game visual review**. Codex supported changes to both the models and the code that displays them, making it possible to refine a shape after seeing it at actual reel size.
+3D production uses **Blender and Houdini**, with a workflow of **modeling and scripting → asset export → Three.js integration → in-game visual review**. Codex supported changes to both the models and the code that displays them, making it possible to refine shapes, materials, and movement at actual game size. The repository includes procedural generation scripts and OBJ exports.
 
 The cabinet and winning symbols use real meshes, with enamel, metallic edges, shadows, depth, and movement. During ordinary reel rotation, a shared atlas rendered from the 3D symbol models keeps the spinning strips efficient. Winning symbols lift out as meshes; coins, sculpted payout text, cabinet movement, and a large victory title reinforce the result. Geometry and materials are reused, motion can be reduced, and hidden tabs stop rendering. Sound effects are synthesized with Web Audio.
 
@@ -106,7 +106,7 @@ GitHub Actions runs these checks. [Submission verification](docs/submission-veri
 
 ## Credits, licenses, and handoff
 
-See [third-party notices](THIRD_PARTY_NOTICES.md) for dependency licenses, the HeyGen reference integration, the font license, and artwork provenance. Houdini assets were made with **Apprentice**, whose terms restrict use to non-commercial projects; no commercial-use clearance is claimed. This repository currently has no blanket open-source license for project-owned code or art.
+See [third-party notices](THIRD_PARTY_NOTICES.md) for dependency licenses, the HeyGen reference integration, the font license, and artwork provenance, including tool-specific and non-commercial asset conditions. This repository currently has no blanket open-source license for project-owned code or art.
 
 Never commit keys, invites, environment files, personal email addresses, microphone recordings, or actual conversations. Use a separate secure channel for private setup. [Security](SECURITY.md) · [Team handoff, Japanese](docs/demo-handoff.md) · [Development policy](AGENTS.md)
 
@@ -135,7 +135,7 @@ Never commit keys, invites, environment files, personal email addresses, microph
 ### OpenAIの活用
 
 - **音声で反応するライバル：** GPT-Liveへ対戦状況を渡し、音声と字幕で返答します。割り込みと英語・日本語の会話に対応する実装を備えます。金額・時間の変更はサーバーが検証し、音声モデルがリールの結果を決めることはありません。
-- **3Dオブジェクトの開発支援：** CodexでHoudini用Pythonスクリプトを作成・改善し、チェリー・ベル・7・コイン・筐体を制作しました。輪郭、面取り、法線、部位の分割、OBJ出力から、Three.jsでの材質・照明・アニメーションまで支援を受けています。生成スクリプトと出力モデルをリポジトリに収録しています。
+- **3Dオブジェクトの開発支援：** Codexをチェリー・ベル・7・コイン・筐体のモデル開発に活用しました。制作スクリプト、メッシュ修正、書き出し、Three.jsへの統合を支援し、実ゲームを見ながら形状・材質・照明・動きを改善しています。継続して調整できるよう、制作スクリプトと出力モデルを収録しています。
 - **素材制作：** OpenAI画像生成を背景やライバルの表情に使用。現在は**18表情**です。[素材の出所](docs/visual-assets.md)と[表情の仕様](docs/rival-expressions.md)を記録しています。
 
 Codexは実装、MVVMへの整理、ブラウザ確認、不具合修正にも活用しました。音声を使えない場合もCPU対戦を遊べます。
@@ -151,7 +151,7 @@ npm ci
 npm run dev
 ```
 
-表示されたURLを開くとCPU対戦ができます。画面とローカルAPIをまとめて起動し、起動・ページ表示だけでは外部AI APIを呼びません。モデルを同梱しているため、ゲームの起動にHoudiniは不要です。
+表示されたURLを開くとCPU対戦ができます。画面とローカルAPIをまとめて起動し、起動・ページ表示だけでは外部AI APIを呼びません。モデルを同梱しているため、ゲームの起動に3D制作ソフトは不要です。
 
 音声は入口の**ADD AI VOICE · OPTIONAL**で主催者から受け取った招待コードを入力し、**CONNECT AI VOICE**、マイク許可、対戦開始の順に進みます。**MIC / VOICE / SOUND**でマイク入力・相手の声・効果音を別々に操作できます。マイク音声はOpenAIへ送信され、ホスト側のAPI利用枠を消費します。
 
@@ -161,7 +161,7 @@ npm run dev
 
 ### 3D制作と構成
 
-**HoudiniのPythonスクリプト → OBJ出力 → Three.jsの材質・演出 → 実ゲームで確認**という流れで制作しています。モデルと表示コードの両方をCodexで改善し、リール内の実際の大きさで見ながら形状を調整しました。
+3D制作には**BlenderとHoudini**を使用し、**モデリング・スクリプト → 素材の書き出し → Three.jsへの統合 → 実ゲームで確認**という流れで進めています。モデルと表示コードの両方をCodexで改善し、ゲーム内の実際の大きさで見ながら形状・材質・動きを調整しました。リポジトリにはプロシージャル生成のスクリプトとOBJを収録しています。
 
 筐体と当たり時の絵柄は実メッシュを使い、塗装、金属の縁、影、奥行き、動きを表現します。回転中の絵柄は3Dモデルから生成した共有アトラスで描画。当たり時には絵柄がせり出し、立体の獲得数字、コイン、筐体の動き、大きな勝利文字が連動します。形状・材質の再利用、動きを減らす設定、非表示タブでの描画停止に対応。効果音はWeb Audioで合成しています。
 
@@ -175,6 +175,6 @@ TypeScript / Vite / Three.jsを使用し、**MVVM**でゲーム規則・進行�
 
 GitHub Actionsでは型検査・lint・既存テスト・サーバー実行確認・本番ビルドを実行します。ローカル用の確認コマンドは英語版に記載しています。
 
-依存ライブラリ、参考実装、フォント、素材の出所は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を参照してください。Houdiniモデルは**Apprenticeの非商用条件**で制作しており、商用利用の許諾を取得済みとは扱いません。本プロジェクト独自のコード・素材には、リポジトリ全体を対象とするオープンソースライセンスを設定していません。
+依存ライブラリ、参考実装、フォント、素材の出所は[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)を参照してください。制作ツールごとの条件や非商用素材の利用条件も記載しています。本プロジェクト独自のコード・素材には、リポジトリ全体を対象とするオープンソースライセンスを設定していません。
 
 秘密鍵、APIキー、招待コード、環境ファイル、個人メール、マイク音声、実際の会話はコミットせず、安全な別経路で引き継いでください。[セキュリティ](SECURITY.md) · [メンバー向け引き継ぎ](docs/demo-handoff.md) · [開発方針](AGENTS.md)

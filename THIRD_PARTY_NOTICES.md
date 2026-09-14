@@ -39,9 +39,11 @@ The reference repository uses the [MIT license](https://github.com/heygen-com/li
 
 This font has a separate **MgOpen/MAGENTA font license**, not the Three.js MIT license. The copyright and permission notice are retained in [`FONT-LICENSE.txt`](src/view/assets/FONT-LICENSE.txt) and in the typeface metadata. See the [upstream font license](https://github.com/mrdoob/three.js/blob/r180/examples/fonts/LICENSE). The font license's modification, naming, notice-retention, and standalone-sale conditions continue to apply.
 
-## 3D assets and Houdini
+## 3D production tools and assets
 
-The cherries, bell, seven, coin, and cabinet were procedurally authored for Slot-chan with **Houdini Apprentice 22.0.429**. Codex assisted the Python generation scripts, geometry corrections, OBJ export, and Three.js integration. The [scripts and exported models](art-source/houdini/) are included; Houdini itself and personal license files are not distributed.
+3D production used **Blender and Houdini**. Codex assisted production scripts, geometry corrections, export, and Three.js integration. The checked-in [scripts and exported models](art-source/houdini/) document the procedural generation of the cherries, bell, seven, coin, and cabinet with Houdini Apprentice 22.0.429. Neither authoring application nor personal license files are distributed in this repository.
+
+**Blender** is GNU GPL software. Its binary distributions use GPL-3.0-or-later; the software license does not automatically apply to artwork exported with it. See the [Blender license](https://www.blender.org/about/license/) for the software, artwork, and script distinctions. This does not remove restrictions attached to source assets or other tools in the production workflow.
 
 Houdini is proprietary software. Apprentice is restricted to **non-commercial projects** under [SideFX's Apprentice conditions](https://www.sidefx.com/get/try-houdini/) and [license agreement](https://www.sidefx.com/legal/license-agreement/). These assets are documented as part of a non-commercial game-jam demo; this notice does not assert commercial-use clearance or an unrestricted asset license.
 
