@@ -18,7 +18,7 @@ describe('ConversationAgreementCoordinator', () => {
     const coordinator = new ConversationAgreementCoordinator();
     const outcome = await coordinator.resolve(turn());
     expect(outcome).toEqual({ state: 'accepted', id: 'match:turn:1', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }, { action: 'time_extension', offerId: 'offer-time' }] });
-    expect(JSON.parse(request.mock.calls[0][1].body).max_output_tokens).toBe(256);
+    expect(JSON.parse(request.mock.calls[0][1].body).max_output_tokens).toBe(512);
     if (outcome.state !== 'accepted') return;
     const apply = vi.fn(() => true);
     expect(coordinator.applyOnce(outcome.id, outcome.agreements[0], apply)).toBe(true);
@@ -100,7 +100,7 @@ describe('ConversationAgreementCoordinator', () => {
     const coordinator = new ConversationAgreementCoordinator();
     await coordinator.resolve(turn());
     const body = JSON.parse(request.mock.calls[0][1].body);
-    expect(body.max_output_tokens).toBe(256);
+    expect(body.max_output_tokens).toBe(512);
     expect(body.instructions).toContain('becomes negative');
     expect(body.instructions).toContain('いいよ、任せて');
   });
@@ -136,6 +136,8 @@ describe('ConversationAgreementCoordinator', () => {
       .resolves.toEqual({ state: 'offer', actions: ['player_to_rival'] });
     const body = JSON.parse(request.mock.calls[0][1].body);
     expect(body.instructions).toContain('Do not reverse those directions');
-    expect(JSON.parse(body.input).proposedAssistantSpeech.speaker).toBe('AI rival');
+    expect(JSON.parse(body.input).spokenAssistantSpeech.speaker).toBe('AI rival');
+    expect(body.instructions).toContain('is commit with rival_to_player and time_extension');
+    expect(body.instructions).toContain('ALREADY been spoken');
   });
 });
