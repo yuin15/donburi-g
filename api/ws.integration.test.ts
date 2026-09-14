@@ -45,6 +45,7 @@ vi.mock('../server/gptLive', () => ({ GptLiveBridge: class {
   close = vi.fn(() => provider.gptClose());
   updateGameContext = vi.fn();
   requestReaction = vi.fn();
+  requestConversationInvitation = vi.fn(() => true);
   requestConfirmedLine = vi.fn();
   requestDelegationResult = vi.fn();
   requestDelegationThinking = vi.fn();

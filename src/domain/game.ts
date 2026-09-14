@@ -27,7 +27,7 @@ export interface MatchState {
   lastManualSpinAt: number | null;
   elapsed: number;
   remaining: number;
-  duration: typeof MATCH_SECONDS | typeof MAX_MATCH_SECONDS;
+  duration: number;
   extensionUsed: boolean;
   loanUsed: Record<LoanDirection, boolean>;
   rivalDistraction: { untilElapsed: number; seconds: 2 | 4 } | null;
@@ -334,8 +334,7 @@ export function transferLoan(state: MatchState, direction: LoanDirection): Extra
     : ['player', 'rival'] as const;
   if (
     state.status !== 'playing'
-    || (direction === 'rival_to_player' && (state.loanUsed[direction] || state.scores[borrower] >= BETS[0]))
-    || state.scores[lender] < LOAN_AMOUNT
+    || (direction === 'player_to_rival' && state.scores[lender] < LOAN_AMOUNT)
   ) return null;
   const before = getSnapshot(state);
   state.scores[lender] -= LOAN_AMOUNT;

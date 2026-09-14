@@ -398,9 +398,20 @@ describe('stage rendering and cleanup', () => {
     view.celebrateResult('draw');
     frame();
     expect(coins().every(pool => !pool.visible)).toBe(true);
-    view.setResult('player');
-    view.celebrateResult('player');
-    frame();
+    // Both final stops may synchronously request the result in the same frame
+    // that starts the jackpot. The whole turn must survive that handoff.
+    const ready = vi.fn(() => view.setResult('player'));
+    view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1), side: 'rival' }, () => view.celebrateResult('player', ready));
+    frame(1060);
+    frame(500);
+    const cabinet = scene().getObjectByName('physical-cabinet-rig')!;
+    expect(Math.cos(cabinet.rotation.y)).toBeLessThan(0);
+    expect(effectsHost.dataset).toMatchObject({ victory: 'false' });
+    expect(ready).not.toHaveBeenCalled();
+    frame(528);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(cabinet.scale.x).toBe(1);
     const victory = coins().find(pool => pool.userData.victory === true)!;
     expect(victory.visible).toBe(true);
     expect(victory.count).toBe(480);
@@ -435,6 +446,62 @@ describe('stage rendering and cleanup', () => {
     expect(title.visible).toBe(false);
     expect(effectsHost.dataset).toMatchObject({ victory: 'false' });
     expect(scene().getObjectByName('sculpted-YOU WIN!')).toBeUndefined();
+
+    // A final jackpot still turns when it cannot win the match.
+    for (const winner of ['rival', 'draw'] as const) {
+      view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
+      view.setResult(winner);
+      view.celebrateResult(winner);
+      frame(500);
+      expect(Math.cos(cabinet.rotation.y)).toBeLessThan(0);
+      frame(528);
+      expect(cabinet.rotation.y).toBe(.095);
+      expect(coins().every(pool => !pool.visible)).toBe(true);
+      expect(backgroundRain().visible).toBe(false);
+    }
+
+    view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
+    view.setResult('player');
+    view.celebrateResult('player');
+    frame(200);
+    motion.matches = true;
+    motion.dispatchEvent(new Event('change'));
+    frame();
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(title.visible).toBe(false);
+    motion.matches = false;
+    motion.dispatchEvent(new Event('change'));
+    frame(1100);
+    expect(title.visible).toBe(false);
+
+    // Leaving/rematching must cancel a result which is still waiting for the turn.
+    view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
+    ready.mockClear();
+    view.celebrateResult('player', ready);
+    frame(200);
+    view.stop();
+    view.setResult(null);
+    frame(1200);
+    expect(ready).not.toHaveBeenCalled();
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(title.visible).toBe(false);
+    expect(coins().every(pool => !pool.visible)).toBe(true);
+
+    // Returning from a long-hidden tab must not restart the queued celebration.
+    view.show(['seven', 'seven', 'seven'], PAYOUT.seven);
+    view.setResult('player');
+    view.celebrateResult('player');
+    frame(200);
+    page.hidden = true;
+    page.dispatchEvent(new Event('visibilitychange'));
+    frame(5000);
+    page.hidden = false;
+    page.dispatchEvent(new Event('visibilitychange'));
+    frame();
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(title.visible).toBe(false);
+    expect(coins().every(pool => !pool.visible)).toBe(true);
+    expect(backgroundRain().visible).toBe(false);
   });
   it.each([[PAYOUT.seven, 0], [0, PAYOUT.seven], [PAYOUT.cherry, PAYOUT.seven]])('lights the correct sides for player %i and rival %i, with independent expiry', (playerPayout, rivalPayout) => {
     const { view, host } = setup();
@@ -463,9 +530,19 @@ describe('stage rendering and cleanup', () => {
   });
   it('clears reel highlights on the next play while the previous collection finishes on schedule', () => {
     const { view, host } = setup();
+    const overlay = { offsetLeft: 319, offsetTop: 568, style: { transform: '', transformOrigin: '', visibility: '' } };
+    view.bindCabinetOverlays([{ element: overlay as unknown as HTMLElement, depth: 164 }]);
     view.play(spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), { ...spin(1, ['seven', 'seven', 'seven'], PAYOUT.seven), side: 'rival' }, vi.fn());
     frame(1060);
     frame(50);
+    const cabinet = scene().getObjectByName('physical-cabinet-rig')!;
+    const playerSparkles = scene().getObjectByName('player-win-sparkles')!;
+    const rivalSparkles = scene().getObjectByName('rival-win-sparkles')!;
+    expect(Math.cos(cabinet.rotation.y)).toBeGreaterThan(0);
+    expect(playerSparkles.visible).toBe(false);
+    expect(rivalSparkles.visible).toBe(true);
+    expect(cabinet.scale.x).toBeLessThan(1);
+    expect(overlay.style.transform).toMatch(/^matrix\(/);
     view.play(spin(2), { ...spin(2), side: 'rival' }, vi.fn());
     frame(16);
     expect(reelWins()).toEqual([0, 0, 0, 0, 0, 0]);
@@ -473,7 +550,25 @@ describe('stage rendering and cleanup', () => {
     const burstPools = coins().filter(coin => coin.visible);
     expect(burstPools.map(coin => coin.userData.side)).toEqual(['player', 'rival']);
     expect(burstPools.reduce((total, coin) => total + coin.count, 0)).toBe(324);
-    frame(1044); // The following miss stops while the previous burst is collecting.
+    frame(430); // The back is now facing us, while the next reel spin continues.
+    expect(cabinet.rotation.y).toBeLessThan(-Math.PI);
+    expect(cabinet.rotation.y).toBeGreaterThan(-Math.PI * 1.5);
+    expect(overlay.style.visibility).toBe('hidden');
+    expect(playerSparkles.visible).toBe(false);
+    expect(rivalSparkles.visible).toBe(true);
+    frame(400); // Facing forward again, but still settling back to the resting size.
+    expect(Math.cos(cabinet.rotation.y)).toBeGreaterThan(0);
+    expect(cabinet.scale.x).toBeGreaterThan(1);
+    expect(overlay.style.visibility).toBe('');
+    expect(playerSparkles.visible).toBe(false);
+    expect(rivalSparkles.visible).toBe(true);
+    frame(214); // The full turn finishes before the following miss stops.
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(cabinet.scale.x).toBe(1);
+    expect(overlay.style.transform).toBe('');
+    expect(overlay.style.visibility).toBe('');
+    expect(playerSparkles.visible).toBe(true);
+    expect(rivalSparkles.visible).toBe(true);
     expect(host.dataset).toMatchObject({ spinning: 'false', round: '2' });
     expect(coins().some(coin => coin.visible)).toBe(true);
     frame(589); // The jackpot reaches its 1.7 second endpoint one millisecond later.
@@ -490,6 +585,8 @@ describe('stage rendering and cleanup', () => {
     }
     frame(1);
     expect(coins().every(coin => !coin.visible)).toBe(true);
+    expect(playerSparkles.visible).toBe(false);
+    expect(rivalSparkles.visible).toBe(false);
     for (const [side, pool] of [['player', burstPools[0]], ['rival', burstPools[1]]] as const) {
       const rect = OVERLAYS[side === 'player' ? 'playerScore' : 'rivalScore'];
       for (let index = 0; index < pool.instanceMatrix.count; index++) {
@@ -506,10 +603,15 @@ describe('stage rendering and cleanup', () => {
     expect(frames.size).toBe(0);
     view.show(['seven', 'seven', 'seven'], PAYOUT.seven, ['bell', 'cherry', 'seven'], true);
     frame();
+    expect(cabinet.rotation.y).toBeLessThan(-.2);
+    expect(overlay.style.transform).not.toBe('');
+    expect(playerSparkles.visible).toBe(false);
     expect(backgroundRain().visible).toBe(true);
     expect(frames.size).toBe(0);
     view.play(spin(3), { ...spin(3), side: 'rival' }, vi.fn());
     frame();
+    expect(cabinet.rotation.y).toBe(.095);
+    expect(overlay.style.transform).toBe('');
     expect(coins().every(coin => !coin.visible)).toBe(true);
     expect(backgroundRain().visible).toBe(false);
   });

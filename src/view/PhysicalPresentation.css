@@ -27,11 +27,10 @@
 #paytable>span { width: 100%; align-self: stretch; }
 .event-cue { top: 17.0% !important; height: 4% !important; font: 700 1.0cqw/1 Georgia; color: #f8dfaf; -webkit-text-stroke: 0; text-shadow: 0 2px 2px #120500; filter: none; letter-spacing: .12em; }
 .event-cue::before,.event-cue::after { display: none; }
-/* Round details sit below the sculpted outcome; the cabinet stays visible. */
+/* Float round details in front of the cabinet, below the sculpted outcome. */
 .result, .result[data-outcome=rival], .result[data-outcome=draw] {
-  left: 14.5%; top: 42.8%; width: 35.1%; padding: .55cqw 1.3cqw .5cqw;
-  border: 0; border-radius: 0; background: linear-gradient(90deg,#06070a00,#080a0ef5 8%,#080a0ef5 92%,#06070a00);
-  box-shadow: none; animation: none;
+  left: 7%; top: 42.8%; width: 50%; padding: .55cqw 1.3cqw .5cqw;
+  animation: none;
 }
 .result-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .result>small { text-align: center; }

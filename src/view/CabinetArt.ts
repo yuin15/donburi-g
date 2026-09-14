@@ -16,6 +16,17 @@ import { VictoryTitle } from './VictoryTitle';
 type Burst = { started: number; until: number; jackpot: boolean; still: boolean; symbol: WinSymbol | null; cells: WinningCell[]; payout: number; reels: boolean };
 const emptyBurst = (): Burst => ({ started: 0, until: 0, jackpot: false, still: false, symbol: null, cells: [], payout: 0, reels: false });
 const sides: Side[] = ['player', 'rival'];
+const REST_YAW = .095;
+const JACKPOT_POSE_DURATION = 1100;
+// Make room for a full turn, then pop forward and settle home.
+const JACKPOT_POSES = [
+  { at: 0, y: 0, z: 0, pitch: 0, scale: 1 },
+  { at: .12, y: -8, z: -45, pitch: .015, scale: .90 },
+  { at: .38, y: -8, z: -45, pitch: 0, scale: .84 },
+  { at: .64, y: -8, z: -45, pitch: 0, scale: .84 },
+  { at: .80, y: 0, z: 25, pitch: -.015, scale: 1.02 },
+  { at: .92, y: 0, z: 0, pitch: 0, scale: 1 },
+] as const;
 
 /** Cabinet and rewards share the existing scene; coins use bounded GPU pools. */
 export class CabinetArt {
@@ -53,6 +64,15 @@ export class CabinetArt {
   private finalGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private resultStarted = 0;
   private resultUntil = 0;
+  private readonly posedPivot = new THREE.Vector3();
+  posing = false;
+  get frontFacing(): boolean { return Math.cos(this.machine.rotation.y) * Math.cos(this.machine.rotation.x) > 0; }
+  get jackpotPoseEnd(): number {
+    const burst = this.bursts.player;
+    return burst.jackpot && !burst.still
+      ? Math.min(burst.until, burst.started + JACKPOT_POSE_DURATION * JACKPOT_POSES[JACKPOT_POSES.length - 1].at)
+      : 0;
+  }
 
   constructor() {
     this.body = new CabinetModel(this.coinEnvironment, { reels: false, viewSlope: .20 });
@@ -125,6 +145,34 @@ export class CabinetArt {
     return true;
   }
   createReelAtlas(renderer: THREE.WebGLRenderer): THREE.WebGLRenderTarget { return this.winSymbols.createReelAtlas(renderer); }
+
+  /** Project a resting screen position on the cabinet's surface into its current pose. */
+  projectOverlay(x: number, y: number, depth: number, target: THREE.Vector3): THREE.Vector3 {
+    const localX = 530 + (x - 530 - Math.sin(REST_YAW) * depth) / Math.cos(REST_YAW);
+    target.set(localX, STAGE_HEIGHT - y, depth).applyMatrix4(this.playerGroup.matrixWorld);
+    target.y = STAGE_HEIGHT - target.y;
+    return target;
+  }
+
+  private poseJackpot(progress: number): void {
+    if (progress <= 0 || progress >= JACKPOT_POSES[JACKPOT_POSES.length - 1].at) return;
+    const next = JACKPOT_POSES.findIndex(pose => pose.at >= progress);
+    const from = JACKPOT_POSES[next - 1], to = JACKPOT_POSES[next];
+    const t = THREE.MathUtils.smoothstep(progress, from.at, to.at);
+    const mix = (a: number, b: number) => THREE.MathUtils.lerp(a, b, t);
+    const turn = THREE.MathUtils.smootherstep(progress, .08, .78);
+    this.machine.rotation.set(mix(from.pitch, to.pitch), REST_YAW - Math.PI * 2 * turn, 0);
+    // The game uses an orthographic camera, so scale supplies the visible dolly.
+    this.machine.scale.setScalar(mix(from.scale, to.scale));
+    // Rotate around the depth of the body, rather than swinging its back around the front glass.
+    this.posedPivot.set(0, 0, -140).applyEuler(this.machine.rotation).multiplyScalar(this.machine.scale.x);
+    this.machine.position.set(
+      530 - Math.sin(REST_YAW) * 140 - this.posedPivot.x,
+      STAGE_HEIGHT - 500 + mix(from.y, to.y) - this.posedPivot.y,
+      mix(from.z, to.z) - Math.cos(REST_YAW) * 140 - this.posedPivot.z,
+    );
+    this.posing = true;
+  }
 
   private makeTimerLights(): THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
     const lights = new THREE.InstancedMesh(this.timerGeometry, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }), 10);
@@ -282,7 +330,10 @@ export class CabinetArt {
     const buttonDepth = reducedMotion ? 0 : Math.sin(Math.min(1, (now - this.pressedAt) / 180) * Math.PI) * 4.5;
     this.buttonText.position.z = 164 - buttonDepth;
     this.buttonText.position.y = STAGE_HEIGHT - 780 + buttonDepth * .2;
-    this.machine.rotation.set(0, .095, 0);
+    this.posing = false;
+    this.machine.position.set(530, STAGE_HEIGHT - 500, 0);
+    this.machine.rotation.set(0, REST_YAW, 0);
+    this.machine.scale.setScalar(1);
     this.victoryTitle.stop();
     if (this.resultText) {
       const hero = result && this.resultCaption === 'player';
@@ -313,11 +364,19 @@ export class CabinetArt {
       this.winSymbols.update(side, winning ? burst.cells : [], winning ? burst.symbol : null, burst.payout, progress, reducedMotion, burst.reels);
       if (side === 'player' && winning && !reducedMotion) {
         const recoil = Math.sin(progress * Math.PI * 3) * Math.exp(-progress * 5) * (burst.jackpot ? 1 : .45);
-        this.machine.rotation.x = recoil * .012;
-        this.machine.rotation.y += recoil * .018;
-        this.machine.rotation.z = recoil * -.008;
+        // Finish before the next possible result, even during fast consecutive spins.
+        if (burst.jackpot) this.poseJackpot(burst.still ? .70 : (time - burst.started) / JACKPOT_POSE_DURATION);
+        else {
+          this.machine.rotation.x = recoil * .012;
+          this.machine.rotation.y += recoil * .018;
+          this.machine.rotation.z = recoil * -.008;
+        }
         const shine = Math.sin(Math.min(1, progress / .85) * Math.PI);
         this.sweep.position.set(180 + progress * 730, STAGE_HEIGHT - (290 + progress * 320), 180);
+        if (this.posing) {
+          this.playerGroup.updateWorldMatrix(true, false);
+          this.sweep.position.applyMatrix4(this.playerGroup.matrixWorld);
+        }
         this.sweep.intensity = shine * (burst.jackpot ? 270 : 110);
         this.body.setSweep(progress, shine * (burst.jackpot ? 2.7 : burst.symbol === 'bell' ? 1.3 : .6));
       }
@@ -357,6 +416,12 @@ export class CabinetArt {
       glint.scale.setScalar(34 + arrivalPulse * 36);
       glint.rotation.z = progress * .7;
     }
+    // These rewards use a foreground canvas and cannot be occluded by the cabinet's back.
+    this.winSymbols.playerGroup.visible = this.frontFacing;
+    this.glows.player.visible = this.frontFacing;
+    this.bulbs.player.visible &&= this.frontFacing;
+    // Sparkles stay in screen space, so hide them throughout the moving pose.
+    this.sparkles.player.visible &&= !this.posing;
     return animating;
   }
 
