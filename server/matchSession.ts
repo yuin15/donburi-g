@@ -417,7 +417,7 @@ export class MatchSession {
         this.markPlayerLoanOfferReplyStarted();
         this.agreementTurns.set(this.userSpeechTurn, this.createAgreementTurn(generation, now, input?.startMs ?? null));
         const bridge = this.gpt;
-        const interrupt = bridge?.beginUserSpeech();
+        const interrupt = bridge?.beginUserSpeech({ interruptPlayback: false });
         if (bridge && interrupt !== null && interrupt !== undefined) void this.interruptUserPlayback(bridge, interrupt, generation);
         this.userSpeaking = true;
         this.conversationPacer.noteUserSpeech();
