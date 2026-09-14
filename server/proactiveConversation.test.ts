@@ -4,6 +4,26 @@ import { ProactiveConversationPacer } from './proactiveConversation';
 describe('ProactiveConversationPacer', () => {
   const ready = { available: true, blocked: false };
 
+  it('can disable silence invitations while keeping quiet gaps and settling user turns for offers', () => {
+    const pacer = new ProactiveConversationPacer(() => 0, false);
+    pacer.start(0);
+    expect(pacer.canInitiate(2_999)).toBe(false);
+    expect(pacer.canInitiate(3_000)).toBe(true);
+    for (let now = 3_500; now <= 60_000; now += 500) expect(pacer.due(now, ready)).toBe(false);
+
+    pacer.noteUserSpeech();
+    pacer.noteUserTranscript('貸して');
+    pacer.noteUserSpeechEnd(60_000);
+    expect(pacer.hasPendingReply()).toBe(true);
+    expect(pacer.due(60_500, ready)).toBe(false);
+    expect(pacer.hasPendingReply()).toBe(false);
+    expect(pacer.canInitiate(62_999)).toBe(false);
+    expect(pacer.canInitiate(63_000)).toBe(true);
+    pacer.noteAssistantSpeech(64_000);
+    expect(pacer.canInitiate(66_999)).toBe(false);
+    expect(pacer.canInitiate(67_000)).toBe(true);
+  });
+
   it('starts from silence, then waits for a reply before considering another invitation', () => {
     const pacer = new ProactiveConversationPacer(() => 0);
     pacer.start(0);

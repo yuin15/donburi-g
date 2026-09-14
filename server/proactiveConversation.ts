@@ -30,7 +30,10 @@ export class ProactiveConversationPacer {
   private initiatedAudioDeadline = 0;
   private assistantUtteranceUntil = 0;
 
-  constructor(private readonly random: () => number = Math.random) {}
+  constructor(
+    private readonly random: () => number = Math.random,
+    private readonly invitationsEnabled = true,
+  ) {}
 
   start(now = Date.now()): void {
     this.active = true;
@@ -118,7 +121,7 @@ export class ProactiveConversationPacer {
       this.scheduleRetry(now);
       return false;
     }
-    return state.available && !state.blocked && this.canInitiate(now) && now >= this.nextAt;
+    return this.invitationsEnabled && state.available && !state.blocked && this.canInitiate(now) && now >= this.nextAt;
   }
 
   /** Call only after the bridge has actually accepted the commentary append. */

@@ -180,6 +180,19 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('provider status lifecycle', () => {
+  it.each(['audio', 'avatar'] as const)('keeps %s game reactions without adding silence-triggered questions during a 60-second match', async voiceMode => {
+    const { session, messages } = setup('event-driven-conversation', 'manual', voiceMode, () => 0.5, true);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(false);
+    expect(provider.reaction).toHaveBeenCalledExactlyOnceWith('プレイヤーが首位に立った。短く悔しがって。');
+    await vi.advanceTimersByTimeAsync(55_000);
+    expect(messages.some(message => message.type === 'match_ended')).toBe(true);
+    expect(provider.conversationInvitation).not.toHaveBeenCalled();
+    await session.shutdown('test_finished');
+  });
+
   it('sends the browser interrupt before releasing replacement PCM, without waiting for classification', async () => {
     const { session, messages } = setup('browser-interruption', 'manual', 'audio');
     await session.initialize();
