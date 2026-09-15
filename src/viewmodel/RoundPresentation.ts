@@ -15,8 +15,8 @@ export class RoundPresentation {
   private result: MatchSnapshot | null = null;
   private didEnd = false;
   private upgradeSpent = 0;
-  /** Transfers received while a reel is still spinning must also affect that reel's eventual total. */
-  private readonly loanAdjustments: Record<Side, Map<number, number>> = { player: new Map(), rival: new Map() };
+  /** Grants received while a reel is still spinning must also affect that reel's eventual total. */
+  private readonly bonusAdjustments: Record<Side, Map<number, number>> = { player: new Map(), rival: new Map() };
   /** A recovery snapshot can replace an in-flight reel's authoritative total. */
   private readonly recoveredSpins: Record<Side, Map<number, SpinView>> = { player: new Map(), rival: new Map() };
 
@@ -34,8 +34,8 @@ export class RoundPresentation {
     this.result = null;
     this.didEnd = false;
     this.upgradeSpent = 0;
-    this.loanAdjustments.player.clear();
-    this.loanAdjustments.rival.clear();
+    this.bonusAdjustments.player.clear();
+    this.bonusAdjustments.rival.clear();
     this.recoveredSpins.player.clear();
     this.recoveredSpins.rival.clear();
   }
@@ -46,16 +46,14 @@ export class RoundPresentation {
     this.scores = { ...this.scores, player: this.scores.player - difference };
   }
 
-  syncLoan(direction: 'rival_to_player' | 'player_to_rival', amount: number): void {
-    const lender: Side = direction === 'rival_to_player' ? 'rival' : 'player';
-    const borrower: Side = lender === 'rival' ? 'player' : 'rival';
-    for (const [side, adjustment] of [[lender, -amount], [borrower, amount]] as const) {
+  syncMutualBonus(amount: number): void {
+    for (const side of ['player', 'rival'] as const) {
       // A later spin has an authoritative total that already includes the
-      // loan. Only a reel which began before this transfer needs an offset.
+      // bonus. Only a reel which began before this grant needs an offset.
       if (this.latest[side] > this.revealed[side]) {
         const round = this.latest[side];
-        this.scores = { ...this.scores, [side]: this.scores[side] + adjustment };
-        this.loanAdjustments[side].set(round, (this.loanAdjustments[side].get(round) ?? 0) + adjustment);
+        this.scores = { ...this.scores, [side]: this.scores[side] + amount };
+        this.bonusAdjustments[side].set(round, (this.bonusAdjustments[side].get(round) ?? 0) + amount);
       }
     }
   }
@@ -68,7 +66,7 @@ export class RoundPresentation {
   syncRecoveredSpin(spin: SpinView): boolean {
     const { side, round } = spin;
     if (round !== this.latest[side] || round <= this.revealed[side]) return false;
-    this.loanAdjustments[side].delete(round);
+    this.bonusAdjustments[side].delete(round);
     this.recoveredSpins[side].set(round, spin);
     this.scores = { ...this.scores, [side]: this.previewScore(spin) };
     return true;
@@ -85,7 +83,7 @@ export class RoundPresentation {
       this.revealed[side] = round;
       const recovered = this.recoveredSpins[side].get(round) ?? spin;
       this.scores = { ...this.scores, [side]: this.settledScore(recovered) };
-      this.loanAdjustments[side].delete(round);
+      this.bonusAdjustments[side].delete(round);
       this.recoveredSpins[side].delete(round);
       this.port.settled(recovered, celebrate);
       this.flushResult();
@@ -97,16 +95,16 @@ export class RoundPresentation {
     return spin.side === 'player' ? this.upgradeSpent - (spin.upgradeSpent ?? 0) : 0;
   }
 
-  private loanAdjustment(spin: SpinView): number {
-    return this.loanAdjustments[spin.side].get(spin.round) ?? 0;
+  private bonusAdjustment(spin: SpinView): number {
+    return this.bonusAdjustments[spin.side].get(spin.round) ?? 0;
   }
 
   private previewScore(spin: SpinView): number {
-    return spin.total - spin.payout - this.purchaseAdjustment(spin) + this.loanAdjustment(spin);
+    return spin.total - spin.payout - this.purchaseAdjustment(spin) + this.bonusAdjustment(spin);
   }
 
   private settledScore(spin: SpinView): number {
-    return spin.total - this.purchaseAdjustment(spin) + this.loanAdjustment(spin);
+    return spin.total - this.purchaseAdjustment(spin) + this.bonusAdjustment(spin);
   }
 
   end(snapshot: MatchSnapshot): void {

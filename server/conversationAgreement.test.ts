@@ -7,17 +7,17 @@ vi.stubGlobal('fetch', request);
 
 function turn(id = 'match:turn:1') {
   const state = createMatch(1, 'match', 'manual'); startMatch(state);
-  return { id, snapshot: getSnapshot(state), transcript: 'synthetic turn', conversation: 'P:synthetic turn', activeOffers: { rival_to_player: 'offer-rival', player_to_rival: 'offer-player', time_extension: 'offer-time' } };
+  return { id, snapshot: getSnapshot(state), transcript: 'synthetic turn', conversation: 'P:synthetic turn', activeOffers: { mutual_bonus: 'offer-bonus', time_extension: 'offer-time' } };
 }
 
 afterEach(() => { request.mockReset(); });
 
 describe('ConversationAgreementCoordinator', () => {
   it('returns all accepted actions from one structured Responses result and applies each server key once', async () => {
-    request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"rival_to_player","offerId":"offer-rival"},{"action":"time_extension","offerId":"offer-time"}]}' }));
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"mutual_bonus","offerId":"offer-bonus"},{"action":"time_extension","offerId":"offer-time"}]}' }));
     const coordinator = new ConversationAgreementCoordinator();
     const outcome = await coordinator.resolve(turn());
-    expect(outcome).toEqual({ state: 'accepted', id: 'match:turn:1', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }, { action: 'time_extension', offerId: 'offer-time' }] });
+    expect(outcome).toEqual({ state: 'accepted', id: 'match:turn:1', agreements: [{ action: 'mutual_bonus', offerId: 'offer-bonus' }, { action: 'time_extension', offerId: 'offer-time' }] });
     expect(JSON.parse(request.mock.calls[0][1].body).max_output_tokens).toBe(512);
     if (outcome.state !== 'accepted') return;
     const apply = vi.fn(() => true);
@@ -28,12 +28,12 @@ describe('ConversationAgreementCoordinator', () => {
   });
 
   it('normalizes direct and offered duplicates to one action, preferring the verified offer', async () => {
-    request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"rival_to_player","offerId":null},{"action":"rival_to_player","offerId":"offer-rival"}]}' }));
+    request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"mutual_bonus","offerId":null},{"action":"mutual_bonus","offerId":"offer-bonus"}]}' }));
     request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"state":"commit","agreements":[{"action":"time_extension","offerId":null},{"action":"time_extension","offerId":"offer-time"}],"offers":[]}' }));
     const coordinator = new ConversationAgreementCoordinator();
 
     await expect(coordinator.resolve(turn())).resolves.toEqual({
-      state: 'accepted', id: 'match:turn:1', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }],
+      state: 'accepted', id: 'match:turn:1', agreements: [{ action: 'mutual_bonus', offerId: 'offer-bonus' }],
     });
     await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic promise', 'P:synthetic', turn().activeOffers)).resolves.toEqual({
       state: 'commit', agreements: [{ action: 'time_extension', offerId: 'offer-time' }],
@@ -43,13 +43,13 @@ describe('ConversationAgreementCoordinator', () => {
   it('uses both turn/action and offer/action ledger keys for money and time', () => {
     const apply = vi.fn(() => true);
     const moneyDirectThenOffer = new ConversationAgreementCoordinator();
-    expect(moneyDirectThenOffer.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: null }, apply)).toBe(true);
-    expect(moneyDirectThenOffer.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: 'offer-rival' }, apply)).toBe(false);
-    expect(moneyDirectThenOffer.applyOnce('match:turn:2', { action: 'rival_to_player', offerId: 'offer-rival' }, apply)).toBe(false);
+    expect(moneyDirectThenOffer.applyOnce('match:turn:1', { action: 'mutual_bonus', offerId: null }, apply)).toBe(true);
+    expect(moneyDirectThenOffer.applyOnce('match:turn:1', { action: 'mutual_bonus', offerId: 'offer-bonus' }, apply)).toBe(false);
+    expect(moneyDirectThenOffer.applyOnce('match:turn:2', { action: 'mutual_bonus', offerId: 'offer-bonus' }, apply)).toBe(false);
 
     const moneyOfferThenDirect = new ConversationAgreementCoordinator();
-    expect(moneyOfferThenDirect.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: 'offer-rival' }, apply)).toBe(true);
-    expect(moneyOfferThenDirect.applyOnce('match:turn:1', { action: 'rival_to_player', offerId: null }, apply)).toBe(false);
+    expect(moneyOfferThenDirect.applyOnce('match:turn:1', { action: 'mutual_bonus', offerId: 'offer-bonus' }, apply)).toBe(true);
+    expect(moneyOfferThenDirect.applyOnce('match:turn:1', { action: 'mutual_bonus', offerId: null }, apply)).toBe(false);
 
     const timeDirectThenOffer = new ConversationAgreementCoordinator();
     expect(timeDirectThenOffer.applyOnce('match:turn:1', { action: 'time_extension', offerId: null }, apply)).toBe(true);
@@ -60,14 +60,14 @@ describe('ConversationAgreementCoordinator', () => {
     expect(timeOfferThenDirect.applyOnce('match:turn:1', { action: 'time_extension', offerId: null }, apply)).toBe(false);
 
     const distinctDirectMoney = new ConversationAgreementCoordinator();
-    expect(distinctDirectMoney.applyOnce('match:turn:1', { action: 'player_to_rival', offerId: null }, apply)).toBe(true);
-    expect(distinctDirectMoney.applyOnce('match:turn:2', { action: 'player_to_rival', offerId: null }, apply)).toBe(true);
+    expect(distinctDirectMoney.applyOnce('match:turn:1', { action: 'mutual_bonus', offerId: null }, apply)).toBe(true);
+    expect(distinctDirectMoney.applyOnce('match:turn:2', { action: 'mutual_bonus', offerId: null }, apply)).toBe(true);
 
     const repeatedMoneyOffer = new ConversationAgreementCoordinator();
-    expect(repeatedMoneyOffer.applyOnce('match:turn:1', { action: 'player_to_rival', offerId: 'offer-player' }, apply)).toBe(true);
-    expect(repeatedMoneyOffer.applyOnce('match:turn:2', { action: 'player_to_rival', offerId: 'offer-player' }, apply)).toBe(false);
-    expect(repeatedMoneyOffer.applyOnce('match:turn:2', { action: 'player_to_rival', offerId: null }, apply)).toBe(false);
-    expect(repeatedMoneyOffer.applyOnce('match:turn:3', { action: 'player_to_rival', offerId: null }, apply)).toBe(true);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:1', { action: 'mutual_bonus', offerId: 'offer-bonus' }, apply)).toBe(true);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:2', { action: 'mutual_bonus', offerId: 'offer-bonus' }, apply)).toBe(false);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:2', { action: 'mutual_bonus', offerId: null }, apply)).toBe(false);
+    expect(repeatedMoneyOffer.applyOnce('match:turn:3', { action: 'mutual_bonus', offerId: null }, apply)).toBe(true);
 
     const repeatedOffer = new ConversationAgreementCoordinator();
     expect(repeatedOffer.applyOnce('match:turn:1', { action: 'time_extension', offerId: 'offer-time' }, apply)).toBe(true);
@@ -88,11 +88,11 @@ describe('ConversationAgreementCoordinator', () => {
 
   it('allows a delayed transcript revision to reclassify a prior none for the same turn', async () => {
     request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"none","agreements":[]}' }));
-    request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"player_to_rival","offerId":"offer-player"}]}' }));
+    request.mockResolvedValueOnce(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"mutual_bonus","offerId":"offer-bonus"}]}' }));
     const coordinator = new ConversationAgreementCoordinator();
     expect(await coordinator.resolve(turn('same-turn'))).toEqual({ state: 'none', id: 'same-turn' });
     await expect(coordinator.resolve({ ...turn('same-turn'), transcript: 'synthetic delayed affirmative' }))
-      .resolves.toEqual({ state: 'accepted', id: 'same-turn', agreements: [{ action: 'player_to_rival', offerId: 'offer-player' }] });
+      .resolves.toEqual({ state: 'accepted', id: 'same-turn', agreements: [{ action: 'mutual_bonus', offerId: 'offer-bonus' }] });
   });
 
   it('states zero-balance and contextual-affirmative rules in the classifier prompt', async () => {
@@ -101,12 +101,12 @@ describe('ConversationAgreementCoordinator', () => {
     await coordinator.resolve(turn());
     const body = JSON.parse(request.mock.calls[0][1].body);
     expect(body.max_output_tokens).toBe(512);
-    expect(body.instructions).toContain('becomes negative');
+    expect(body.instructions).toContain('both balances are zero');
     expect(body.instructions).toContain('いいよ、任せて');
   });
 
   it('does not apply a repeated acknowledgement of the same server offer in a later VAD turn', async () => {
-    request.mockImplementation(() => Promise.resolve(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"player_to_rival","offerId":"offer-player"}]}' })));
+    request.mockImplementation(() => Promise.resolve(Response.json({ status: 'completed', output_text: '{"result":"accept","agreements":[{"action":"mutual_bonus","offerId":"offer-bonus"}]}' })));
     const coordinator = new ConversationAgreementCoordinator();
     const first = await coordinator.resolve(turn('match:turn:1'));
     const repeated = await coordinator.resolve(turn('match:turn:2'));
@@ -118,9 +118,9 @@ describe('ConversationAgreementCoordinator', () => {
   });
 
   it('audits a normal acceptance as a commit instead of releasing it as safe', async () => {
-    request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"state":"commit","agreements":[{"action":"rival_to_player","offerId":"offer-rival"}],"offers":[]}' }));
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"state":"commit","agreements":[{"action":"mutual_bonus","offerId":"offer-bonus"}],"offers":[]}' }));
     const coordinator = new ConversationAgreementCoordinator();
-    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic acceptance', 'P:synthetic request', turn().activeOffers)).resolves.toEqual({ state: 'commit', agreements: [{ action: 'rival_to_player', offerId: 'offer-rival' }] });
+    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic acceptance', 'P:synthetic request', turn().activeOffers)).resolves.toEqual({ state: 'commit', agreements: [{ action: 'mutual_bonus', offerId: 'offer-bonus' }] });
   });
 
   it('fails closed when an assistant audit cannot prove a safe or server-backed route', async () => {
@@ -129,15 +129,15 @@ describe('ConversationAgreementCoordinator', () => {
     await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic ambiguous promise', '', turn().activeOffers)).resolves.toEqual({ state: 'unavailable' });
   });
 
-  it('keeps AI speaker directions explicit in the normal-speech audit prompt', async () => {
-    request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"state":"offer","agreements":[],"offers":["player_to_rival"]}' }));
+  it('keeps shared-bonus causal rules explicit in the normal-speech audit prompt', async () => {
+    request.mockResolvedValue(Response.json({ status: 'completed', output_text: '{"state":"offer","agreements":[],"offers":["mutual_bonus"]}' }));
     const coordinator = new ConversationAgreementCoordinator();
-    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic AI loan request', 'P:synthetic chat', turn().activeOffers))
-      .resolves.toEqual({ state: 'offer', actions: ['player_to_rival'] });
+    await expect(coordinator.auditAssistantSpeech(turn().snapshot, 'synthetic AI bonus request', 'P:synthetic chat', turn().activeOffers))
+      .resolves.toEqual({ state: 'offer', actions: ['mutual_bonus'] });
     const body = JSON.parse(request.mock.calls[0][1].body);
-    expect(body.instructions).toContain('Do not reverse those directions');
+    expect(body.instructions).toContain('captured causal player conversation');
     expect(JSON.parse(body.input).spokenAssistantSpeech.speaker).toBe('AI rival');
-    expect(body.instructions).toContain('is commit with rival_to_player and time_extension');
+    expect(body.instructions).toContain('is commit with mutual_bonus and time_extension');
     expect(body.instructions).toContain('ALREADY been spoken');
   });
 });

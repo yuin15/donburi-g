@@ -11,7 +11,7 @@ export type TextChoice = {
   readonly token: number;
   /** Absolute client-clock deadline. Commands reject it even if a timer is delayed. */
   readonly expiresAt: number;
-  readonly kind: 'borrow' | 'lend' | 'extend';
+  readonly kind: 'bonus' | 'extend';
   readonly question: string;
   readonly detail: string;
   readonly acceptLabel: string;
@@ -42,8 +42,8 @@ export interface GameViewState {
   readonly cue: { readonly text: string; readonly kind: 'lead' | 'warning' | 'jackpot' } | null;
   /** A short client-only hold; the server match clock continues underneath it. */
   readonly timeExtension: { readonly decision: 'accepted' | 'rejected'; readonly before: number; readonly after: number } | null;
-  /** A confirmed server-side transfer; it is presentation only, never a control. */
-  readonly loanTransfer: { readonly direction: 'rival_to_player' | 'player_to_rival'; readonly amount: 5 } | null;
+  /** A confirmed server-side shared grant; it is presentation only, never a control. */
+  readonly mutualBonus: { readonly amount: 5 } | null;
   /** A short, local CPU-only decision card. Live negotiations remain voice-only. */
   readonly textChoice: TextChoice | null;
   /** The server temporarily skipped rival turns; player input and the clock continue. */

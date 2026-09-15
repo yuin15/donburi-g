@@ -299,12 +299,11 @@ export class GameView implements GamePresentation {
       this.text('#eventCue', state.cue.text);
       this.q('#eventCue').dataset.kind = state.cue.kind;
     }
-    const loan = state.loanTransfer;
-    this.q('#loanTransfer').hidden = !loan;
-    if (loan) {
-      this.text('#loanDirection', loan.direction === 'rival_to_player' ? 'RIVAL → YOU' : 'YOU → RIVAL');
-      this.text('#loanAmount', loan.direction === 'rival_to_player' ? `+$${loan.amount}` : `−$${loan.amount}`);
-      this.q('#loanTransfer').dataset.direction = loan.direction;
+    const bonus = state.mutualBonus;
+    this.q('#mutualBonus').hidden = !bonus;
+    if (bonus) {
+      this.text('#bonusDirection', 'YOU + RIVAL');
+      this.text('#bonusAmount', `+$${bonus.amount} EACH`);
     }
     const choice = state.textChoice;
     this.q('#textChoice').hidden = !choice;

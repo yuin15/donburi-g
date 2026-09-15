@@ -24,7 +24,7 @@ app.innerHTML = `
   <section class="machine" aria-label="Your slot machine">
     <div id="machineTitle"><span id="winLabel">MATCH 3 · WIN BIG</span><strong id="pay" aria-live="polite">0</strong></div>
     <div class="event-cue" id="eventCue" role="status" hidden></div>
-    <div class="loan-transfer" id="loanTransfer" role="status" aria-live="assertive" hidden><small>LOAN</small><strong id="loanDirection"></strong><b id="loanAmount"></b></div>
+    <div class="mutual-bonus" id="mutualBonus" role="status" aria-live="assertive" hidden><small>BONUS</small><strong id="bonusDirection">YOU + RIVAL</strong><b id="bonusAmount"></b></div>
     <div class="win-burst" id="winBurst" aria-hidden="true" hidden><small id="winBurstLabel">BIG WIN</small><strong id="winBurstAmount"></strong><span>COINS</span></div>
     <div id="betControls" role="group" aria-label="Choose your bet"><small>BET</small>${betButtons}</div>
     <span id="betStatus" class="sr-only" role="status" aria-live="polite"></span>

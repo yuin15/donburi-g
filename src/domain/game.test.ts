@@ -13,7 +13,7 @@ import {
   STARTING_BALANCE,
   startMatch,
   submitUpgrade,
-  transferLoan,
+  grantMutualBonus,
 } from './game';
 
 describe('authoritative match domain', () => {
@@ -199,41 +199,44 @@ describe('authoritative match domain', () => {
     expect(applyPlayerRequestedTimeExtension(playerRequested)).toMatchObject({ after: { duration: 80, remaining: 75 } });
   });
 
-  it('moves exactly $5 for a bankrupt player and for every voluntary player loan without minting bankroll', () => {
-    const state = createMatch(123, 'loan');
+  it('grants exactly $5 to both bankrupt and funded sides for each confirmed mutual bonus', () => {
+    const state = createMatch(123, 'bonus');
     startMatch(state);
     state.scores.player = 0;
     state.scores.rival = 8;
-    const first = transferLoan(state, 'rival_to_player');
-    expect(first).toMatchObject({ type: 'loan_transfer', direction: 'rival_to_player', before: { scores: { player: 0, rival: 8 } }, after: { scores: { player: 5, rival: 3 }, balances: { player: 5, rival: 3 } } });
-    expect((first?.after.scores.player ?? 0) + (first?.after.scores.rival ?? 0)).toBe((first?.before.scores.player ?? 0) + (first?.before.scores.rival ?? 0));
-    expect(transferLoan(state, 'rival_to_player')).toMatchObject({ after: { scores: { player: 10, rival: -2 } } });
+    const first = grantMutualBonus(state);
+    expect(first).toMatchObject({ type: 'mutual_bonus', before: { scores: { player: 0, rival: 8 } }, after: { scores: { player: 5, rival: 13 }, balances: { player: 5, rival: 13 } } });
+    expect((first?.after.scores.player ?? 0) + (first?.after.scores.rival ?? 0)).toBe((first?.before.scores.player ?? 0) + (first?.before.scores.rival ?? 0) + 10);
+    expect(grantMutualBonus(state)).toMatchObject({ after: { scores: { player: 10, rival: 18 } } });
+
+    state.scores.player = 0;
+    state.scores.rival = 0;
+    expect(grantMutualBonus(state)).toMatchObject({ before: { scores: { player: 0, rival: 0 } }, after: { scores: { player: 5, rival: 5 } } });
 
     state.scores.player = 9;
     state.scores.rival = 0;
-    const reverse = transferLoan(state, 'player_to_rival');
-    expect(reverse?.after.scores).toEqual({ player: 4, rival: 5 });
+    const reverse = grantMutualBonus(state);
+    expect(reverse?.after.scores).toEqual({ player: 14, rival: 5 });
     expect(reverse?.after.scores).toEqual(reverse?.after.balances);
     state.scores.player = 10;
     state.scores.rival = 5;
-    const repeat = transferLoan(state, 'player_to_rival');
-    expect(repeat?.after.scores).toEqual({ player: 5, rival: 10 });
-    expect((repeat?.after.scores.player ?? 0) + (repeat?.after.scores.rival ?? 0)).toBe((repeat?.before.scores.player ?? 0) + (repeat?.before.scores.rival ?? 0));
+    const repeat = grantMutualBonus(state);
+    expect(repeat?.after.scores).toEqual({ player: 15, rival: 10 });
+    expect((repeat?.after.scores.player ?? 0) + (repeat?.after.scores.rival ?? 0)).toBe((repeat?.before.scores.player ?? 0) + (repeat?.before.scores.rival ?? 0) + 10);
   });
 
-  it('grants rival-to-player loans regardless of balances while play is active', () => {
-    const state = createMatch(123, 'loan-guard');
-    expect(transferLoan(state, 'rival_to_player')).toBeNull();
+  it('grants a shared bonus regardless of balances while play is active', () => {
+    const state = createMatch(123, 'bonus-guard');
+    expect(grantMutualBonus(state)).toBeNull();
     startMatch(state);
     state.scores.player = 1;
     state.scores.rival = 20;
-    expect(transferLoan(state, 'rival_to_player')).toMatchObject({ after: { scores: { player: 6, rival: 15 } } });
+    expect(grantMutualBonus(state)).toMatchObject({ after: { scores: { player: 6, rival: 25 } } });
     state.scores.player = 0;
     state.scores.rival = 4;
-    expect(transferLoan(state, 'rival_to_player')).toMatchObject({ after: { scores: { player: 5, rival: -1 } } });
+    expect(grantMutualBonus(state)).toMatchObject({ after: { scores: { player: 5, rival: 9 } } });
     advanceMatch(state, 60);
-    expect(transferLoan(state, 'rival_to_player')).toBeNull();
-    expect(transferLoan(state, 'player_to_rival')).toBeNull();
+    expect(grantMutualBonus(state)).toBeNull();
   });
 
   it('skips only rival turns during an authoritative distraction without pausing time or catching up', () => {

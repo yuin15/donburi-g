@@ -93,7 +93,7 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       modeBadge: { text: 'CPU DUEL', tone: 'practice' }, countdown: null,
       startControl: { disabled: false, label: 'SPIN', spinState: 'ready', hint: '' },
       machineNotice: 'CHOOSE BET · ACTIVE LINES PAY',
-      result: null, payout: null, cue: null, timeExtension: null, loanTransfer: null, textChoice: null, rivalDistraction: null, expression: 'neutral',
+      result: null, payout: null, cue: null, timeExtension: null, mutualBonus: null, textChoice: null, rivalDistraction: null, expression: 'neutral',
       rivalMood: '60 seconds. Let\'s play.', line: 'Think you can beat me?', heard: '',
       conversation: 'idle',
     };
@@ -203,26 +203,22 @@ export function mountGameReview(view: GameView, baseline: GameViewState): void {
       snapshot.stats = fixtureStats(snapshot.scores);
       render({ snapshot, scores: snapshot.scores, line: 'もう少し時間が欲しい？ 伸ばしてあげようか？', rivalMood: 'ONE MORE CHANCE?' });
     }
-    if (example === 'loan-rival-to-player' || example === 'loan-player-to-rival') {
-      const direction = example === 'loan-rival-to-player' ? 'rival_to_player' as const : 'player_to_rival' as const;
-      const balances = direction === 'rival_to_player' ? { player: 5, rival: 18 } : { player: 18, rival: 5 };
+    if (example === 'mutual-bonus') {
+      const balances = { player: 5, rival: 5 };
       setFixtureBalances(snapshot, balances);
       render({
-        snapshot, scores: balances, balances, loanTransfer: { direction, amount: 5 },
-        line: direction === 'rival_to_player' ? 'Fine. Don’t waste it.' : 'All right. One more shot.',
-        rivalMood: 'LOAN CONFIRMED',
+        snapshot, scores: balances, balances, mutualBonus: { amount: 5 },
+        line: 'Agreed. We each get a $5 bonus.',
+        rivalMood: 'BONUS CONFIRMED',
       });
     }
-    if (example === 'text-borrow' || example === 'text-lend' || example === 'text-extend') {
-      const kind = example === 'text-borrow' ? 'borrow' as const : example === 'text-lend' ? 'lend' as const : 'extend' as const;
-      if (kind === 'borrow') setFixtureBalances(snapshot, { player: 0, rival: 18 });
-      if (kind === 'lend') setFixtureBalances(snapshot, { player: 18, rival: 0 });
+    if (example === 'text-bonus' || example === 'text-extend') {
+      const kind = example === 'text-bonus' ? 'bonus' as const : 'extend' as const;
+      if (kind === 'bonus') setFixtureBalances(snapshot, { player: 0, rival: 18 });
       if (kind === 'extend') { snapshot.remaining = 12; snapshot.elapsed = 48; }
-      const choice = kind === 'borrow'
-        ? { token: 1, expiresAt: Number.MAX_SAFE_INTEGER, kind, question: 'BORROW $5?', detail: 'Ask your rival for one more spin.', acceptLabel: 'BORROW $5', declineLabel: 'DECLINE' }
-        : kind === 'lend'
-          ? { token: 1, expiresAt: Number.MAX_SAFE_INTEGER, kind, question: 'LEND $5?', detail: 'Your rival is out of cash.', acceptLabel: 'LEND $5', declineLabel: 'DECLINE' }
-          : { token: 1, expiresAt: Number.MAX_SAFE_INTEGER, kind, question: 'EXTEND THE DUEL?', detail: 'Add 10 seconds for one more chance.', acceptLabel: 'EXTEND +10 SEC', declineLabel: 'DECLINE' };
+      const choice = kind === 'bonus'
+        ? { token: 1, expiresAt: Number.MAX_SAFE_INTEGER, kind, question: 'SHARED BONUS?', detail: 'Both bankrolls receive $5.', acceptLabel: 'CLAIM +$5 EACH', declineLabel: 'DECLINE' }
+        : { token: 1, expiresAt: Number.MAX_SAFE_INTEGER, kind, question: 'EXTEND THE DUEL?', detail: 'Add 10 seconds for one more chance.', acceptLabel: 'EXTEND +10 SEC', declineLabel: 'DECLINE' };
       render({ snapshot, scores: snapshot.scores, balances: snapshot.balances, textChoice: choice, line: 'Fixture card only — not live gameplay.' });
     }
     if (example === 'distraction-started') {

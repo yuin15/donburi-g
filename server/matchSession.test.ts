@@ -128,7 +128,7 @@ function completeAgreementTurn(turnId: string, transcript: string, startMs = 0, 
   bridge.onTranscript('user', transcript, { startMs, endMs });
   bridge.onUserSpeechEnd({ startMs: endMs - 10, endMs });
 }
-async function settleSpokenAction(action: 'rival_to_player' | 'player_to_rival' | 'time_extension', speechId = 'synthetic-reply'): Promise<void> {
+async function settleSpokenAction(action: 'mutual_bonus' | 'time_extension', speechId = 'synthetic-reply'): Promise<void> {
   agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'commit', agreements: [{ action, offerId: null }] });
   provider.events!.onNormalSpeechStarted!(speechId);
   provider.events!.onAudio(Buffer.alloc(4800, 4).toString('base64'), speechId, 'normal');
@@ -159,7 +159,7 @@ beforeEach(() => {
   provider.gptClose.mockResolvedValue(undefined);
   agreement.resolve.mockImplementation(async (turn: { id: string }) => ({ state: 'none', id: turn.id }));
   agreement.auditAssistantSpeech.mockResolvedValue({ state: 'safe' });
-  agreement.applyOnce.mockImplementation((id: string, item: { action: 'rival_to_player' | 'player_to_rival' | 'time_extension'; offerId: string | null }, apply: (direction?: 'rival_to_player' | 'player_to_rival') => boolean) => {
+  agreement.applyOnce.mockImplementation((id: string, item: { action: 'mutual_bonus' | 'time_extension'; offerId: string | null }, apply: () => boolean) => {
     const turnKey = `${id}:applied:${item.action}`;
     const offerKey = item.offerId === null ? null : `${item.offerId}:applied:${item.action}`;
     const turnApplied = agreement.applied.has(turnKey);
@@ -169,7 +169,7 @@ beforeEach(() => {
       if (offerApplied) agreement.applied.add(turnKey);
       return false;
     }
-    const applied = apply(item.action === 'time_extension' ? undefined : item.action);
+    const applied = apply();
     if (applied) {
       agreement.applied.add(turnKey);
       if (offerKey !== null) agreement.applied.add(offerKey);
@@ -483,10 +483,10 @@ describe('provider status lifecycle', () => {
     await session.shutdown('test_finished');
   });
 
-  it('uses settled English for coordinator-confirmed loans and extensions', async () => {
+  it('uses settled English for coordinator-confirmed bonuses and extensions', async () => {
     agreement.resolve
       .mockResolvedValueOnce({ state: 'none', id: 'english-fixed-lines:turn:1' })
-      .mockResolvedValueOnce({ state: 'accepted', id: 'english-fixed-lines:turn:2', agreements: [{ action: 'rival_to_player', offerId: null }] })
+      .mockResolvedValueOnce({ state: 'accepted', id: 'english-fixed-lines:turn:2', agreements: [{ action: 'mutual_bonus', offerId: null }] })
       .mockResolvedValueOnce({ state: 'accepted', id: 'english-fixed-lines:turn:3', agreements: [{ action: 'time_extension', offerId: null }] });
     const { session, messages } = setup('english-fixed-lines', 'manual', 'audio');
     await session.initialize();
@@ -499,10 +499,10 @@ describe('provider status lifecycle', () => {
     const state = (session as unknown as { state: MatchState }).state;
     state.scores.player = 0;
     state.scores.rival = 10;
-    completeAgreementTurn('loan', 'synthetic English loan request', 200, 300);
+    completeAgreementTurn('bonus', 'synthetic English shared bonus request', 200, 300);
     await settleAgreement();
-    await settleSpokenAction('rival_to_player', 'english-loan');
-    expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ line: 'All right, I will lend you $5. Do not waste it.' });
+    await settleSpokenAction('mutual_bonus', 'english-bonus');
+    expect(messages.find(message => message.type === 'mutual_bonus')).toMatchObject({ line: 'Agreed. We each get a $5 bonus.' });
 
     completeAgreementTurn('extension', 'synthetic English extension request', 400, 500);
     await settleAgreement();
@@ -513,23 +513,23 @@ describe('provider status lifecycle', () => {
   });
 
   it.each([
-    ['Can you lend me money?', 'en', 'All right, I will lend you $5. Do not waste it.'],
-    ['Can you lend me money? 日本語', 'ja', 'しょうがないな、$5だけ貸すよ。無駄にしないで。'],
-  ] as const)('keeps an initial %s coordinator-confirmed loan aligned with its settled language', async (transcript, language, line) => {
-    agreement.resolve.mockResolvedValueOnce({ state: 'accepted', id: `initial-language-loan:${language}:turn:1`, agreements: [{ action: 'rival_to_player', offerId: null }] });
-    const { session, messages } = setup(`initial-language-loan-${language}`, 'manual', 'audio');
+    ['Can we both get the bonus?', 'en', 'Agreed. We each get a $5 bonus.'],
+    ['二人にボーナスをくれる？', 'ja', '合意どおり、二人とも$5ボーナスね。'],
+  ] as const)('keeps an initial %s coordinator-confirmed bonus aligned with its settled language', async (transcript, language, line) => {
+    agreement.resolve.mockResolvedValueOnce({ state: 'accepted', id: `initial-language-bonus:${language}:turn:1`, agreements: [{ action: 'mutual_bonus', offerId: null }] });
+    const { session, messages } = setup(`initial-language-bonus-${language}`, 'manual', 'audio');
     await session.initialize();
     session.handleRaw('{"type":"start"}');
     const state = (session as unknown as { state: MatchState }).state;
     state.scores.player = 0;
     state.scores.rival = 10;
 
-    completeAgreementTurn('loan', transcript, 0, 300);
+    completeAgreementTurn('bonus', transcript, 0, 300);
     await settleAgreement();
 
-    await settleSpokenAction('rival_to_player');
+    await settleSpokenAction('mutual_bonus');
     expect(provider.language).toHaveBeenLastCalledWith(language);
-    expect(messages.find(message => message.type === 'loan_transfer')).toMatchObject({ line });
+    expect(messages.find(message => message.type === 'mutual_bonus')).toMatchObject({ line });
     await session.shutdown('test_finished');
   });
   it('deduplicates purchases, preserves spin totals, and sends valid recovery snapshots', async () => {
@@ -1077,7 +1077,7 @@ describe('live match cleanup', () => {
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('残り60秒'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('状態=playing,勝者=未確定'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('時間延長: プレイヤーまたはライバルからの明確な新規要求・提案への合意ごとに、残り時間へ必ず+10秒を確定する。'));
-    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('貸借: 双方が合意すれば残高に関係なく$5を移動する。'));
+    expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('共有ボーナス: 明確な合意があれば、残高に関係なくプレイヤーとライバルがそれぞれ$5を受け取る。'));
     expect(provider.context).toHaveBeenLastCalledWith(expect.stringContaining('直近の確定回転: まだ回転していない。'));
     await vi.advanceTimersByTimeAsync(900);
     for (let i = 0; i < 20; i += 1) session.handleRaw('{"type":"mic","audio":"AAAA"}');
@@ -1225,7 +1225,7 @@ describe('live match cleanup', () => {
     const transcription = deferred<string>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
     agreement.auditAssistantSpeech.mockResolvedValue({
-      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'time_extension', offerId: null }],
+      state: 'commit', agreements: [{ action: 'mutual_bonus', offerId: null }, { action: 'time_extension', offerId: null }],
     });
     const { session, messages } = setup('background-compound', 'manual', 'audio');
     await session.initialize();
@@ -1245,7 +1245,7 @@ describe('live match cleanup', () => {
     completeAgreementTurn('newer', 'synthetic new conversation', 200, 300);
     transcription.resolve('synthetic spoken compound acceptance');
     await vi.advanceTimersByTimeAsync(400);
-    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'mutual_bonus')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     expect(agreement.applyOnce.mock.calls[0][0]).toBe('background-compound:turn:1');
     // A replay uses the same causal turn/action keys.
@@ -1254,7 +1254,7 @@ describe('live match cleanup', () => {
     provider.events!.onAudio(pcm.toString('base64'), 'replay', 'normal');
     provider.events!.onSpeechAudioEnded('replay');
     await vi.advanceTimersByTimeAsync(1);
-    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'mutual_bonus')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
@@ -1264,7 +1264,7 @@ describe('live match cleanup', () => {
     const clearing = deferred<boolean>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
     agreement.auditAssistantSpeech.mockResolvedValueOnce({
-      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }, { action: 'time_extension', offerId: null }],
+      state: 'commit', agreements: [{ action: 'mutual_bonus', offerId: null }, { action: 'time_extension', offerId: null }],
     });
     const { session, messages } = setup('interrupt-settlement', 'manual', 'avatar');
     await session.initialize(); session.handleRaw('{"type":"start"}');
@@ -1283,7 +1283,7 @@ describe('live match cleanup', () => {
     expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
     transcription.resolve('synthetic spoken compound acceptance');
     await vi.advanceTimersByTimeAsync(400);
-    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'mutual_bonus')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     expect(agreement.applyOnce.mock.calls[0][0]).toBe('interrupt-settlement:turn:1');
     expect(provider.finishPlaybackInterrupt).not.toHaveBeenCalled();
@@ -1292,12 +1292,12 @@ describe('live match cleanup', () => {
     expect(provider.finishPlaybackInterrupt.mock.calls).toEqual([[1], [2]]);
     // Interruption completion never replays a settlement or reruns its audit.
     expect(agreement.auditAssistantSpeech).toHaveBeenCalledOnce();
-    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'mutual_bonus')).toHaveLength(1);
     expect(messages.filter(message => message.type === 'time_extension')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
 
-  it.each(['rival_to_player', 'player_to_rival', 'time_extension'] as const)('settles a heard %s offer answered before its ASR finishes and deduplicates repeated yes', async action => {
+  it.each(['mutual_bonus', 'time_extension'] as const)('settles a heard %s offer answered before its ASR finishes and deduplicates repeated yes', async action => {
     const transcription = deferred<string>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
     agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'offer', actions: [action] });
@@ -1316,9 +1316,9 @@ describe('live match cleanup', () => {
     expect(agreement.resolve).not.toHaveBeenCalled();
     transcription.resolve('synthetic spoken offer');
     await vi.advanceTimersByTimeAsync(1);
-    const events = messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'loan_transfer'));
+    const events = messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'mutual_bonus'));
     expect(events).toHaveLength(1);
-    if (action !== 'time_extension') expect(events[0]).toMatchObject({ direction: action, amount: 5 });
+    if (action !== 'time_extension') expect(events[0]).toMatchObject({ amount: 5 });
     expect(agreement.resolve.mock.calls[0][0].activeOffers[action]).toContain(':offer:');
     expect(provider.confirmedLine).not.toHaveBeenCalled();
     await session.shutdown('test_finished');
@@ -1353,13 +1353,13 @@ describe('live match cleanup', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(1);
     agreement.auditAssistantSpeech.mockResolvedValue({
-      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }],
+      state: 'commit', agreements: [{ action: 'mutual_bonus', offerId: null }],
     });
     provider.events!.onTranscript('user', ' synthetic completed request', { startMs: 0, endMs: 100 });
     await vi.advanceTimersByTimeAsync(400);
     expect(agreement.resolve.mock.calls.at(-1)![0].transcript).toBe('synthetic incomplete synthetic completed request');
     expect(agreement.auditAssistantSpeech).toHaveBeenCalledTimes(2);
-    expect(messages.filter(message => message.type === 'loan_transfer')).toHaveLength(1);
+    expect(messages.filter(message => message.type === 'mutual_bonus')).toHaveLength(1);
     await session.shutdown('test_finished');
   });
 
@@ -1367,7 +1367,7 @@ describe('live match cleanup', () => {
     const transcription = deferred<string>();
     asr.transcribe.mockReturnValueOnce(transcription.promise);
     agreement.auditAssistantSpeech.mockResolvedValue({
-      state: 'commit', agreements: [{ action: 'rival_to_player', offerId: null }],
+      state: 'commit', agreements: [{ action: 'mutual_bonus', offerId: null }],
     });
     const { session, messages } = setup('late-settlement', 'manual', 'audio');
     await session.initialize(); session.handleRaw('{"type":"start"}');
@@ -1380,7 +1380,7 @@ describe('live match cleanup', () => {
     expect(messages.some(message => message.type === 'match_ended')).toBe(false);
     transcription.resolve('synthetic acceptance');
     await vi.advanceTimersByTimeAsync(1);
-    const transfer = messages.findIndex(message => message.type === 'loan_transfer');
+    const transfer = messages.findIndex(message => message.type === 'mutual_bonus');
     const ended = messages.findIndex(message => message.type === 'match_ended');
     expect(transfer).toBeGreaterThan(-1);
     expect(ended).toBeGreaterThan(transfer);
@@ -1402,7 +1402,7 @@ describe('live match cleanup', () => {
     await session.shutdown('test_finished');
   });
 
-  it.each(['rival_to_player', 'player_to_rival', 'time_extension'] as const)('applies each distinct direct %s agreement, preserving negative-bankroll transfers', async action => {
+  it.each(['mutual_bonus', 'time_extension'] as const)('applies each distinct direct %s agreement', async action => {
     const { session, messages } = setup('repeat-direct', 'manual', 'audio');
     await session.initialize(); session.handleRaw('{"type":"start"}');
     const state = (session as unknown as { state: MatchState }).state;
@@ -1412,13 +1412,11 @@ describe('live match cleanup', () => {
       await settleAgreement();
       await settleSpokenAction(action, `reply-${index}`);
     }
-    const events = messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'loan_transfer'));
+    const events = messages.filter(message => message.type === (action === 'time_extension' ? 'time_extension' : 'mutual_bonus'));
     expect(events).toHaveLength(2);
     if (action === 'time_extension') expect(state.duration).toBe(80);
     else {
-      expect(state.scores.player + state.scores.rival).toBe(0);
-      expect(state.scores.player).toBe(action === 'rival_to_player' ? 10 : -10);
-      expect(state.scores.rival).toBe(action === 'rival_to_player' ? -10 : 10);
+      expect(state.scores).toEqual({ player: 10, rival: 10 });
     }
     await session.shutdown('test_finished');
   });
@@ -1438,7 +1436,7 @@ describe('live match cleanup', () => {
     transcription.resolve('synthetic too late acceptance');
     await vi.advanceTimersByTimeAsync(1);
     expect(agreement.auditAssistantSpeech).not.toHaveBeenCalled();
-    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(messages.some(message => message.type === 'mutual_bonus')).toBe(false);
     await session.shutdown('test_finished');
   });
 
@@ -1446,7 +1444,7 @@ describe('live match cleanup', () => {
     const { session, messages } = setup('forwarded-tail', 'manual', 'audio');
     await session.initialize(); session.handleRaw('{"type":"start"}');
     completeAgreementTurn('request', 'synthetic request', 0, 100); await settleAgreement();
-    await settleSpokenAction('rival_to_player', 'same-speech');
+    await settleSpokenAction('mutual_bonus', 'same-speech');
     completeAgreementTurn('unrelated', 'synthetic newer question', 200, 300); await settleAgreement();
     const tail = Buffer.alloc(4800, 5);
     agreement.auditAssistantSpeech.mockResolvedValueOnce({ state: 'commit', agreements: [{ action: 'time_extension', offerId: null }] });
@@ -1510,7 +1508,7 @@ describe('live match cleanup', () => {
     transcription.resolve('synthetic acceptance after closure');
     await vi.advanceTimersByTimeAsync(1);
     expect(agreement.auditAssistantSpeech).not.toHaveBeenCalled();
-    expect(messages.some(message => message.type === 'loan_transfer')).toBe(false);
+    expect(messages.some(message => message.type === 'mutual_bonus')).toBe(false);
   });
 
   it('stops context and microphone sends when optional voice is disabled while the match continues', async () => {
