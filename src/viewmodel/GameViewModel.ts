@@ -4,8 +4,8 @@ import { upgradePrice } from '../../shared/shop';
 import type { LiveSession } from '../client/LiveSession';
 import type { AiConnectionState, AiProvider, AiRuntimeEvent } from '../client/AiStatus';
 import {
-  advanceMatch, applyTimeExtension, createMatch, getSnapshot, LOAN_AMOUNT, MANUAL_SPIN_INTERVAL, PAYOUT, requestManualSpin, setBet,
-  startMatch, purchaseUpgrade, transferLoan, type GameEvent, type MatchState,
+  advanceMatch, applyTimeExtension, createMatch, getSnapshot, MANUAL_SPIN_INTERVAL, MUTUAL_BONUS_AMOUNT, PAYOUT, requestManualSpin, setBet,
+  startMatch, grantMutualBonus, purchaseUpgrade, type GameEvent, type MatchState,
 } from '../domain/game';
 import { RoundPresentation } from './RoundPresentation';
 import { RivalReactions } from './RivalReactions';
@@ -64,10 +64,10 @@ export class GameViewModel implements GameCommands {
   private payout: GameViewState['payout'] = null;
   private cue: GameViewState['cue'] = null;
   private timeExtension: GameViewState['timeExtension'] = null;
-  private loanTransfer: GameViewState['loanTransfer'] = null;
+  private mutualBonus: GameViewState['mutualBonus'] = null;
   private textChoice: GameViewState['textChoice'] = null;
   private textChoiceToken = 0;
-  private readonly offeredTextChoices = new Set<'borrow' | 'lend' | 'extend'>();
+  private readonly offeredTextChoices = new Set<'bonus' | 'extend'>();
   private rivalDistraction: GameViewState['rivalDistraction'] = null;
   private line = INITIAL_LINE;
   private videoEnabled = false;
@@ -94,7 +94,7 @@ export class GameViewModel implements GameCommands {
   private spinRequestTimer: number | undefined;
   private cueTimer: number | undefined;
   private timeExtensionTimer: number | undefined;
-  private loanTransferTimer: number | undefined;
+  private mutualBonusTimer: number | undefined;
   private textChoiceTimer: number | undefined;
   private payoutTimers: Partial<Record<Side, number>> = {};
   private assistantTimer: number | undefined;
@@ -256,14 +256,13 @@ export class GameViewModel implements GameCommands {
         this.line = 'One more chance. +10 seconds.';
       }
     } else {
-      const direction = choice.kind === 'borrow' ? 'rival_to_player' : 'player_to_rival';
-      const event = transferLoan(this.practiceState, direction);
+      const event = grantMutualBonus(this.practiceState);
       if (event) {
-        this.rounds.syncLoan(direction, LOAN_AMOUNT);
+        this.rounds.syncMutualBonus(MUTUAL_BONUS_AMOUNT);
         this.displayBalances = { ...event.after.balances };
         this.consumeSnapshot(event.after);
-        this.presentLoan(direction, LOAN_AMOUNT);
-        this.line = direction === 'rival_to_player' ? 'Here. Make this $5 count.' : 'Fine. One $5 loan.';
+        this.presentMutualBonus(MUTUAL_BONUS_AMOUNT);
+        this.line = 'Bonus confirmed. +$5 each.';
       }
     }
     if (!this.textChoice) this.maybeOfferTextChoice();
@@ -348,7 +347,7 @@ export class GameViewModel implements GameCommands {
     for (const [id, resolve] of this.waits) { this.deps.clock.clearTimeout(id); resolve(false); }
     this.waits.clear();
     this.practiceTimer = this.spinQueueTimer = this.spinRequestTimer = undefined;
-    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = this.loanTransferTimer = this.textChoiceTimer = undefined;
+    this.cueTimer = this.assistantTimer = this.conversationTimer = this.timeExtensionTimer = this.mutualBonusTimer = this.textChoiceTimer = undefined;
     this.payoutTimers = {};
   }
 
@@ -393,7 +392,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.timeExtension = null;
-    this.loanTransfer = null;
+    this.mutualBonus = null;
     this.clearTextChoice();
     this.offeredTextChoices.clear();
     this.rivalDistraction = null;
@@ -419,7 +418,7 @@ export class GameViewModel implements GameCommands {
     this.payout = null;
     this.cue = null;
     this.timeExtension = null;
-    this.loanTransfer = null;
+    this.mutualBonus = null;
     this.clearTextChoice();
     this.offeredTextChoices.clear();
     this.rivalDistraction = null;
@@ -515,12 +514,9 @@ export class GameViewModel implements GameCommands {
       this.clearTextChoice();
     }
     let choice: Omit<NonNullable<GameViewState['textChoice']>, 'token' | 'expiresAt'> | null = null;
-    // A player without even the minimum bet gets the first decision. The rival
-    // gets the next priority, then the late-match extension.
-    if (!this.offeredTextChoices.has('borrow') && state.scores.player < 1 && state.scores.rival >= LOAN_AMOUNT) {
-      choice = { kind: 'borrow', question: 'BORROW $5?', detail: 'Ask your rival for one more spin.', acceptLabel: 'BORROW $5', declineLabel: 'DECLINE' };
-    } else if (!this.offeredTextChoices.has('lend') && state.scores.rival < 1 && state.scores.player >= LOAN_AMOUNT) {
-      choice = { kind: 'lend', question: 'LEND $5?', detail: 'Your rival is out of cash.', acceptLabel: 'LEND $5', declineLabel: 'DECLINE' };
+    // One shared card handles either bankrupt side without assigning a lender.
+    if (!this.offeredTextChoices.has('bonus') && (state.scores.player < 1 || state.scores.rival < 1)) {
+      choice = { kind: 'bonus', question: 'SHARED BONUS?', detail: 'Both bankrolls receive $5.', acceptLabel: 'CLAIM +$5 EACH', declineLabel: 'DECLINE' };
     } else if (!this.offeredTextChoices.has('extend') && !state.extensionUsed && state.duration === 60 && state.remaining <= 15) {
       choice = { kind: 'extend', question: 'EXTEND THE DUEL?', detail: 'Add 10 seconds for one more chance.', acceptLabel: 'EXTEND +10 SEC', declineLabel: 'DECLINE' };
     }
@@ -538,8 +534,7 @@ export class GameViewModel implements GameCommands {
   }
 
   private isTextChoiceEligible(state: MatchState, kind: NonNullable<GameViewState['textChoice']>['kind']): boolean {
-    if (kind === 'borrow') return state.scores.player < 1 && state.scores.rival >= LOAN_AMOUNT && !state.loanUsed.rival_to_player;
-    if (kind === 'lend') return state.scores.rival < 1 && state.scores.player >= LOAN_AMOUNT && !state.loanUsed.player_to_rival;
+    if (kind === 'bonus') return state.scores.player < 1 || state.scores.rival < 1;
     return !state.extensionUsed && state.duration === 60 && state.remaining <= 15;
   }
 
@@ -550,10 +545,10 @@ export class GameViewModel implements GameCommands {
     this.timeExtensionTimer = this.schedule(() => { this.timeExtension = null; this.emit(); }, 1350);
   }
 
-  private presentLoan(direction: 'rival_to_player' | 'player_to_rival', amount: 5): void {
-    this.loanTransfer = { direction, amount };
-    this.cancelTimer(this.loanTransferTimer);
-    this.loanTransferTimer = this.schedule(() => { this.loanTransfer = null; this.emit(); }, 1800);
+  private presentMutualBonus(amount: 5): void {
+    this.mutualBonus = { amount };
+    this.cancelTimer(this.mutualBonusTimer);
+    this.mutualBonusTimer = this.schedule(() => { this.mutualBonus = null; this.emit(); }, 1800);
   }
 
   private flushSpinQueue(): void {
@@ -851,18 +846,18 @@ export class GameViewModel implements GameCommands {
       if (message.decision === 'accepted') {
         this.presentTimeExtension(message.before.remaining, message.after.remaining);
       }
-    } else if (message.type === 'loan_transfer') {
-      // Apply the authoritative post-transfer snapshot before waiting for any
+    } else if (message.type === 'mutual_bonus') {
+      // Apply the authoritative post-bonus snapshot before waiting for any
       // later spin presentation. This prevents an old displayed balance from
       // briefly returning while reels settle.
       this.liveSnapshot = message.after;
-      this.rounds.syncLoan(message.direction, message.amount);
+      this.rounds.syncMutualBonus(message.amount);
       this.displayBalances = { ...message.after.balances };
       this.consumeSnapshot(message.after);
       this.assistantText = this.heard = '';
       this.line = message.line;
       this.setConversation('replying');
-      this.presentLoan(message.direction, message.amount);
+      this.presentMutualBonus(message.amount);
     } else if (message.type === 'rival_distraction') {
       this.line = message.line;
       this.setConversation('replying');
@@ -961,7 +956,7 @@ export class GameViewModel implements GameCommands {
       countdown: this.countdown, startControl: { disabled, label, spinState, hint },
       machineNotice: playing && this.snapshot.remaining <= 10 ? 'FINAL SPINS · KEEP GOING' : DEFAULT_NOTICE,
       sessionRecord: { ...this.sessionRecord },
-      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, loanTransfer: this.loanTransfer ? { ...this.loanTransfer } : null, textChoice: this.textChoice ? { ...this.textChoice } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
+      result: this.result ? structuredClone(this.result) : null, payout: this.payout ? { ...this.payout } : null, cue: this.cue ? { ...this.cue } : null, timeExtension: this.timeExtension ? { ...this.timeExtension } : null, mutualBonus: this.mutualBonus ? { ...this.mutualBonus } : null, textChoice: this.textChoice ? { ...this.textChoice } : null, rivalDistraction: this.rivalDistraction ? { ...this.rivalDistraction } : null,
       expression: this.result || now < this.reactionUntil ? this.expression : selectAmbientRivalExpression({
         scores, remaining: this.snapshot.remaining, playing,
         spinning: !this.rounds.isSettled, countdown: this.countdown !== null,

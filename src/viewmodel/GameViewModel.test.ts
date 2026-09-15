@@ -421,7 +421,7 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
-  it('keeps a confirmed loan through an older lender reel stop, then uses later totals without double counting', async () => {
+  it('keeps a confirmed mutual bonus through older reel stops, then uses later totals without double counting', async () => {
     const h = setup();
     const session = await beginLive(h);
     const inFlight: SpinView = { side: 'player', round: 1, symbols: ['cherry', 'bell', 'seven'], payout: 0, total: 25 };
@@ -430,11 +430,11 @@ describe('game view model', () => {
     const before = playingSnapshot();
     before.elapsed = 8; before.remaining = 52;
     before.scores = before.balances = { player: 25, rival: 0 };
-    const after = { ...before, scores: { player: 20, rival: 5 }, balances: { player: 20, rival: 5 }, eventSeq: before.eventSeq + 1 };
-    session.emit({ type: 'loan_transfer', direction: 'player_to_rival', amount: 5, before, after, line: 'All right. One more shot.' });
-    expect(h.vm.state).toMatchObject({ scores: { player: 20, rival: 5 }, loanTransfer: { direction: 'player_to_rival', amount: 5 } });
+    const after = { ...before, scores: { player: 30, rival: 5 }, balances: { player: 30, rival: 5 }, eventSeq: before.eventSeq + 1 };
+    session.emit({ type: 'mutual_bonus', amount: 5, before, after, line: 'Agreed. We each get a $5 bonus.' });
+    expect(h.vm.state).toMatchObject({ scores: { player: 30, rival: 5 }, mutualBonus: { amount: 5 } });
     h.rounds[0].stopped();
-    expect(h.vm.state.scores).toEqual({ player: 20, rival: 5 });
+    expect(h.vm.state.scores).toEqual({ player: 30, rival: 5 });
 
     const later: SpinView = { ...inFlight, round: 2, total: 19 };
     session.emit({ type: 'side_spin', spin: later });
@@ -443,7 +443,7 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
-  it('recovers missed loans from duplicate same-round snapshots without revealing the payout or rewinding on stop', async () => {
+  it('recovers missed mutual bonuses from duplicate same-round snapshots without revealing the payout or rewinding on stop', async () => {
     const h = setup();
     const session = await beginLive(h);
     const player: SpinView = { side: 'player', round: 1, symbols: ['cherry', 'cherry', 'cherry'], payout: 6, total: 35 };
@@ -626,16 +626,16 @@ describe('game view model', () => {
     h.vm.dispose();
   });
 
-  it('offers one CPU borrow card, applies it once, and rejects a delayed stale reply', async () => {
+  it('offers one CPU shared-bonus card, applies it once, and rejects a delayed stale reply', async () => {
     const h = setup();
     await beginCpu(h);
     spendCpuBankroll(h);
     const choice = h.vm.state.textChoice;
-    expect(choice).toMatchObject({ kind: 'borrow', question: 'BORROW $5?' });
+    expect(choice).toMatchObject({ kind: 'bonus', question: 'SHARED BONUS?' });
     h.vm.respondTextChoice(choice!.token, true);
-    expect(h.vm.state).toMatchObject({ scores: { player: 5, rival: 25 }, loanTransfer: { direction: 'rival_to_player', amount: 5 }, textChoice: null });
+    expect(h.vm.state).toMatchObject({ scores: { player: 5, rival: 35 }, mutualBonus: { amount: 5 }, textChoice: null });
     h.vm.respondTextChoice(choice!.token, true);
-    expect(h.vm.state.scores).toEqual({ player: 5, rival: 25 });
+    expect(h.vm.state.scores).toEqual({ player: 5, rival: 35 });
     h.vm.dispose();
   });
 

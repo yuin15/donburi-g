@@ -101,13 +101,10 @@ const payload = z.discriminatedUnion('type', [
   z.object({ type: z.literal('upgrade_applied'), offerIndex: index, player: upgrade, rival: upgrade }),
   z.object({ type: z.literal('rival_line'), text: z.string().max(1000), reason: z.string().max(100) }),
   z.object({ type: z.literal('time_extension'), decision: z.enum(['accepted', 'rejected']), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => v.before.matchId === v.after.matchId && (v.decision === 'accepted' ? v.after.duration === (v.before.duration ?? MATCH_SECONDS) + 10 && Math.abs(v.after.remaining - (v.before.remaining + 10)) < 1e-6 : JSON.stringify(v.before) === JSON.stringify(v.after))),
-  z.object({ type: z.literal('loan_transfer'), direction: z.enum(['rival_to_player', 'player_to_rival']), amount: z.literal(5), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => {
+  z.object({ type: z.literal('mutual_bonus'), amount: z.literal(5), before: snapshot, after: snapshot, line: z.string().min(1).max(1000) }).refine(v => {
     if (v.before.matchId !== v.after.matchId || v.before.status !== 'playing' || v.after.status !== 'playing') return false;
-    const lender = v.direction === 'rival_to_player' ? 'rival' : 'player';
-    const borrower = lender === 'rival' ? 'player' : 'rival';
     return (['player', 'rival'] as const).every(side => v.before.balances[side] === v.before.scores[side] && v.after.balances[side] === v.after.scores[side])
-      && v.before.scores[lender] - v.after.scores[lender] === 5
-      && v.after.scores[borrower] - v.before.scores[borrower] === 5;
+      && (['player', 'rival'] as const).every(side => v.after.scores[side] - v.before.scores[side] === 5);
   }),
   z.object({ type: z.literal('rival_distraction'), state: z.enum(['started', 'ended']), seconds: z.union([z.literal(2), z.literal(4)]), line: z.string().min(1).max(1000) }),
   z.object({ type: z.literal('transcript'), role: z.enum(['user', 'assistant']), delta: z.string().max(16000) }),
