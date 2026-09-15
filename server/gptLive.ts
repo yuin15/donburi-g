@@ -76,7 +76,7 @@ export class GptLiveBridge {
   private finalized = false;
   private usageReported = false;
   private conversationLanguagePending = false;
-  constructor(private readonly events: LiveEvents, private readonly openingContext = '', private conversationLanguage: ConversationLanguage = 'ja') {}
+  constructor(private readonly events: LiveEvents, private readonly openingContext = '', private conversationLanguage: ConversationLanguage = 'ja', private readonly speechIdPrefix = '') {}
 
   async connect(timeoutMs = 15_000): Promise<boolean> {
     if (this.closing) return false;
@@ -517,7 +517,7 @@ export class GptLiveBridge {
     let speech = this.activeNormalSpeech;
     if (!speech && !audible) return;
     if (!speech) {
-      speech = { speechId: `normal-${++this.normalSpeechSequence}`, chunks: [], quietMs: 0, timer: null, started: false, ended: false };
+      speech = { speechId: `${this.speechIdPrefix}normal-${++this.normalSpeechSequence}`, chunks: [], quietMs: 0, timer: null, started: false, ended: false };
       this.activeNormalSpeech = speech;
       this.events.onNormalSpeechStarted?.(speech.speechId);
       if (this.normalSpeechQueue.length >= 2) this.normalSpeechQueue.shift();
