@@ -8,6 +8,7 @@ import { parseServerEnvelope } from '../shared/wire';
 const provider = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), mediaStart: vi.fn(), mediaClose: vi.fn(),
   mediaFailures: [] as Array<() => void>,
+  mediaPlaybackDone: [] as Array<(speechId: string) => void>,
   gptConnect: vi.fn(), gptClose: vi.fn(), events: null as LiveEvents | null, bridges: [] as LiveEvents[], bridgeLanguages: [] as Array<'ja' | 'en'>,
   context: vi.fn(), reaction: vi.fn(), conversationInvitation: vi.fn(() => true), confirmedLine: vi.fn(), cancelConfirmedSpeech: vi.fn(), delegationResult: vi.fn(), delegationThinking: vi.fn(), suppress: vi.fn(), mic: vi.fn(), language: vi.fn(), beginUserSpeech: vi.fn(), endUserSpeech: vi.fn(), finishUserTurnGate: vi.fn(), playbackDone: vi.fn(), interruptPlayback: vi.fn(), discardNormalPlayback: vi.fn(), mediaComplete: vi.fn(),
   pendingConversation: vi.fn(),
@@ -26,7 +27,10 @@ const agreement = vi.hoisted(() => ({
 vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from(provider.seed), randomUUID: () => 'extension-speech-id' }));
 vi.mock('./liveavatar', () => ({ startAvatarSession: provider.start, stopAvatarSession: provider.stop }));
 vi.mock('./mediaServer', () => ({ MediaServerLeg: class {
-  constructor(_url: string, onFailure: () => void) { provider.mediaFailures.push(onFailure); }
+  constructor(_url: string, onFailure: () => void, onPlaybackDone: (speechId: string) => void) {
+    provider.mediaFailures.push(onFailure);
+    provider.mediaPlaybackDone.push(onPlaybackDone);
+  }
   start = provider.mediaStart;
   close = provider.mediaClose;
   speak = provider.speak;
@@ -150,6 +154,7 @@ beforeEach(() => {
   provider.bridgeLanguages.length = 0;
   provider.openingContexts.length = 0;
   provider.mediaFailures.length = 0;
+  provider.mediaPlaybackDone.length = 0;
   agreement.applied.clear();
   asr.transcribe.mockResolvedValue('synthetic ordinary audio');
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network disabled in lifecycle tests'); }));
@@ -1195,6 +1200,65 @@ describe('live match cleanup', () => {
     expect(provider.speak).not.toHaveBeenCalled();
     expect(messages).toHaveLength(count);
     await session.shutdown('test_finished');
+  });
+
+  it.each(['audio', 'avatar'] as const)('lets a late result line finish on %s, including a phrase after a pause', async voiceMode => {
+    const { session, messages, close, release } = setup('result-tail', 'automatic', voiceMode);
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = provider.bridges[1];
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    const done = (speechId: string) => voiceMode === 'avatar'
+      ? provider.mediaPlaybackDone[0](speechId)
+      : session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId }));
+    // Reconnect/model startup used seven of the old eight-second deadline.
+    await vi.advanceTimersByTimeAsync(7_000);
+    result.onAudio(voice, 'result-first', 'normal');
+    result.onTranscript('assistant', 'synthetic full final sentence');
+    done('result-first'); // An ACK before generation end must not close playback.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(close).not.toHaveBeenCalled();
+    result.onAudio(voice, 'result-first', 'normal');
+    result.onSpeechAudioEnded('result-first');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(close).not.toHaveBeenCalled(); // Generation end alone is insufficient.
+    done('old-match-speech');
+    expect(close).not.toHaveBeenCalled();
+    done('result-first');
+    await vi.advanceTimersByTimeAsync(1_000);
+    result.onTranscript('assistant', 'synthetic continuation');
+    result.onAudio(voice, 'result-tail', 'normal');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(close).not.toHaveBeenCalled();
+    result.onSpeechAudioEnded('result-tail');
+    done('result-tail');
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(close).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(messages.filter(m => m.type === 'transcript')).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds a result whose playback ACK never arrives without letting new audio extend it forever', async () => {
+    const { session, close, release } = setup('result-missing-ack', 'automatic', 'audio');
+    await session.initialize();
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(67_000);
+    const result = provider.bridges[1];
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    result.onAudio(voice, 'result-first', 'normal');
+    await vi.advanceTimersByTimeAsync(14_000);
+    result.onAudio(voice, 'result-first', 'normal');
+    result.onSpeechAudioEnded('result-first');
+    await vi.advanceTimersByTimeAsync(999);
+    expect(close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(close).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('retains sanitized usage from both generations even after shutdown', async () => {

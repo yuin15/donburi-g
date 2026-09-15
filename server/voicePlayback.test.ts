@@ -164,7 +164,7 @@ it.each([
     if (previousLoan && earlyReply) emit('session.output_audio.delta', { delta: prefix.toString('base64') });
     userTurn('さっきのスロット惜しかったね');
     await vi.advanceTimersByTimeAsync(350);
-    // This ordinary reply is generated while the five-second playback gap runs.
+    // This ordinary reply starts before the later loan request.
     if (earlyReply && !previousLoan) emit('session.output_audio.delta', { delta: prefix.toString('base64') });
     userTurn(request);
     await vi.advanceTimersByTimeAsync(350);
@@ -184,6 +184,57 @@ it.each([
     expect(messages.filter(message => message.type === 'voice_interrupt')).toHaveLength(0);
     expect(messages.some(message => message.type === 'error' && message.code === 'settlement_unavailable')).toBe(false);
   } finally { await session.shutdown('synthetic_conversation_finished'); }
+});
+
+it('preserves final PCM past eight seconds and closes only after the real player finishes', async () => {
+  const player = new LiveAudioPlayer(); await player.prepare();
+  const messages: ServerMessage[] = [];
+  const close = vi.fn();
+  const frontend = { readyState: 1, close, send(raw: string) {
+    const message = JSON.parse(raw) as ServerMessage;
+    messages.push(message);
+    if (message.type === 'voice_audio') player.play(message.audio, message.speechId);
+    if (message.type === 'voice_interrupt') player.interrupt();
+    if (message.type === 'voice_status' && message.status === 'closed') void player.close();
+    if (message.type === 'voice_speech_end') {
+      void player.speechEnded(message.speechId).then(() => session.handleRaw(JSON.stringify({ type: 'voice_speech_done', speechId: message.speechId })));
+    }
+  } } as unknown as WebSocket;
+  const session = new MatchSession(frontend, 'result-playback', async () => undefined, { voiceMode: 'audio', spinMode: 'manual' });
+  try {
+    const initializing = session.initialize();
+    sockets[0].emit('open');
+    sockets[0].emit('message', JSON.stringify({ type: 'session.started' }));
+    await initializing;
+    session.handleRaw('{"type":"start"}');
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = sockets[1];
+    result.emit('open');
+    result.emit('message', JSON.stringify({ type: 'session.started' }));
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(7_000);
+    const voice = Buffer.alloc(4800, 4).toString('base64');
+    result.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'synthetic complete final sentence' }));
+    for (let i = 0; i < 20; i++) result.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
+    await vi.advanceTimersByTimeAsync(1_100);
+    // At result +8.1s, the last 200ms is still in the browser's queue.
+    for (const source of sources.slice(0, 18)) source.onended?.();
+    expect(close).not.toHaveBeenCalled();
+    expect(sources).toHaveLength(20);
+    expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
+    const speech = messages.find(m => m.type === 'voice_audio');
+    expect(speech).toMatchObject({ speechId: expect.stringMatching(/^result-\d+-normal-1$/) });
+    session.handleRaw('{"type":"voice_speech_done","speechId":"normal-1"}');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(close).not.toHaveBeenCalled(); // A delayed old-bridge ACK is unrelated.
+    for (const source of sources.slice(18)) source.onended?.();
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(close).toHaveBeenCalledOnce();
+    expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
+  } finally {
+    await session.shutdown('synthetic_result_finished');
+    await player.close();
+  }
 });
 
 it.each([[0, 3], [160, 3], [161, 2], [161, 3]])('preserves the last PCM and the next reply with microphone RMS %i over %i chunks', async (amplitude, chunkCount) => {
@@ -222,18 +273,19 @@ it.each([[0, 3], [160, 3], [161, 2], [161, 3]])('preserves the last PCM and the 
     expect(messages.filter(m => m.type === 'voice_interrupt')).toHaveLength(0);
     expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
 
-    // Generation completion does not release the next reply before actual playback.
+    // Keep the previous tail, then start the waiting reply without an extra pause.
     await vi.advanceTimersByTimeAsync(900);
     expect(messages.filter(m => m.type === 'voice_speech_end')).toHaveLength(1);
     emit('session.output_audio.delta', voice);
     await vi.advanceTimersByTimeAsync(900);
     expect(sources).toHaveLength(10);
-    for (const source of sources.slice(8)) source.onended?.();
+    const tail = sources.slice(8);
+    audioTime = 11.04;
+    for (const source of tail) source.onended?.();
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(4999);
-    expect(sources).toHaveLength(10);
-    await vi.advanceTimersByTimeAsync(1);
     expect(sources).toHaveLength(11);
+    expect(sources[10].start.mock.calls[0][0]).toBeCloseTo(11.08, 5);
+    expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
   } finally {
     await session.shutdown('synthetic_playback_finished');
     await player.close();
