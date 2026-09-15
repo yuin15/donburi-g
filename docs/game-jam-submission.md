@@ -22,13 +22,13 @@ Built by team donburi, Slot-chan combines conversation, risk, and a short replay
 
 ## 2. Meaningful use of OpenAI tools — 30%
 
-*Word count: 143 / 200.*
+*Word count: 150 / 200.*
 
 OpenAI voice enables Slot-chan's central experience: playing a game while conversing with the opponent.
 
 GPT-Live streams microphone input, rival speech, and transcripts during active play. Current balances, time, and confirmed outcomes provide context for the conversation. Players can react to a win, challenge the rival, or continue a conversation while their hands operate the controls. The implementation supports interruptions and English/Japanese conversation, so interaction can follow the player's response as well as the match.
 
-Spoken requests for fictional money or extra time can reach validated game actions. A bounded Responses API path classifies replies to a loan offer; game code retains control of money, time, and reel outcomes.
+Spoken requests for a shared fictional $5 bonus or extra time can reach validated game actions. A bounded Responses API path classifies the agreement; game code grants the $5 bonus to both players and retains control of time and reel outcomes.
 
 Codex supported voice integration, implementation, debugging, and 3D model development through production scripts, mesh corrections, and Three.js integration. OpenAI image generation contributed artwork and expression variants. These development tools support the shared conversational game experience.
 
