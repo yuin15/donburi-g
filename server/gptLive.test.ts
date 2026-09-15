@@ -172,7 +172,7 @@ describe('live conversation pacing', () => {
     audio();
     const oldSpeech = events.onAudio.mock.calls[0][1];
     const oldUtterance = commands().at(-1).event_id;
-    const interrupt = bridge.beginUserSpeech();
+    const interrupt = bridge.beginUserSpeech({ interruptPlayback: true });
     expect(interrupt).not.toBeNull();
     const clearing = media.interruptAndWait(2000).then(cleared => { if (cleared) bridge.finishPlaybackInterrupt(interrupt!); });
     const interruptId = commands().at(-1).event_id;
@@ -213,7 +213,7 @@ describe('live conversation pacing', () => {
     ack('agent.speak_ended', confirmedUtterance);
     expect(playbackDone).toHaveBeenLastCalledWith('confirmed-next');
     audio();
-    expect(events.onAudio).toHaveBeenCalledTimes(3);
+    expect(events.onAudio).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(5000);
     expect(events.onAudio).toHaveBeenCalledTimes(4);
     expect(events.onAudio.mock.calls.at(-1)![2]).toBe('normal');
@@ -230,9 +230,9 @@ describe('live conversation pacing', () => {
     const pcm = Buffer.alloc(4800, 4).toString('base64');
     const audio = () => socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: pcm }));
     audio();
-    const first = bridge.beginUserSpeech()!;
+    const first = bridge.beginUserSpeech({ interruptPlayback: true })!;
     audio(); // Still unplayed when a second interruption supersedes it.
-    const second = bridge.beginUserSpeech()!;
+    const second = bridge.beginUserSpeech({ interruptPlayback: true })!;
     expect(second).not.toBe(first);
     audio();
     bridge.finishPlaybackInterrupt(first);
@@ -250,7 +250,7 @@ describe('live conversation pacing', () => {
     bridge.noteSpeechPlaybackDone('normal-3');
     await vi.advanceTimersByTimeAsync(5000);
     expect(events.onAudio).toHaveBeenLastCalledWith(pcm, 'normal-4', 'normal');
-    const third = bridge.beginUserSpeech()!;
+    const third = bridge.beginUserSpeech({ interruptPlayback: true })!;
     audio();
     const closing = bridge.close();
     bridge.finishPlaybackInterrupt(third);
@@ -278,6 +278,46 @@ describe('live conversation pacing', () => {
     const closing = bridge.close(); socket.emit('close'); await closing;
   });
 
+  it.each(['normal', 'confirmed'] as const)('keeps %s Avatar playback and its completion fence across volume-only microphone activity', async kind => {
+    const { bridge, events } = setup();
+    const connecting = bridge.connect();
+    const socket = sockets[0]; socket.readyState = 1;
+    socket.emit('message', JSON.stringify({ type: 'session.started' })); await connecting;
+    const playbackDone = vi.fn((id: string) => bridge.noteSpeechPlaybackDone(id));
+    const media = new MediaServerLeg('wss://test.invalid', vi.fn(), playbackDone);
+    const starting = media.start();
+    const avatar = sockets[1]; avatar.readyState = 1; avatar.emit('open');
+    avatar.emit('message', JSON.stringify({ type: 'session.state_updated', state: 'connected' })); await starting;
+    events.onAudio.mockImplementation((audio: string, id: string) => media.speak(audio, id));
+    events.onSpeechAudioEnded.mockImplementation((id: string) => media.completeSpeechInput(id));
+    events.onUserSpeech.mockImplementation(() => {
+      const interrupt = bridge.beginUserSpeech();
+      if (interrupt !== null) media.interrupt();
+      expect(interrupt).toBeNull();
+    });
+    const pcm = Buffer.alloc(19_200, 4).toString('base64');
+    const audio = () => socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: pcm }));
+    if (kind === 'confirmed') bridge.requestConfirmedLine('synthetic confirmation', 'confirmed-tail');
+    audio();
+    const speechId = events.onAudio.mock.calls[0][1];
+    bridge.sendMic(Buffer.alloc(6144, 4).toString('base64'));
+    expect(events.onUserSpeech).toHaveBeenCalledOnce();
+    expect(events.onSpeechAudioEnded).not.toHaveBeenCalled();
+    audio();
+    expect(events.onAudio.mock.calls.map(call => call[1])).toEqual([speechId, speechId]);
+    const commands = () => avatar.send.mock.calls.map(([raw]) => JSON.parse(raw));
+    expect(commands().some(event => event.type === 'agent.interrupt')).toBe(false);
+    const utteranceId = commands().at(-1).event_id;
+    await vi.advanceTimersByTimeAsync(900);
+    expect(events.onSpeechAudioEnded).toHaveBeenCalledExactlyOnceWith(speechId);
+    expect(playbackDone).not.toHaveBeenCalled();
+    avatar.emit('message', JSON.stringify({ type: 'agent.speak_ended', source_event_id: utteranceId }));
+    expect(playbackDone).toHaveBeenCalledExactlyOnceWith(speechId);
+    media.close();
+    const closing = bridge.close(); socket.emit('close'); await closing;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('plays repeated untimed replies and preserves captions with active and queued PCM or missing captions', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
@@ -292,10 +332,8 @@ describe('live conversation pacing', () => {
     expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', 'synthetic late caption', { startMs: 50, endMs: 200 });
     expect(events.onAudio).toHaveBeenCalledTimes(1);
     bridge.noteSpeechPlaybackDone('normal-1');
-    await vi.advanceTimersByTimeAsync(5_000);
     expect(events.onAudio).toHaveBeenCalledTimes(2);
     bridge.noteSpeechPlaybackDone('normal-2');
-    await vi.advanceTimersByTimeAsync(5_000);
     expect(events.onAudio).toHaveBeenCalledTimes(3);
     const closing = bridge.close(); socket.emit('close'); await closing;
   });
@@ -548,7 +586,7 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
-  it('waits for actual normal playback completion, then prefers a confirmed result over a buffered normal reply', async () => {
+  it('keeps a received reply immediate while a confirmed result waits for playback completion', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -566,9 +604,10 @@ describe('live conversation pacing', () => {
     expect(socket.send).toHaveBeenCalledTimes(sent);
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     await vi.advanceTimersByTimeAsync(900);
-    expect(events.onAudio).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(4_099);
-    expect(events.onAudio).toHaveBeenCalledTimes(1);
+    expect(events.onAudio).toHaveBeenCalledTimes(2);
+    bridge.noteSpeechPlaybackDone('normal-2');
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(socket.send).toHaveBeenCalledTimes(sent);
     await vi.advanceTimersByTimeAsync(1);
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({ type: 'session.commentary.append', content: expect.stringContaining('結果はあとで伝える。') });
     const closing = bridge.close();
@@ -577,7 +616,7 @@ describe('live conversation pacing', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('paces normal PCM by playback ACK while forwarding provider captions independently', async () => {
+  it('streams reply PCM alongside captions during the pause for initiated commentary', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -594,11 +633,16 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: '次の返事' }));
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', '次の返事', { startMs: null, endMs: null });
-    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(voice, 'normal-2', 'normal');
+    expect(bridge.requestReaction('synthetic unprompted commentary')).toBe(false);
+    expect(bridge.requestConversationInvitation()).toBe(false);
+    await vi.advanceTimersByTimeAsync(900);
+    bridge.noteSpeechPlaybackDone('normal-2');
     await vi.advanceTimersByTimeAsync(4_999);
-    expect(events.onAudio).not.toHaveBeenCalled();
+    expect(bridge.requestReaction('synthetic unprompted commentary')).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-2', 'normal');
+    expect(bridge.requestReaction('synthetic unprompted commentary')).toBe(true);
+    expect(events.onAudio).toHaveBeenCalledTimes(1);
     expect(events.onTranscript).toHaveBeenCalledExactlyOnceWith('assistant', '次の返事', { startMs: null, endMs: null });
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
@@ -650,7 +694,7 @@ describe('live conversation pacing', () => {
     await closing;
   });
 
-  it('holds a confirmed line until a queued normal utterance reaches its quiet boundary', async () => {
+  it('holds a confirmed line until the streamed normal reply completes playback', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -666,18 +710,21 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'キューされた返事' }));
     expect(() => bridge.requestConfirmedLine('確定した延長台詞。', 'confirmed-during-normal')).not.toThrow();
     expect(socket.send).not.toHaveBeenCalledWith(expect.stringContaining('確定した延長台詞。'));
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-2', 'normal');
+    await vi.advanceTimersByTimeAsync(900);
+    bridge.noteSpeechPlaybackDone('normal-2');
     await vi.advanceTimersByTimeAsync(5_000);
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
       type: 'session.commentary.append',
       content: expect.stringContaining('確定した延長台詞。'),
     });
-    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(voice, 'normal-1', 'normal');
+    expect(events.onAudio).toHaveBeenCalledTimes(2);
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
   });
 
-  it('holds a delegated result until a queued normal utterance reaches its quiet boundary', async () => {
+  it('holds a delegated result until the streamed normal reply completes playback', async () => {
     const { bridge, events } = setup();
     const connecting = bridge.connect();
     const socket = sockets[0];
@@ -692,13 +739,16 @@ describe('live conversation pacing', () => {
     socket.emit('message', JSON.stringify({ type: 'session.output_audio.delta', delta: voice }));
     socket.emit('message', JSON.stringify({ type: 'session.output_transcript.delta', delta: 'キューされた返事' }));
     expect(() => bridge.requestDelegationResult('extension-delegation', '確定した委任結果。', 'delegated-during-normal')).not.toThrow();
+    expect(events.onAudio).toHaveBeenLastCalledWith(voice, 'normal-2', 'normal');
+    await vi.advanceTimersByTimeAsync(900);
+    bridge.noteSpeechPlaybackDone('normal-2');
     await vi.advanceTimersByTimeAsync(5_000);
     expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toMatchObject({
       type: 'session.commentary.append',
       delegation_id: 'extension-delegation',
       content: expect.stringContaining('確定した委任結果。'),
     });
-    expect(events.onAudio).toHaveBeenCalledExactlyOnceWith(voice, 'normal-1', 'normal');
+    expect(events.onAudio).toHaveBeenCalledTimes(2);
     const closing = bridge.close();
     socket.emit('message', JSON.stringify({ type: 'session.closed', usage: { seconds: 1 } }));
     await closing;
