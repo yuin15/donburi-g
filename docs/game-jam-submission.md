@@ -2,11 +2,13 @@
 
 Team: **donburi**
 
+Demo video (60 seconds): **[Watch the demo](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view)**
+
 Playable demo: **https://slot-chan.vercel.app/**
 
 Repository: **https://github.com/yuin15/donburi-g**
 
-Prepared: **September 14, 2026**, against source `b1806b5` (PR #159).
+Updated: **September 15, 2026**, against `main` at [`b536643`](https://github.com/yuin15/donburi-g/commit/b5366433cbcfaeee2903b8efae246d08f3a30ce8), including the voice fixes in PR #166 and the judge-facing README update. This is a documentation update, not a new human microphone test.
 
 Copy the answer body under each heading into the corresponding form field. Each English answer is below 200 words; counts exclude the heading and count label. Supporting links follow the six answers and are not part of the form text.
 
@@ -22,13 +24,13 @@ Built by team donburi, Slot-chan combines conversation, risk, and a short replay
 
 ## 2. Meaningful use of OpenAI tools — 30%
 
-*Word count: 143 / 200.*
+*Word count: 145 / 200.*
 
 OpenAI voice enables Slot-chan's central experience: playing a game while conversing with the opponent.
 
-GPT-Live streams microphone input, rival speech, and transcripts during active play. Current balances, time, and confirmed outcomes provide context for the conversation. Players can react to a win, challenge the rival, or continue a conversation while their hands operate the controls. The implementation supports interruptions and English/Japanese conversation, so interaction can follow the player's response as well as the match.
+GPT-Live streams microphone input, rival speech, and transcripts during active play. Current balances, time, and confirmed outcomes provide context for the conversation. Players can react to a win, challenge the rival, or continue a conversation while their hands operate the controls. English/Japanese voice conversation keeps the interaction connected to the player and the match.
 
-Spoken requests for fictional money or extra time can reach validated game actions. A bounded Responses API path classifies replies to a loan offer; game code retains control of money, time, and reel outcomes.
+Received replies stream once preceding audio finishes, without waiting for agreement classification. The exact forwarded audio is transcribed with gpt-transcribe, then Responses API classification validates fixed $5 transfers or ten-second extensions within game/session limits. Game code controls balances, time, and reel outcomes.
 
 Codex supported voice integration, implementation, debugging, and 3D model development through production scripts, mesh corrections, and Three.js integration. OpenAI image generation contributed artwork and expression variants. These development tools support the shared conversational game experience.
 
@@ -44,27 +46,27 @@ Betting and upgrades draw from one limited balance, adding a choice between imme
 
 ## 4. Playability / usefulness — 25%
 
-*Word count: 147 / 200.*
+*Word count: 161 / 200.*
 
 The conversational demo lets players keep using the mouse and keyboard for the game while speaking through the microphone. They can respond to the rival without typing or opening another screen. A normal round lasts 60 seconds, making the combination of conversation and competition easy to demonstrate and replay.
 
-To try voice, enter the organizer-provided invite, connect AI voice, allow the microphone, and start. Separate microphone, rival voice, and effects controls help manage the experience. CPU play is also available through PLAY NOW without credentials or microphone access.
+To try voice, enter a private invite from team donburi, select CONNECT AI VOICE, allow the microphone, and start. Separate microphone, rival voice, and effects controls help manage the experience. CPU play is also available through PLAY NOW without credentials or microphone access; its dialogue is scripted.
 
 Manual spins, three bet sizes, visible paylines, and an upgrade shop expose the choices. The rival spins independently, and round statistics and rematches encourage experimentation. Reduced-motion support limits intense effects.
 
-The demo targets desktop screens of at least 1280×720. Voice depends on configured API access; current verification and remaining human microphone evaluation are documented. All game currency is fictional.
+The demo targets desktop screens of at least 1280×720 with WebGL enabled. Voice depends on configured API access and session allowance; verification scope and remaining human microphone evaluation are documented. All game currency is fictional.
 
 ## 5. Execution and technical quality — 20%
 
-*Word count: 148 / 200.*
+*Word count: 155 / 200.*
 
-Slot-chan connects a continuously running game to streaming voice. Its browser microphone and audio playback, server voice connection, transcripts, and current match context work together so conversation can accompany play. Interruption handling manages speech and subtitle state, while server validation bounds changes requested through conversation. API credentials stay server-side and voice sessions have bounded lifetimes.
+Slot-chan connects a continuously running game to streaming voice. Browser microphone input, audio playback, transcripts, and current match context let conversation accompany play. Playback completion handling preserves sentence endings and the final reaction. Microphone-volume activity alone does not stop queued speech. Server validation bounds conversation-driven changes; API credentials stay server-side and voice sessions have bounded lifetimes.
 
 TypeScript, Vite, Three.js, and MVVM separate game rules, interaction state, and presentation. CPU play and live sessions share the game rules. Blender and Houdini support 3D production, with Codex assisting model scripts, mesh corrections, and integration. Shared geometry and symbol atlases support animated wins and coin effects.
 
 Source assets, setup instructions, architecture notes, and visual evidence are included. Existing GitHub Actions checks cover types, lint, tests, server runtime, and production builds.
 
-The submission prioritizes the experience of talking and playing together. Provider-dependent conversation latency and the latest human microphone evaluation remain documented limitations.
+The submission prioritizes talking and playing together. Provider-dependent latency remains a limitation; the latest changes have automated coverage but no fresh human microphone evaluation in this documentation update.
 
 ## 6. Existing code, open source, datasets, and third-party tools
 
@@ -86,11 +88,12 @@ Codex and OpenAI voice/image services were used under their applicable service t
 | --- | --- |
 | Current rules and purchase costs | [Game model](../src/domain/game.ts), [shared prices](../shared/shop.ts), [game rules](game-rules.md) |
 | Streaming voice and match context | [GPT-Live client](../server/gptLive.ts), [match session](../server/matchSession.ts), [language handling](../server/conversationLanguage.ts) |
-| Background spoken-agreement settlement | Normal voice streams immediately; [exact forwarded-PCM transcription](../server/speechSettlement.ts) uses `gpt-transcribe`, followed by [Responses classification and deduplication](../server/conversationAgreement.ts) for fixed $5 transfers and +10 seconds per distinct live agreement. Extra API usage and settlement latency apply; retries are bounded and exhausted failures are reported. |
+| Background spoken-agreement settlement | Received replies stream after preceding playback finishes, without waiting for agreement classification. [Exact forwarded-PCM transcription](../server/speechSettlement.ts) uses `gpt-transcribe`, followed by [Responses classification and deduplication](../server/conversationAgreement.ts) for fixed $5 transfers and +10 seconds per distinct accepted extension, within game/session limits. Extra API usage and settlement latency apply; retries are bounded and exhausted failures are reported. |
+| Playback completion and sentence endings | [Voice bridge](../server/gptLive.ts), [match session](../server/matchSession.ts), and [playback regression tests](../server/voicePlayback.test.ts). Volume-only microphone activity preserves queued speech; the closing reaction waits for playback completion with bounded timeouts. |
 | Codex-assisted 3D development | [Procedural production source](../art-source/houdini/README.md), [cabinet and seven script](../art-source/houdini/build_cabinet.py), [symbols](../art-source/houdini/build_symbols.py), [coin](../art-source/houdini/build_coin.py), [OBJ exporter](../art-source/houdini/obj_export.py) |
 | Runtime models and presentation | [Symbol models](../src/view/SymbolModels.ts), [cabinet model](../src/view/CabinetModel.ts), [symbol atlas](../src/view/SymbolAtlas.ts), [win symbols](../src/view/WinSymbols.ts), [coin celebration](../src/view/CoinCelebration.ts), [victory title](../src/view/VictoryTitle.ts) |
 | Artwork and expressions | [Artwork provenance](visual-assets.md), [18 expressions](rival-expressions.md) |
 | Existing code, licenses, service terms | [Third-party notices](../THIRD_PARTY_NOTICES.md), [locked dependencies](../package-lock.json), [font notice](../src/view/assets/FONT-LICENSE.txt) |
-| Actual verification and limits | [Submission verification](submission-verification.md), [earlier voice evidence](voice-spike.md), [CI workflow](../.github/workflows/ci.yml) |
+| Actual verification and limits | [Current README status](../README.md#submission-status-and-checks), [September 14 submission verification](submission-verification.md), [earlier voice evidence](voice-spike.md), [CI workflow](../.github/workflows/ci.yml) |
 
 The current visible optional AI feature is **voice**. LiveAvatar code is retained, but the video selection is hidden. Legacy `chooseRivalUpgrade` code does not describe the current rival's behavior. This submission does not claim a new foundation model, custom training, a fully LLM-controlled opponent, or unrestricted commercial licensing.

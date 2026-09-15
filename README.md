@@ -61,7 +61,7 @@ CPU rounds can offer on-screen choices to borrow or lend $5, or extend a close f
 - **Development support:** Codex assisted the voice integration, implementation, refactoring, and debugging, as well as 3D model scripts, mesh corrections, export, and Three.js integration. Included scripts and models support further visual iteration.
 - **Creative assets:** OpenAI image generation supplied project artwork and the rival's expression variants. The current rival has **18 expressions**. [Artwork provenance](docs/visual-assets.md) and [expression details](docs/rival-expressions.md) record their sources.
 
-The game remains playable with the CPU rival when voice is unavailable. See the [six submission answers](docs/game-jam-submission.md) for the judging criteria, [current verification scope](#submission-status-and-checks), and [historical voice evidence](docs/voice-spike.md). The six answers were prepared against an earlier source snapshot; this README describes the source revision identified below.
+The game remains playable with the CPU rival when voice is unavailable. See the [six submission answers](docs/game-jam-submission.md) for the judging criteria, [current verification scope](#submission-status-and-checks), and [historical voice evidence](docs/voice-spike.md). The six answers were updated on September 15 to align with the voice behavior and private-invite instructions described here.
 
 <details>
 <summary>Latest conversation refinements — September 15</summary>
@@ -212,7 +212,7 @@ Never commit keys, invites, environment files, personal email addresses, microph
 - **開発支援：** Codexを音声統合、実装、構成整理、不具合修正に活用。3Dでも制作スクリプト、メッシュ修正、書き出し、Three.jsへの統合を支援しています。制作スクリプトと出力モデルを収録し、見た目を継続して改善できるようにしています。
 - **素材制作：** OpenAI画像生成を背景やライバルの表情に使用。現在は**18表情**です。[素材の出所](docs/visual-assets.md)と[表情の仕様](docs/rival-expressions.md)を記録しています。
 
-音声を使えない場合もCPU対戦を遊べます。[提出用の6項目](docs/game-jam-submission.md)は以前のソースを基準に作成した回答です。このREADMEは下記の最新確認対象を説明し、[音声の記録](docs/voice-spike.md)は過去の確認記録として残しています。
+音声を使えない場合もCPU対戦を遊べます。[提出用の6項目](docs/game-jam-submission.md)は9月15日に更新し、このREADMEの音声動作・非公開の招待コードの案内に合わせています。[音声の記録](docs/voice-spike.md)は過去の確認記録として残しています。
 
 <details>
 <summary>最新の会話改善 — 9月15日</summary>
