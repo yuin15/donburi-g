@@ -58,7 +58,6 @@ export class GptLiveBridge {
   private readonly playbackSpeechIds = new Set<string>();
   private playbackInterrupt: number | null = null;
   private playbackInterruptSequence = 0;
-  private normalReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSpeechTimer: ReturnType<typeof setTimeout> | null = null;
   private playbackQuietUntil = 0;
   private suppressAfterTaggedSpeech = false;
@@ -350,7 +349,7 @@ export class GptLiveBridge {
     this.append('thinking', content.slice(0, 1800), delegationId);
   }
 
-  /** The browser/Avatar has finished one tagged utterance. Hold the next one for five seconds. */
+  /** Pause new initiated commentary after playback, without delaying received replies. */
   noteSpeechPlaybackDone(speechId: string, now = Date.now()): void {
     if (this.playbackInterrupt !== null) return;
     if (!this.playbackSpeechIds.delete(speechId)) return;
@@ -434,8 +433,6 @@ export class GptLiveBridge {
     this.playbackInterrupt = null;
     this.normalPlaybackSpeechId = null;
     this.playbackSpeechIds.clear();
-    if (this.normalReleaseTimer) clearTimeout(this.normalReleaseTimer);
-    this.normalReleaseTimer = null;
     if (this.pendingSpeechTimer) clearTimeout(this.pendingSpeechTimer);
     this.pendingSpeechTimer = null;
     this.suppressAfterTaggedSpeech = false;
@@ -515,7 +512,7 @@ export class GptLiveBridge {
     if (commandId && result) this.activeDelegationSpeech = { speechId: result.speechId, commandId, started: false, quietMs: 0, timer: null };
   }
 
-  /** Stream the first available PCM immediately; only playback pacing queues it. */
+  /** Stream received replies immediately once the preceding audio has finished. */
   private collectNormalSpeech(audio: string, audible: boolean, durationMs: number): void {
     let speech = this.activeNormalSpeech;
     if (!speech && !audible) return;
@@ -552,24 +549,16 @@ export class GptLiveBridge {
   }
 
   private scheduleNormalSpeechRelease(): void {
-    if (this.normalReleaseTimer || !this.normalSpeechQueue.length) return;
-    if (this.hasActivePlayback()) return;
-    const delay = Math.max(0, this.playbackQuietUntil - Date.now());
-    const release = () => {
-      this.normalReleaseTimer = null;
-      if (this.hasActivePlayback()) return;
-      if (Date.now() < this.playbackQuietUntil) { this.scheduleNormalSpeechRelease(); return; }
-      if (this.pendingConfirmedLines.length || this.pendingDelegationResult) { this.schedulePendingSpeech(); return; }
-      const speech = this.normalSpeechQueue.shift();
-      if (!speech) return;
-      speech.started = true;
-      this.normalPlaybackSpeechId = speech.speechId;
-      this.playbackSpeechIds.add(speech.speechId);
-      for (const audio of speech.chunks.splice(0)) this.events.onAudio(audio, speech.speechId, 'normal');
-      if (speech.ended) this.events.onSpeechAudioEnded(speech.speechId);
-    };
-    if (delay === 0) release();
-    else this.normalReleaseTimer = setTimeout(release, delay);
+    // Captions are already streaming from the provider. Holding generated PCM
+    // for the commentary pause makes the whole caption finish before speech.
+    // Keep only the active playback/interrupt fence, so no old tail is cut.
+    if (!this.normalSpeechQueue.length || this.hasActivePlayback()) return;
+    const speech = this.normalSpeechQueue.shift()!;
+    speech.started = true;
+    this.normalPlaybackSpeechId = speech.speechId;
+    this.playbackSpeechIds.add(speech.speechId);
+    for (const audio of speech.chunks.splice(0)) this.events.onAudio(audio, speech.speechId, 'normal');
+    if (speech.ended) this.events.onSpeechAudioEnded(speech.speechId);
   }
 
   private discardBufferedNormalSpeech(): void {
@@ -579,8 +568,6 @@ export class GptLiveBridge {
     // Already forwarded PCM remains an obligation even when playback is interrupted.
     if (speech?.started && !speech.ended) this.events.onSpeechAudioEnded(speech.speechId);
     this.normalSpeechQueue.length = 0;
-    if (this.normalReleaseTimer) clearTimeout(this.normalReleaseTimer);
-    this.normalReleaseTimer = null;
   }
 
   private hasPendingPlayback(): boolean {

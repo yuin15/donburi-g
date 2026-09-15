@@ -154,18 +154,19 @@ it.each([[0, 3], [160, 3], [161, 2], [161, 3]])('preserves the last PCM and the 
     expect(messages.filter(m => m.type === 'voice_interrupt')).toHaveLength(0);
     expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
 
-    // Generation completion does not release the next reply before actual playback.
+    // Keep the previous tail, then start the waiting reply without an extra pause.
     await vi.advanceTimersByTimeAsync(900);
     expect(messages.filter(m => m.type === 'voice_speech_end')).toHaveLength(1);
     emit('session.output_audio.delta', voice);
     await vi.advanceTimersByTimeAsync(900);
     expect(sources).toHaveLength(10);
-    for (const source of sources.slice(8)) source.onended?.();
+    const tail = sources.slice(8);
+    audioTime = 11.04;
+    for (const source of tail) source.onended?.();
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(4999);
-    expect(sources).toHaveLength(10);
-    await vi.advanceTimersByTimeAsync(1);
     expect(sources).toHaveLength(11);
+    expect(sources[10].start.mock.calls[0][0]).toBeCloseTo(11.08, 5);
+    expect(sources.every(source => source.stop.mock.calls.length === 0)).toBe(true);
   } finally {
     await session.shutdown('synthetic_playback_finished');
     await player.close();
