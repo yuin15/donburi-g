@@ -43,7 +43,7 @@ Click any image to inspect the full-size capture.
 
 Three matching cherries pay **$3**, bells **$6**, and sevens **$30** per active line. Multiple winning lines add together. Spending on upgrades reduces the same balance that determines victory. See [game rules](docs/game-rules.md) and [upgrade prices in code](shared/shop.ts).
 
-CPU rounds can offer on-screen choices to borrow or lend $5, or extend a close finish. Voice mode also supports spoken requests, subject to the server's game rules. These are fictional in-game events.
+CPU rounds can offer one on-screen **SHARED BONUS** when either bankroll is empty; accepting grants both players $5. They can also offer an extension near a close finish. Voice mode supports spoken shared-bonus requests, subject to the server's game rules. These are fictional in-game events.
 
 ## How OpenAI enables the experience
 
@@ -85,7 +85,7 @@ For your own local server, copy [`.env.example`](.env.example) to the ignored `.
 
 Ordinary voice starts with the first PCM chunk and does not wait for agreement classification. Display captions stream independently; agreement settlement uses the exact forwarded 24 kHz PCM16 mono audio, sent as an in-memory WAV to `gpt-transcribe`, followed by Responses API classification alongside the relevant player turn and offer context. This adds transcription API requests and usage, and balances or time may update several seconds after the speech.
 
-In live mode, a validated agreement moves a fixed $5 in either direction even if the lender's balance becomes negative, or adds ten seconds for each distinct agreement. Server-issued turn and offer IDs prevent duplicate application, including repeated affirmatives to the same offer. New speech does not cancel an already forwarded agreement. Background processing uses bounded retries and explicitly reports exhausted failures; pending settlement delays the final result only for a bounded interval. These APIs do not control normal CPU bets or select reel outcomes. Offline CPU play and its one-time **EXTEND** card at 15 seconds or less are unchanged.
+In live mode, a validated shared-bonus agreement grants player and rival $5 each, including when either or both balances are zero; a validated extension adds ten seconds. Server-issued turn and offer IDs prevent duplicate application, including repeated affirmatives to the same offer. New speech does not cancel an already forwarded agreement. Background processing uses bounded retries and explicitly reports exhausted failures; pending settlement delays the final result only for a bounded interval. These APIs do not control normal CPU bets or select reel outcomes. Offline CPU play and its one-time **EXTEND** card at 15 seconds or less are unchanged.
 
 **LiveAvatar video is hidden in the current demo UI.** Its integration and LiveKit playback code remain in the repository, but neither is required for the current voice-only experience. Redis/Upstash is also optional. Connection limits are process-local demo safeguards, not a global spending cap. See [operations](docs/operations.md).
 
@@ -156,7 +156,7 @@ Never commit keys, invites, environment files, personal email addresses, microph
 4. ライバルは残高が続く限り**2秒ごと**に回転します。右下の**UPGRADE**からチェリー6枚追加・7を1枚追加を購入できます。各商品は**$10 → $15 → $20**で最大3回。次の回転から反映され、再戦でリセットします。
 5. 時間切れのときに残高が多い方が勝利。**ROUND STATS**で結果を見て、**REMATCH**で再戦できます。通常は**60秒**。音声対戦では新しい延長合意ごとに**10秒**追加されます。CPU対戦の**EXTEND**カードは従来どおり**残り15秒以内・一度だけ**です。
 
-有効ラインに同じ絵柄が3つ揃うと、チェリー**$3**、ベル**$6**、7**$30**。複数ラインは合算します。強化の購入費も勝敗に使う残高から支払います。CPU対戦には$5の貸し借りや終盤の延長を選ぶ場面があり、音声対戦ではサーバー側の規則に従って発話による依頼も扱います。[ゲーム規則](docs/game-rules.md)。
+有効ラインに同じ絵柄が3つ揃うと、チェリー**$3**、ベル**$6**、7**$30**。複数ラインは合算します。強化の購入費も勝敗に使う残高から支払います。CPU対戦では片方の残高が尽きた時に二人へ$5ずつ付与する共有ボーナスや終盤の延長を選ぶ場面があり、音声対戦ではサーバー側の規則に従って共有ボーナスの発話依頼も扱います。[ゲーム規則](docs/game-rules.md)。
 
 ### OpenAIの活用
 
