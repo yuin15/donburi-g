@@ -2,7 +2,7 @@
 
 Team: **donburi**
 
-Demo video (60 seconds): **[Watch the demo](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view)**
+Demo video (60 seconds): **[Watch the demo](https://drive.google.com/file/d/1hzdZMva8uin2Kk6c68QsRGulelmyhQWu/view?usp=sharing)**
 
 Playable demo: **https://slot-chan.vercel.app/**
 

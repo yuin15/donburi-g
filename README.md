@@ -4,7 +4,7 @@
 
 A desktop game by **team donburi** where conversation and competition happen together. Keep spinning, change your bet, and talk with your opponent about the match as it unfolds. OpenAI voice gives the rival a conversational presence: banter, reactions, and spoken requests become part of playing together. An ornate 3D machine and expressive character bring that rivalry to the screen.
 
-**[Watch the 60-second demo](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view) · [Play Slot-chan](https://slot-chan.vercel.app/) · [Submission answers](docs/game-jam-submission.md) · [日本語](#日本語)**
+**[Watch the 60-second demo](https://drive.google.com/file/d/1hzdZMva8uin2Kk6c68QsRGulelmyhQWu/view?usp=sharing) · [Play Slot-chan](https://slot-chan.vercel.app/) · [Submission answers](docs/game-jam-submission.md) · [日本語](#日本語)**
 
 Desktop only: **1280×720 or larger**, mouse and keyboard, with **WebGL enabled**. Desktop Chrome is the main review target. English game UI; voice conversation supports English and Japanese. All dollar amounts are fictional game currency; there are no deposits or cash-outs.
 
@@ -14,7 +14,7 @@ Desktop only: **1280×720 or larger**, mouse and keyboard, with **WebGL enabled*
 
 ## For judges — start here
 
-1. **[Watch the 60-second video](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view)** for a quick introduction to conversation during play and the 3D presentation. No Google sign-in is needed.
+1. **[Watch the 60-second video](https://drive.google.com/file/d/1hzdZMva8uin2Kk6c68QsRGulelmyhQWu/view?usp=sharing)** for a quick introduction to conversation during play and the 3D presentation. No Google sign-in is needed.
 2. **[Open the playable demo](https://slot-chan.vercel.app/).** To experience the central feature, enter a private invite under **ADD AI VOICE · OPTIONAL**, choose **CONNECT AI VOICE**, allow microphone access, and start the round. If you do not have an invite, request one from **team donburi**; codes are not published in this repository.
 3. **Talk while spinning.** Try “Think you can beat me?”, “Can you lend me five dollars?”, or “Can we play ten more seconds?” These are example prompts, not guaranteed responses. Accepted money/time requests are applied through the game's rules.
 4. **No invite or microphone? Choose PLAY NOW** for the CPU game, and use the video to see the conversational experience. CPU dialogue is scripted, not a live AI conversation.
@@ -143,7 +143,7 @@ README updated on **September 15, 2026**, against game source **[`5baa4fc`](http
 | Evidence | What was verified |
 | --- | --- |
 | [Source CI](https://github.com/yuin15/donburi-g/actions/runs/34915846832) | Successful run for `5baa4fc`: secret-pattern check, type checks, lint, tests, server-runtime check, and production build. |
-| [60-second video](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view) | Supplied demo recording; Google Drive playback started without sign-in and the player showed a 1:00 duration on September 15. It is not a measured latency benchmark. |
+| [60-second video](https://drive.google.com/file/d/1hzdZMva8uin2Kk6c68QsRGulelmyhQWu/view?usp=sharing) | Replacement recording; after the sharing update on September 15, Google Drive playback worked without sign-in and the player showed a 1:00 duration. It is not a measured latency benchmark. |
 | [Hosted demo](https://slot-chan.vercel.app/) | Entry page and voice/CPU controls were accessible on September 15. The review browser had WebGL disabled, so a full hosted playthrough was not completed in that check. |
 | [Screenshots and earlier CPU playthrough](docs/submission-verification.md) | September 14 observations, with source revisions and reproducible gallery scenes recorded separately. |
 | [Earlier provider checks](docs/voice-spike.md) | Historical voice-session evidence, not a fresh human microphone evaluation of the latest changes. |
@@ -174,13 +174,13 @@ Never commit keys, invites, environment files, personal email addresses, microph
 
 **チームdonburi**の、会話と勝負を一緒に楽しむPC用ゲームです。自分でリールを回し、BETを変えながら、進行中の勝負について相手と話せます。OpenAIの音声で、軽口、当たりへの反応、お願いといったやり取りが遊びの一部になります。立体の筐体と表情豊かなキャラクターが、対戦相手の存在感を支えます。
 
-**[60秒の紹介動画](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view) · [公開デモ](https://slot-chan.vercel.app/) · [提出用の英語回答6項目](docs/game-jam-submission.md) · [3Dモデルと制作元](art-source/houdini/)**
+**[60秒の紹介動画](https://drive.google.com/file/d/1hzdZMva8uin2Kk6c68QsRGulelmyhQWu/view?usp=sharing) · [公開デモ](https://slot-chan.vercel.app/) · [提出用の英語回答6項目](docs/game-jam-submission.md) · [3Dモデルと制作元](art-source/houdini/)**
 
 対象は**PC、1280×720以上、マウス・キーボード、WebGLが有効なブラウザ**。主な確認対象はPC版Chromeです。ゲーム画面は英語、音声会話は英語・日本語に対応しています。ドル表示はすべてゲーム内の架空通貨で、入金・換金はありません。
 
 ### 審査員の方へ
 
-1. まず[60秒の紹介動画](https://drive.google.com/file/d/10s7QL5AbhLI2d2Ly8PTVZU5jQFAi2126/view)で、会話しながら遊ぶ様子と3D演出をご覧ください。Googleへのログインは不要です。
+1. まず[60秒の紹介動画](https://drive.google.com/file/d/1hzdZMva8uin2Kk6c68QsRGulelmyhQWu/view?usp=sharing)で、会話しながら遊ぶ様子と3D演出をご覧ください。Googleへのログインは不要です。
 2. [公開デモ](https://slot-chan.vercel.app/)の**ADD AI VOICE · OPTIONAL**に招待コードを入力し、**CONNECT AI VOICE → マイク許可 → 対戦開始**で会話を試せます。コードをお持ちでない場合は**チームdonburi**へお問い合わせください。招待コードはリポジトリに公開していません。
 3. スロットを回しながら「勝てそう？」「5ドル貸して」「あと10秒延長しない？」などと話しかけてみてください。返答は固定ではなく、貸し借り・延長は合意が検証されるとゲームの規則に従って反映されます。
 4. 招待やマイクなしでも**PLAY NOW**でCPU対戦を遊べます。CPUの台詞は固定のゲーム内台詞で、ライブAI会話ではありません。会話の様子は動画で確認できます。
@@ -271,7 +271,7 @@ TypeScript / Vite / Three.jsを使用し、**MVVM**でゲーム規則・進行�
 **2026年9月15日、`main`の[`5baa4fc`](https://github.com/yuin15/donburi-g/commit/5baa4fc24add47cbfefd30d51ebe4a2887b658f2)（PR #166まで）を基準に更新**しました。README更新直前に確認したゲームソースの版であり、公開デモや動画がすべて同じコミットから作成されたと保証するものではありません。
 
 - 対象ソースの[CIは成功](https://github.com/yuin15/donburi-g/actions/runs/34915846832)しています。秘密情報パターン検査、型検査、lint、テスト、サーバー実行確認、本番ビルドを実行しています。
-- 9月15日に動画のログインなし再生開始と1:00の尺、公開デモの入口画面を確認しました。確認用ブラウザではWebGLが無効だったため、この確認で公開版の通しプレイは完了していません。
+- 9月15日に動画を新しいURLへ差し替え、共有設定の更新後に新動画のログインなし再生と1:00の尺を確認しました。公開デモは入口画面を確認しています。確認用ブラウザではWebGLが無効だったため、この確認で公開版の通しプレイは完了していません。
 - 9月14日のCPU実プレイ・ギャラリーは[以前の確認記録](docs/submission-verification.md)、過去の実API確認は[音声の記録](docs/voice-spike.md)へ分けています。最新の会話修正について、今回のREADME更新では実マイクの体感評価を行っていません。
 
 **既知の制限：** 音声はAPI接続・通信環境・利用枠に依存し、字幕や合意の反映が音声より遅れる場合があります。スマートフォン対応は対象外です。自己ベストと連勝は再読み込みでリセットします。3D画面が起動しない場合はWebGLの利用可否を確認するか、紹介動画をご覧ください。ローカル用の確認コマンドは英語版に記載しています。
